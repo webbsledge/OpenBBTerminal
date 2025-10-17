@@ -188,11 +188,22 @@ jobs:
         run: |
           mkdir ./odp_assets
 
-          find ./artifacts -name "*.exe" -exec cp {} ./odp_assets/ \;
-          find ./artifacts -name "*.dmg" -exec cp {} ./odp_assets/ \;
+          # Copy and rename installer files - replace version with "latest"
+          for file in $(find ./artifacts -name "*.exe"); do
+            BASENAME=$(basename "$file")
+            NEW_NAME=$(echo "$BASENAME" | sed -E 's/_[0-9]+\.[0-9]+\.[0-9]+_/_latest_/')
+            cp "$file" "./odp_assets/$NEW_NAME"
+          done
+
+          for file in $(find ./artifacts -name "*.dmg"); do
+            BASENAME=$(basename "$file")
+            NEW_NAME=$(echo "$BASENAME" | sed -E 's/_[0-9]+\.[0-9]+\.[0-9]+_/_latest_/')
+            cp "$file" "./odp_assets/$NEW_NAME"
+          done
 
           VERSION="${{ needs.publish.outputs.version }}"
           RELEASE_NAME="${{ needs.publish.outputs.release_name }}"
+          VERSIONED_TAG="${{ needs.publish.outputs.versioned_tag }}"
 
           cd ./odp_assets
 
@@ -206,14 +217,12 @@ jobs:
 
           FIRST_PLATFORM=true
 
-          WIN_EXE=$(find . -name "*_x86_64.exe" | head -n 1)
+          # JSON points to ORIGINAL files in VERSIONED release
+          WIN_EXE=$(find ../artifacts -name "*_x86_64.exe" | head -n 1)
           if [ -n "$WIN_EXE" ]; then
-            WIN_SIG_FILE="../artifacts/windows-release/$(basename "${WIN_EXE}.sig")"
-            if [ ! -f "$WIN_SIG_FILE" ]; then
-              WIN_SIG_FILE=$(find ../artifacts -name "$(basename "${WIN_EXE}.sig")" | head -n 1)
-            fi
+            WIN_SIG_FILE="${WIN_EXE}.sig"
             WIN_SIG=$(cat "$WIN_SIG_FILE")
-            WIN_URL="https://github.com/${{ github.repository }}/releases/download/ODP/$(basename "$WIN_EXE")"
+            WIN_URL="https://github.com/${{ github.repository }}/releases/download/${VERSIONED_TAG}/$(basename "$WIN_EXE")"
             cat << EOF >> latest.json
               "windows-x86_64": {
                 "signature": "$WIN_SIG",
@@ -229,7 +238,7 @@ jobs:
               echo "," >> latest.json
             fi
             MAC_ARM_SIG=$(cat "${MAC_ARM_TAR}.sig")
-            MAC_ARM_URL="https://github.com/${{ github.repository }}/releases/download/ODP/$(basename "$MAC_ARM_TAR")"
+            MAC_ARM_URL="https://github.com/${{ github.repository }}/releases/download/${VERSIONED_TAG}/$(basename "$MAC_ARM_TAR")"
             cat << EOF >> latest.json
               "darwin-aarch64": {
                 "signature": "$MAC_ARM_SIG",
@@ -245,7 +254,7 @@ jobs:
               echo "," >> latest.json
             fi
             MAC_X64_SIG=$(cat "${MAC_X64_TAR}.sig")
-            MAC_X64_URL="https://github.com/${{ github.repository }}/releases/download/ODP/$(basename "$MAC_X64_TAR")"
+            MAC_X64_URL="https://github.com/${{ github.repository }}/releases/download/${VERSIONED_TAG}/$(basename "$MAC_X64_TAR")"
             cat << EOF >> latest.json
               "darwin-x86_64": {
                 "signature": "$MAC_X64_SIG",
