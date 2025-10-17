@@ -4,49 +4,12 @@
 @tailwind utilities;
 
 
-html {
-  overflow-y: auto;
-}
-
-body {
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-/* Only show scrollbars when needed */
 * {
-  scrollbar-width: thin; /* For Firefox */
+  scrollbar-width: auto;
 }
 
 ::-webkit-scrollbar {
-  width: 4px; /* for vertical scrollbars */
-  height: 4px; /* for horizontal scrollbars */
-  display: none; /* Hide by default */
-}
-
-/* Only show scrollbar when hovering over scrollable element that needs scrolling */
-:hover::-webkit-scrollbar {
-  display: block;
-}
-
-/* Hide scrollbar when nothing to scroll */
-::-webkit-scrollbar:vertical {
-  display: none;
-}
-
-::-webkit-scrollbar:horizontal {
-  display: none;
-}
-
-/* Only show when content exceeds container size */
-.overflow-auto::-webkit-scrollbar:vertical,
-.overflow-y-auto::-webkit-scrollbar:vertical {
-  display: block;
-}
-
-.overflow-auto::-webkit-scrollbar:horizontal,
-.overflow-x-auto::-webkit-scrollbar:horizontal {
-  display: block;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -62,11 +25,11 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #a2a2a2;
   border-radius: 6px;
+  height: 2rem;
 }
 
 .dark ::-webkit-scrollbar-thumb {
   background: #6d6e74;
-  border-radius: 6px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -190,6 +153,16 @@ body {
 
 .button-outline {
   @apply border border-theme-outline rounded-sm;
+  transition: background-color 0.15s ease;
+}
+
+.button-outline:hover,
+.button-outline:focus,
+.button-outline:focus-visible,
+.button-outline:active {
+  background-color: var(--button-secondary-hover);
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .dark .button-outline:hover,
@@ -202,8 +175,6 @@ body {
   outline: none !important;
   box-shadow: none !important;
 }
-
-
 
 /* Theme utility classes */
 .bg-theme-primary { background-color: var(--bg-primary); }
@@ -590,4 +561,15 @@ input[type=number]::-webkit-outer-spin-button {
 
 input[type=number] {
   -moz-appearance: textfield;
+}
+
+.ext-actions {
+    opacity: 0;
+    transition: opacity 0ms;
+    pointer-events: none;
+}
+
+.ext-row:hover .ext-actions {
+    opacity: 1;
+    pointer-events: auto;
 }

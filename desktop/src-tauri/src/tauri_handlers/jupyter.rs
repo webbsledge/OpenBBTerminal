@@ -80,7 +80,6 @@ pub async fn start_jupyter_server_impl<R: tauri::Runtime, E: EnvSystem>(
         "jupyter",
         "lab",
         "--no-browser",
-        "--ServerApp.allow_origin='*'",
         "--notebook-dir",
         &working,
     ]);
@@ -582,6 +581,7 @@ pub async fn open_jupyter_logs_window(
         tauri::WebviewUrl::App(format!("/jupyter-logs?env={environment}").into()),
     )
     .title(format!("Open Data Platform: Jupyter Logs - {environment}"))
+    .title_bar_style(tauri::TitleBarStyle::Transparent)
     .inner_size(1000.0, 600.0)
     .resizable(true)
     .center()
@@ -606,7 +606,6 @@ pub async fn open_jupyter_logs_window(
         {
             use objc2_app_kit::{NSColor, NSWindow};
 
-            let _ = window.set_title_bar_style(tauri::TitleBarStyle::Transparent);
             let ns_window_ptr = window.ns_window().unwrap();
             let ns_window = unsafe { &*(ns_window_ptr as *mut NSWindow) };
             let bg_color = { NSColor::colorWithRed_green_blue_alpha(0.0, 0.0, 0.0, 1.0) };

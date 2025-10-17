@@ -103,7 +103,7 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
             .kind(tauri_plugin_dialog::MessageDialogKind::Error)
             .show(|_| {});
     };
-    let update_url = "https://api.github.com/repos/OpenBB-finance/OpenBB/releases/odp/latest.json";
+    let update_url = "https://github.com/OpenBB-finance/OpenBB/releases/download/ODP/latest.json";
 
     let ap_id = get_or_create_app_id();
 
