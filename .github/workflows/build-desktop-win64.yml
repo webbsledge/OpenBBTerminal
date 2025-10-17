@@ -104,6 +104,14 @@ jobs:
             Move-Item "src-tauri/openbb-platform.cdx.xml" "src-tauri/open-data-platform-SBOM-cargo.cdx.xml" -Force
           }
 
+      - name: Clean old bundle artifacts
+        shell: pwsh
+        run: |
+          $bundlePath = "${{ github.workspace }}/desktop/target/x86_64-pc-windows-msvc/release/bundle"
+          if (Test-Path $bundlePath) {
+            Remove-Item -Path $bundlePath -Recurse -Force
+          }
+
       - name: Build Tauri App (without bundling)
         run: npm run tauri build -- --target x86_64-pc-windows-msvc --no-bundle
         env:

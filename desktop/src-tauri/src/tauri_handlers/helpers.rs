@@ -969,7 +969,7 @@ pub async fn open_url_in_window(
     let app_handle = window.app_handle();
     let label = format!("url_{}", chrono::Utc::now().timestamp_millis());
 
-    let mut builder = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         app_handle,
         &label,
         tauri::WebviewUrl::External(parsed_url),
