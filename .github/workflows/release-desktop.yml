@@ -47,11 +47,10 @@ jobs:
   publish:
     needs: [build-windows, build-macos-arm, build-macos-x64]
     if: |
-      always() &&
-      (github.event_name != 'release' ||
-       (needs.build-windows.result == 'success' &&
-        needs.build-macos-arm.result == 'success' &&
-        needs.build-macos-x64.result == 'success'))
+      github.event_name != 'release' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos-arm.result == 'success' &&
+      needs.build-macos-x64.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
