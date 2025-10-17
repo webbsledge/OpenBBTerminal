@@ -969,40 +969,24 @@ pub async fn open_url_in_window(
     let app_handle = window.app_handle();
     let label = format!("url_{}", chrono::Utc::now().timestamp_millis());
 
-    // Build and create the window with title bar style set DURING creation
-    #[cfg(target_os = "macos")]
-    let webview_window = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         app_handle,
         &label,
         tauri::WebviewUrl::External(parsed_url),
     )
     .title(title.unwrap_or_else(|| "Open Data Platform".to_string()))
-    .title_bar_style(tauri::TitleBarStyle::Transparent) // Set during build
     .inner_size(1200.0, 800.0)
     .center()
     .focused(true)
     .visible(true)
-    .resizable(true)
-    .build()
-    .map_err(|e| {
-        log::error!("Failed to create window: {e}");
-        format!("Failed to create window: {e}")
-    })?;
+    .resizable(true);
 
-    #[cfg(not(target_os = "macos"))]
-    let webview_window = tauri::WebviewWindowBuilder::new(
-        app_handle,
-        &label,
-        tauri::WebviewUrl::External(parsed_url),
-    )
-    .title(title.unwrap_or_else(|| "Open Data Platform".to_string()))
-    .inner_size(1200.0, 800.0)
-    .center()
-    .focused(true)
-    .visible(true)
-    .resizable(true)
-    .build()
-    .map_err(|e| {
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
+
+    let webview_window = builder.build().map_err(|e| {
         log::error!("Failed to create window: {e}");
         format!("Failed to create window: {e}")
     })?;
@@ -1020,7 +1004,6 @@ pub async fn open_url_in_window(
         }
     });
 
-    // Set the titlebar color AFTER window is fully created
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::{NSColor, NSWindow};

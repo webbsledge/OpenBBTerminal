@@ -1553,20 +1553,26 @@ pub async fn open_backend_logs_window(
         .map(|b| b.name.clone())
         .unwrap_or_else(|| id.clone());
     // Create a new window with the backend id in the URL parameters
-    let log_viewer_window = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         tauri::WebviewUrl::App(format!("/backend-logs?id={id}").into()),
     )
     .title(format!("Open Data Platform: {backend_name} Logs"))
-    .title_bar_style(tauri::TitleBarStyle::Transparent)
     .inner_size(1000.0, 600.0)
     .resizable(true)
     .center()
     .min_inner_size(600.0, 200.0)
-    .visible(true)
-    .build()
-    .map_err(|e| format!("Failed to create log viewer window: {e}"))?;
+    .visible(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
+
+    let log_viewer_window = builder
+        .build()
+        .map_err(|e| format!("Failed to create log viewer window: {e}"))?;
 
     // Show and focus the newly created window
     log_viewer_window

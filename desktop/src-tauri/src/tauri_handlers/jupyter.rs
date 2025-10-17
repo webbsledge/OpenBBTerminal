@@ -575,20 +575,27 @@ pub async fn open_jupyter_logs_window(
         return Ok(());
     }
 
-    let log_viewer_window = tauri::WebviewWindowBuilder::new(
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         tauri::WebviewUrl::App(format!("/jupyter-logs?env={environment}").into()),
     )
     .title(format!("Open Data Platform: Jupyter Logs - {environment}"))
-    .title_bar_style(tauri::TitleBarStyle::Transparent)
     .inner_size(1000.0, 600.0)
     .resizable(true)
     .center()
     .min_inner_size(600.0, 200.0)
-    .visible(true)
-    .build()
-    .map_err(|e| format!("Failed to create log viewer window: {e}"))?;
+    .visible(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.title_bar_style(tauri::TitleBarStyle::Transparent);
+    }
+
+    let log_viewer_window = builder
+        .build()
+        .map_err(|e| format!("Failed to create log viewer window: {e}"))?;
+
     log_viewer_window
         .set_focus()
         .map_err(|e| format!("Failed to focus log viewer window: {e}"))?;
