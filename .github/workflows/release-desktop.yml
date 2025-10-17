@@ -275,7 +275,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ODP
-          name: Latest Stable Release
+          name: ODP Desktop (Latest Stable)
           body: |
             **This is the latest stable release (v${{ needs.publish.outputs.version }})**
 
