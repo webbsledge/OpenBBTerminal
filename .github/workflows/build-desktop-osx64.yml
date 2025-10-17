@@ -40,6 +40,46 @@ jobs:
       - name: Install OpenSSL
         run: brew install openssl
 
+      - name: Copy and Sign SSL dylibs
+        run: |
+          mkdir -p src-tauri/frameworks
+          OPENSSL_PREFIX=$(brew --prefix openssl@3)
+
+          # Verify files exist before copying
+          if [ ! -f "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib" ]; then
+            echo "Error: libcrypto.3.dylib not found at ${OPENSSL_PREFIX}/lib/"
+            exit 1
+          fi
+          if [ ! -f "${OPENSSL_PREFIX}/lib/libssl.3.dylib" ]; then
+            echo "Error: libssl.3.dylib not found at ${OPENSSL_PREFIX}/lib/"
+            exit 1
+          fi
+
+          cp "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib" src-tauri/frameworks/
+          cp "${OPENSSL_PREFIX}/lib/libssl.3.dylib" src-tauri/frameworks/
+
+          security find-identity -v -p codesigning
+          codesign --force --sign "Developer ID Application" \
+            --timestamp \
+            --options runtime \
+            src-tauri/frameworks/libcrypto.3.dylib
+
+          codesign --force --sign "Developer ID Application" \
+            --timestamp \
+            --options runtime \
+            src-tauri/frameworks/libssl.3.dylib
+
+          # Verify signatures
+          codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libcrypto.3.dylib
+          codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libssl.3.dylib
+
+          # Display signature info
+          codesign -dvv src-tauri/frameworks/libcrypto.3.dylib
+          codesign -dvv src-tauri/frameworks/libssl.3.dylib
+
+          echo "Successfully copied and signed SSL dylibs"
+
+
       - name: Setup Cargo Cache
         uses: actions/cache@v4
         with:
