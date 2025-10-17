@@ -7,6 +7,13 @@ on:
         required: false
         type: boolean
         default: false
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Set to true to create a release build'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-sign:
