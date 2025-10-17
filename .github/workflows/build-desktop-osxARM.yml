@@ -58,7 +58,6 @@ jobs:
           cp "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib" src-tauri/frameworks/
           cp "${OPENSSL_PREFIX}/lib/libssl.3.dylib" src-tauri/frameworks/
 
-          security find-identity -v -p codesigning
           codesign --force --sign "Developer ID Application" \
             --timestamp \
             --options runtime \
@@ -72,10 +71,6 @@ jobs:
           # Verify signatures
           codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libcrypto.3.dylib
           codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libssl.3.dylib
-
-          # Display signature info
-          codesign -dvv src-tauri/frameworks/libcrypto.3.dylib
-          codesign -dvv src-tauri/frameworks/libssl.3.dylib
 
           echo "Successfully copied and signed SSL dylibs"
 
