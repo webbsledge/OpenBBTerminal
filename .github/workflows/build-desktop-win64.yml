@@ -47,22 +47,22 @@ jobs:
 
       - name: Install OpenSSL using vcpkg
         working-directory: ${{ github.workspace }}
-        run: ${{ env.VCPKG_ROOT }}/vcpkg install openssl:x64-windows-static --vcpkg-root ${{ env.VCPKG_ROOT }}
+        run: ${{ env.VCPKG_ROOT }}/vcpkg install openssl:x64-windows --vcpkg-root ${{ env.VCPKG_ROOT }}
         env:
-          VCPKG_DEFAULT_TRIPLET: x64-windows-static
+          VCPKG_DEFAULT_TRIPLET: x64-windows
 
       - name: Set OpenSSL env
         shell: bash
         run: |
-          echo "OPENSSL_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows-static" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows-static/include" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows-static/lib" >> $GITHUB_ENV
+          echo "OPENSSL_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows/include" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=${{ env.VCPKG_ROOT }}/installed/x64-windows/lib" >> $GITHUB_ENV
 
       - name: Copy SSL DLLs
         shell: pwsh
         run: |
           # Verify OpenSSL DLLs exist
-          $opensslBinDir = "${{ env.VCPKG_ROOT }}/installed/x64-windows-static/bin"
+          $opensslBinDir = "${{ env.VCPKG_ROOT }}/installed/x64-windows/bin"
           $libcryptoPath = Join-Path $opensslBinDir "libcrypto-3-x64.dll"
           $libsslPath = Join-Path $opensslBinDir "libssl-3-x64.dll"
 
