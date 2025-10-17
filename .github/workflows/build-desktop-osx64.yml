@@ -114,6 +114,10 @@ jobs:
             desktop/target/release/bundle/macos/*.app.tar.gz
             desktop/target/release/bundle/macos/*.app.tar.gz.sig
 
-      - name: Cleanup Artifacts
+      - name: Clean old bundle artifacts
         if: always()
-        run: cargo clean
+        run: |
+          bundlePath="${{ github.workspace }}/desktop/target/release/bundle"
+          if [ -d "$bundlePath" ]; then
+            rm -rf "$bundlePath"
+          fi
