@@ -1553,7 +1553,8 @@ pub async fn open_backend_logs_window(
         .map(|b| b.name.clone())
         .unwrap_or_else(|| id.clone());
     // Create a new window with the backend id in the URL parameters
-    let builder = tauri::WebviewWindowBuilder::new(
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         tauri::WebviewUrl::App(format!("/backend-logs?id={id}").into()),

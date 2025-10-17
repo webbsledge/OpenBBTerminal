@@ -575,7 +575,8 @@ pub async fn open_jupyter_logs_window(
         return Ok(());
     }
 
-    let builder = tauri::WebviewWindowBuilder::new(
+    #[allow(unused_mut)]
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app_handle,
         &window_label,
         tauri::WebviewUrl::App(format!("/jupyter-logs?env={environment}").into()),
