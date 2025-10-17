@@ -13,10 +13,12 @@ on:
       draft:
         description: "Create as draft release"
         required: false
-        default: "false"
+        default: false
+        type: boolean
 
 jobs:
   build-windows:
+    if: github.event_name != 'release'
     uses: ./.github/workflows/build-desktop-win64.yml
     with:
       release: true
@@ -25,6 +27,7 @@ jobs:
       contents: write
 
   build-macos-arm:
+    if: github.event_name != 'release'
     uses: ./.github/workflows/build-desktop-osxARM.yml
     with:
       release: true
@@ -33,6 +36,7 @@ jobs:
       contents: write
 
   build-macos-x64:
+    if: github.event_name != 'release'
     uses: ./.github/workflows/build-desktop-osx64.yml
     with:
       release: true
@@ -42,6 +46,12 @@ jobs:
 
   publish:
     needs: [build-windows, build-macos-arm, build-macos-x64]
+    if: |
+      always() &&
+      (github.event_name != 'release' ||
+       (needs.build-windows.result == 'success' &&
+        needs.build-macos-arm.result == 'success' &&
+        needs.build-macos-x64.result == 'success'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -51,7 +61,16 @@ jobs:
       release_name: ${{ steps.extract_version.outputs.release_name }}
       is_draft: ${{ github.event.inputs.draft == 'true' || github.event.inputs.draft == true || inputs.draft == true }}
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts from release (when publishing draft)
+        if: github.event_name == 'release'
+        run: |
+          mkdir -p artifacts
+          gh release download ${{ github.event.release.tag_name }} --dir artifacts --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts (when building new)
+        if: github.event_name != 'release'
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -74,10 +93,11 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "release_name=Open Data Platform v$VERSION" >> $GITHUB_OUTPUT
+          echo "release_name=ODP Desktop v$VERSION" >> $GITHUB_OUTPUT
           echo "versioned_tag=Open-Data-Platform-v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Prepare assets and generate release.json for VERSIONED release
+        if: github.event_name != 'release'
         id: prep_assets
         run: |
           mkdir ./release_assets
@@ -153,17 +173,19 @@ jobs:
           echo "assets_path=./release_assets" >> $GITHUB_OUTPUT
 
       - name: Create VERSIONED release
+        if: github.event_name != 'release'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.extract_version.outputs.versioned_tag }}
           name: ${{ steps.extract_version.outputs.release_name }}
           files: ${{ steps.prep_assets.outputs.assets_path }}/*
-          draft: ${{ github.event.inputs.draft == 'true' || github.event.inputs.draft == true || inputs.draft == true }}
+          draft: true
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
   update-odp-release:
     needs: publish
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -171,10 +193,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download release artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+      - name: Download release artifacts from published release
+        run: |
+          mkdir -p artifacts
+          gh release download ${{ github.event.release.tag_name }} --dir artifacts --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Delete existing ODP tag and release
         continue-on-error: true
@@ -285,6 +309,6 @@ jobs:
             The `latest.json` file in this release is used by the auto-updater to check for new versions.
           files: ./odp_assets/*
           prerelease: false
-          draft: ${{ needs.publish.outputs.is_draft == 'true' }}
+          draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
