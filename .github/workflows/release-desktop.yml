@@ -3,6 +3,12 @@ name: Release ODP Desktop
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name of the release to process (e.g., Open-Data-Platform-v0.6.0)"
+        required: true
+        type: string
 
 jobs:
   update-odp-release:
