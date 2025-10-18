@@ -6,10 +6,13 @@ pub mod uninstall;
 pub mod utils;
 
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::State;
 use tauri::menu::{CheckMenuItemBuilder, Menu, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager, RESTART_EXIT_CODE, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 #[cfg(target_os = "windows")]
@@ -808,6 +811,8 @@ fn main() {
             std::process::exit(1);
         })
         .run(|app_handle, event| {
+            let is_restart_requested = Arc::new(AtomicBool::new(false));
+            let is_restart_requested_clone = is_restart_requested.clone();
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 log::debug!("Caught applicationWillTerminate event, running cleanup...");
                 api.prevent_exit();
@@ -820,10 +825,25 @@ fn main() {
             }
 
             #[cfg(target_os = "macos")]
+            {
             if let tauri::RunEvent::Reopen { .. } = event
                 && let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
+            }
+            if let tauri::RunEvent::ExitRequested { code, ..} = event {
+                if code.unwrap() == RESTART_EXIT_CODE {
+                    is_restart_requested.store(true, Ordering::SeqCst);
+                }
+            }
+
+            if let tauri::RunEvent::Exit { .. } = event {
+                if is_restart_requested_clone.load(Ordering::SeqCst) {
+                    app_handle.cleanup_before_exit();
+                    let env = app_handle.env();
+                    tauri::process::restart(&env);
+                }
+            }
         });
 }

@@ -37,43 +37,6 @@ jobs:
           p12-file-base64: ${{ secrets.MACOS_CERTIFICATE }}
           p12-password: ${{ secrets.MACOS_CERTIFICATE_PWD }}
 
-      - name: Install OpenSSL
-        run: brew install openssl
-
-      - name: Copy and Sign SSL dylibs
-        run: |
-          mkdir -p src-tauri/frameworks
-          OPENSSL_PREFIX=$(brew --prefix openssl@3)
-
-          # Verify files exist before copying
-          if [ ! -f "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib" ]; then
-            echo "Error: libcrypto.3.dylib not found at ${OPENSSL_PREFIX}/lib/"
-            exit 1
-          fi
-          if [ ! -f "${OPENSSL_PREFIX}/lib/libssl.3.dylib" ]; then
-            echo "Error: libssl.3.dylib not found at ${OPENSSL_PREFIX}/lib/"
-            exit 1
-          fi
-
-          cp "${OPENSSL_PREFIX}/lib/libcrypto.3.dylib" src-tauri/frameworks/
-          cp "${OPENSSL_PREFIX}/lib/libssl.3.dylib" src-tauri/frameworks/
-
-          codesign --force --sign "Developer ID Application" \
-            --timestamp \
-            --options runtime \
-            src-tauri/frameworks/libcrypto.3.dylib
-
-          codesign --force --sign "Developer ID Application" \
-            --timestamp \
-            --options runtime \
-            src-tauri/frameworks/libssl.3.dylib
-
-          # Verify signatures
-          codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libcrypto.3.dylib
-          codesign --verify --verbose=4 --deep --strict src-tauri/frameworks/libssl.3.dylib
-
-          echo "Successfully copied and signed SSL dylibs"
-
       - name: Setup Cargo Cache
         uses: actions/cache@v4
         with:
@@ -130,30 +93,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
-
-      - name: Re-sign bundled SSL dylibs after bundling
-        run: |
-          FRAMEWORKS_DIR="target/release/bundle/macos/Open Data Platform.app/Contents/Frameworks"
-
-          if [ -f "$FRAMEWORKS_DIR/libcrypto.3.dylib" ]; then
-            codesign --force --sign "Developer ID Application" \
-              --timestamp \
-              --options runtime \
-              "$FRAMEWORKS_DIR/libcrypto.3.dylib"
-
-            codesign --verify --verbose=4 --deep --strict "$FRAMEWORKS_DIR/libcrypto.3.dylib"
-            echo "Re-signed libcrypto.3.dylib in bundle"
-          fi
-
-          if [ -f "$FRAMEWORKS_DIR/libssl.3.dylib" ]; then
-            codesign --force --sign "Developer ID Application" \
-              --timestamp \
-              --options runtime \
-              "$FRAMEWORKS_DIR/libssl.3.dylib"
-
-            codesign --verify --verbose=4 --deep --strict "$FRAMEWORKS_DIR/libssl.3.dylib"
-            echo "Re-signed libssl.3.dylib in bundle"
-          fi
 
       - name: Rename artifacts
         run: |
