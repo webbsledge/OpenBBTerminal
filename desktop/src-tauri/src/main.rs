@@ -813,6 +813,13 @@ fn main() {
         .run(|app_handle, event| {
             let is_restart_requested = Arc::new(AtomicBool::new(false));
             let is_restart_requested_clone = is_restart_requested.clone();
+
+            if let tauri::RunEvent::ExitRequested { code, ..} = event {
+                if code.unwrap() == RESTART_EXIT_CODE {
+                    is_restart_requested.store(true, Ordering::SeqCst);
+                }
+            }
+
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 log::debug!("Caught applicationWillTerminate event, running cleanup...");
                 api.prevent_exit();
@@ -830,11 +837,6 @@ fn main() {
                 && let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
-                }
-            }
-            if let tauri::RunEvent::ExitRequested { code, ..} = event {
-                if code.unwrap() == RESTART_EXIT_CODE {
-                    is_restart_requested.store(true, Ordering::SeqCst);
                 }
             }
 
