@@ -1,4 +1,4 @@
-name: Release ODP Desktop
+name: Update ODP Tag Release
 
 on:
   release:
@@ -19,10 +19,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set release tag
+        id: set_tag
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download release artifacts from published release
         run: |
           mkdir -p artifacts
-          gh release download ${{ github.event.release.tag_name }} --dir artifacts --repo ${{ github.repository }}
+          gh release download "${{ steps.set_tag.outputs.tag }}" --dir artifacts --repo ${{ github.repository }} --pattern "*"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -41,7 +50,7 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_name=ODP Desktop v$VERSION" >> $GITHUB_OUTPUT
-          echo "versioned_tag=Open-Data-Platform-v$VERSION" >> $GITHUB_OUTPUT
+          echo "versioned_tag=${{ steps.set_tag.outputs.tag }}" >> $GITHUB_OUTPUT
 
       - name: Delete existing ODP tag and release
         continue-on-error: true
