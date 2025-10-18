@@ -131,6 +131,30 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
+      - name: Re-sign bundled SSL dylibs after bundling
+        run: |
+          FRAMEWORKS_DIR="target/release/bundle/macos/Open Data Platform.app/Contents/Frameworks"
+
+          if [ -f "$FRAMEWORKS_DIR/libcrypto.3.dylib" ]; then
+            codesign --force --sign "Developer ID Application" \
+              --timestamp \
+              --options runtime \
+              "$FRAMEWORKS_DIR/libcrypto.3.dylib"
+
+            codesign --verify --verbose=4 --deep --strict "$FRAMEWORKS_DIR/libcrypto.3.dylib"
+            echo "Re-signed libcrypto.3.dylib in bundle"
+          fi
+
+          if [ -f "$FRAMEWORKS_DIR/libssl.3.dylib" ]; then
+            codesign --force --sign "Developer ID Application" \
+              --timestamp \
+              --options runtime \
+              "$FRAMEWORKS_DIR/libssl.3.dylib"
+
+            codesign --verify --verbose=4 --deep --strict "$FRAMEWORKS_DIR/libssl.3.dylib"
+            echo "Re-signed libssl.3.dylib in bundle"
+          fi
+
       - name: Rename artifacts
         run: |
           VERSION=$(jq -r .version src-tauri/tauri.conf.json)
