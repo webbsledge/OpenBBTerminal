@@ -233,11 +233,21 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $sigFile = (Get-ChildItem -Path "${{ github.workspace }}/desktop/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.sig").FullName
-          Copy-Item -Path $sigFile -Destination "${{ github.workspace }}/desktop/signed-installer/"
-          cd ${{ github.workspace }}/desktop/signed-installer
-          Get-ChildItem -Path "*.exe" | Rename-Item -NewName "Open-Data-Platform_${version}_x86_64.exe"
-          Get-ChildItem -Path "*.sig" | Rename-Item -NewName "Open-Data-Platform_${version}_x86_64.exe.sig"
+          $signedInstaller = Get-ChildItem -Path "${{ github.workspace }}/desktop/signed-installer/*.exe" | Select-Object -First 1
+          Rename-Item -Path $signedInstaller.FullName -NewName "Open-Data-Platform_${version}_x86_64.exe"
+
+      - name: Regenerate updater signature
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $installerPath = Join-Path "${{ github.workspace }}/desktop/signed-installer" "Open-Data-Platform_${version}_x86_64.exe"
+          npm exec -- tauri signer sign --ci `
+            --path $installerPath `
+            --private-key $env:TAURI_SIGNING_PRIVATE_KEY `
+            --private-key-password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
