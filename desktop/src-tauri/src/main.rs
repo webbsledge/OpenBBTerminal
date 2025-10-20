@@ -168,7 +168,7 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
                     let app_clone = app.clone();
                     app.dialog()
                     .message(format!(
-                        "A new version ({}) is available. Would you like to install it now?",
+                        "A new version ({}) is available. Would you like to install it now? The update will close the application, and you will need to restart it.",
                         update.version
                     ))
                     .title("Update Available")
@@ -770,9 +770,7 @@ fn main() {
                 utils::app_termination::setup_termination_handler(termination_handle);
             }
 
-            // WINDOW VISIBILITY LOGIC
             if !install_state.is_installed {
-                // INVALID INSTALLATION - ALWAYS SHOW WINDOW
                 log::info!("Installation is INVALID - showing window and navigating to setup");
                 if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.show();
@@ -794,7 +792,6 @@ fn main() {
                 if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.eval("localStorage.setItem('environments-first-load-done', 'true');");
 
-                    // ALWAYS SHOW WINDOW AFTER UPDATE RESTART
                     if show_after_update {
                         log::info!("SHOWING WINDOW AFTER UPDATE RESTART");
                         let _ = window.show();
