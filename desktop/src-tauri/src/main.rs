@@ -207,7 +207,7 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
 
                                     #[cfg(target_os = "macos")]
                                     {
-                                        app_clone_inner.restart();
+                                        app_clone_inner.request_restart();
                                     }
 
                                     #[cfg(not(target_os = "macos"))]
@@ -820,7 +820,7 @@ fn main() {
                 }
             }
 
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            if let tauri::RunEvent::ExitRequested { ref api, .. } = event {
                 log::debug!("Caught applicationWillTerminate event, running cleanup...");
                 api.prevent_exit();
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -828,7 +828,13 @@ fn main() {
                 rt.block_on(async {
                     cleanup_all_processes(cleanup_handle).await;
                 });
-                std::process::exit(0);
+                if is_restart_requested_clone.load(Ordering::SeqCst) {
+                    log::debug!("Restart requested, exiting with restart code");
+                    tauri::process::restart(&app_handle.env());
+                } else {
+                    log::debug!("Exiting application normally");
+                    std::process::exit(0);
+                }
             }
 
             #[cfg(target_os = "macos")]
