@@ -168,7 +168,7 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
                     let app_clone = app.clone();
                     app.dialog()
                     .message(format!(
-                        "A new version ({}) is available. Would you like to install it now? The update will close the application, and you will need to restart it.",
+                        "A new version ({}) is available. Would you like to install it now? The update will close the application and restart.",
                         update.version
                     ))
                     .title("Update Available")
@@ -205,12 +205,9 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
                                         let _ = window.show();
                                     }
 
-                                    #[cfg(target_os = "macos")]
-                                    {
-                                        app_clone_inner.request_restart();
-                                    }
+                                    app_clone_inner.request_restart();
 
-                                    #[cfg(not(target_os = "macos"))]
+                                    /* #[cfg(not(target_os = "macos"))]
                                     {
                                         use std::process::Command;
 
@@ -223,6 +220,7 @@ async fn check_and_apply_update(app: AppHandle, always_prompt: bool) {
                                             app_clone_inner.restart();
                                         }
                                     }
+                                    */
                                 }
                             });
                         }
