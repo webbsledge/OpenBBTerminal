@@ -15,6 +15,7 @@ import Select, { components } from 'react-select';
 import { CopyIcon, DocumentationIcon, FileIcon, FolderIcon, HelpIcon, SettingsIcon } from "../components/Icon";
 
 import CustomIcon from "~/components/Icon";
+import Toast from "../components/Toast";
 
 // ============== TYPES ==============
 
@@ -2171,6 +2172,13 @@ function loadEnvironmentsFromCache(): Environment[] {
 export default function BackendsPage() {
 	const isMounted = useRef(true);
 
+	const [showToast, setShowToast] = useState(false);
+	const [toastContent, setToastContent] = useState<{
+		title: string;
+		content: React.ReactNode;
+		buttonText: string;
+	}>({ title: "", content: <></>, buttonText: "" });
+
 	// Core state
 	const [backends, setBackends] = useState<BackendService[]>([]);
 	const [selectedBackend, setSelectedBackend] = useState<string | null>(null);
@@ -2221,7 +2229,56 @@ export default function BackendsPage() {
 							!localStorage.getItem("platform-api-run-once")
 						) {
 							localStorage.setItem("platform-api-run-once", "true");
-							openUrl(finalUrl).catch(console.error);
+							setToastContent({
+								title: "Connect Backend with OpenBB Workspace",
+								content: (
+									<ol className="list-decimal list-inside">
+										<li>Sign in to your OpenBB Workspace account.</li>
+										<li>Go to the "Apps" tab in the top menu.</li>
+										<li>Click on "Connect backend".</li>
+										<li>
+											Fill in the connection form with the following details:
+											<ul className="list-disc list-inside ml-4">
+												<li>Name: OpenBB Platform</li>
+												<li>URL: {finalUrl}</li>
+											</ul>
+										</li>
+										<li>Click "Test".</li>
+										<li>Click "Add" to finalize the integration.</li>
+									</ol>
+								),
+								buttonText: "Check Documentation",
+							});
+							setShowToast(true);
+						}
+						if (
+							backend.name === "OpenBB MCP" &&
+							!localStorage.getItem("platform-mcp-run-once")
+						) {
+							localStorage.setItem("platform-mcp-run-once", "true");
+							setToastContent({
+								title: "Connect MCP with OpenBB Workspace",
+								content: (
+									<ol className="list-decimal list-inside">
+										<li>Sign in to your OpenBB Workspace account.</li>
+										<li>Go to the Chat on the right side.</li>
+										<li>Click on "MCP Tools" button above the chat input.</li>
+										<li>Click on "+" in the top-right to open the configuration panel.</li>
+										<li>Click on "Add Server".</li>
+										<li>
+											Fill in the connection form with the following details:
+											<ul className="list-disc list-inside ml-4">
+												<li>Name: OpenBB MCP</li>
+												<li>URL: {finalUrl}</li>
+											</ul>
+										</li>
+										<li>Check the box "Local Server".</li>
+										<li>Click "Add" to finalize the integration.</li>
+									</ol>
+								),
+								buttonText: "Check Documentation",
+							});
+							setShowToast(true);
 						}
 					}
 					return prevBackends.map((b) =>
@@ -2493,6 +2550,24 @@ export default function BackendsPage() {
 
 	return (
 		<div className="w-full h-full">
+			{showToast && (
+				<div className="fixed top-3 right-3 z-50">
+					<Toast
+						title={toastContent.title}
+						onClose={() => setShowToast(false)}
+						buttonText={toastContent.buttonText}
+						onButtonClick={() => {
+							const url = toastContent.title.includes("MCP")
+								? "https://docs.openbb.co/python/quickstart/mcp"
+								: "https://docs.openbb.co/python/quickstart/workspace";
+							openUrl(url).catch(console.error);
+							setShowToast(false);
+						}}
+					>
+						{toastContent.content}
+					</Toast>
+				</div>
+			)}
 			{isCreating || isEditing ? (
 				// Form View
 				<div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center overflow-auto" role="dialog">
