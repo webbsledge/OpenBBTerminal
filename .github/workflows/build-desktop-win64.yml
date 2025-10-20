@@ -244,8 +244,8 @@ jobs:
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           $installerPath = Join-Path "${{ github.workspace }}/desktop/signed-installer" "Open-Data-Platform_${version}_x86_64.exe"
-          npm exec -- tauri signer sign --ci `
-            --path $installerPath `
+          npm exec -- tauri signer sign `
+            $installerPath `
             --private-key $env:TAURI_SIGNING_PRIVATE_KEY `
             --private-key-password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
