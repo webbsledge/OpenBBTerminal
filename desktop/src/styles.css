@@ -292,37 +292,11 @@ body:not(.dark) .button-stop:focus-visible {
   outline: none;
 }
 
-/* Primary button style */
-.button-primary {
-  background-color: var(--button-primary-bg);
-  color: var(--text-primary);
-  transition: all 0.2s ease;
-  border: 1px solid var(--border-theme-outline);
-}
-
-.button-primary:hover {
-  outline: none;
-  box-shadow: none !important;
-}
-
-.dark .button-primary:hover, .dark .button-primary:focus, .dark .button-primary:focus-visible {
-  outline: none;
-  box-shadow: none !important;
-}
-
-
-.button-primary:focus, .button-primary:focus-visible {
-  background-color: #1cab21;
-  outline: none;
-  box-shadow: none !important;
-}
-
 /* Primary button - theme */
 .button-primary,
 .dark .button-primary {
   color: var(--button-primary-text);
   background-color: var(--button-primary-bg);
-  border: 1px solid var(--button-primary-border);
   box-shadow: none !important;
 }
 
@@ -333,31 +307,21 @@ body:not(.dark) .button-stop:focus-visible {
 }
 
 /* Secondary button */
-.button-secondary:focus, .button-secondary:focus-visible {
-  box-shadow: none !important;
-}
 
-.button-secondary {
-  background-color: var(--button-secondary-bg);
-  color: var(--text-secondary);
-  border: 1px solid var(--button-secondary-border);
-  box-shadow: none !important;
-}
-
-.dark .button-secondary {
+.button-secondary, .dark .button-secondary {
   border: none;
   background-color: var(--button-secondary-bg);
   color: var(--text-secondary);
   box-shadow: none !important;
 }
 
-.button-secondary:hover, .button-secondary:focus, .button-secondary:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-  background-color: var(--button-secondary-hover);
-}
 
-.dark .button-secondary:hover, .dark .button-secondary:focus, .dark .button-secondary:focus-visible {
+.button-secondary:hover,
+.button-secondary:focus,
+.button-secondary:focus-visible,
+.dark .button-secondary:hover,
+.dark .button-secondary:focus,
+.dark .button-secondary:focus-visible {
   outline: none !important;
   box-shadow: none !important;
   background-color: var(--button-secondary-hover);
@@ -371,24 +335,19 @@ body:not(.dark) .button-stop:focus-visible {
 }
 
 /* Neutral button */
-.dark .button-neutral {
+.button-neutral, .dark .button-neutral {
   background-color: var(--button-neutral-bg);
   color: var(--text-primary);
   outline: none !important;
   box-shadow: none !important;
 }
 
-.dark .button-neutral:hover, .dark .button-neutral:focus, .dark .button-neutral:focus-visible {
-  background-color: var(--button-neutral-bg-hover);
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-.button-neutral {
-  background-color: var(--button-neutral-bg);
-}
-
-.button-neutral:hover, .button-neutral:focus, .button-neutral:focus-visible {
+.button-neutral:hover,
+.button-neutral:focus,
+.button-neutral:focus-visible,
+.dark .button-neutral:hover,
+.dark .button-neutral:focus,
+.dark .button-neutral:focus-visible {
   background-color: var(--button-neutral-bg-hover);
   outline: none !important;
   box-shadow: none !important;
