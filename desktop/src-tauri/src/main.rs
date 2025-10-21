@@ -809,11 +809,10 @@ fn main() {
             let is_restart_requested = Arc::new(AtomicBool::new(false));
             let is_restart_requested_clone = is_restart_requested.clone();
 
-            if let tauri::RunEvent::ExitRequested { code, ..} = event {
-                if code.unwrap() == RESTART_EXIT_CODE {
+            if let tauri::RunEvent::ExitRequested { code, ..} = event
+                && code.unwrap() == RESTART_EXIT_CODE {
                     is_restart_requested.store(true, Ordering::SeqCst);
                 }
-            }
 
             if let tauri::RunEvent::ExitRequested { ref api, .. } = event {
                 log::debug!("Caught applicationWillTerminate event, running cleanup...");
@@ -841,12 +840,11 @@ fn main() {
                 }
             }
 
-            if let tauri::RunEvent::Exit { .. } = event {
-                if is_restart_requested_clone.load(Ordering::SeqCst) {
+            if let tauri::RunEvent::Exit = event
+                && is_restart_requested_clone.load(Ordering::SeqCst) {
                     app_handle.cleanup_before_exit();
                     let env = app_handle.env();
                     tauri::process::restart(&env);
                 }
-            }
         });
 }
