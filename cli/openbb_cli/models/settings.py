@@ -12,6 +12,15 @@ from pytz import all_timezones
 VERSION = get_package_version("openbb-cli")
 
 
+class OutputMode(str, Enum):
+    """Output mode for displaying results."""
+
+    rich = "rich"  # Rich table in terminal with truncation
+    json = "json"  # Full JSON output
+    tsv = "tsv"  # DataFrame to_string() output for pipes
+    html = "html"  # HTML table in browser
+
+
 class SettingGroups(Enum):
     """Setting types."""
 
@@ -52,9 +61,15 @@ class Settings(BaseModel):
     )
     USE_INTERACTIVE_DF: bool = Field(
         default=True,
-        description="display tables in interactive window",
+        description="display tables in interactive window (when available)",
         command="interactive",
         group=SettingGroups.feature_flags,
+    )
+    OUTPUT_MODE: Literal["rich", "json", "tsv", "html"] = Field(
+        default="rich",
+        description="output display mode (rich=terminal table, json=JSON, tsv=DataFrame string, html=browser)",
+        command="output",
+        group=SettingGroups.preferences,
     )
     USE_CLEAR_AFTER_CMD: bool = Field(
         default=False,
@@ -132,13 +147,13 @@ class Settings(BaseModel):
     )
     ALLOWED_NUMBER_OF_ROWS: int = Field(
         default=20,
-        description="number of rows to show (when not using interactive tables).",
+        description="number of rows to show in rich table mode (does not apply to json/stdio/html modes)",
         command="n_rows",
         group=SettingGroups.preferences,
     )
     ALLOWED_NUMBER_OF_COLUMNS: int = Field(
         default=5,
-        description="number of columns to show (when not using interactive tables).",
+        description="number of columns to show in rich table mode (does not apply to json/stdio/html modes)",
         command="n_cols",
         group=SettingGroups.preferences,
     )

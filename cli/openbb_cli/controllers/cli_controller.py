@@ -67,6 +67,7 @@ class CLIController(BaseController):
     CHOICES_COMMANDS = ["record", "stop", "exe", "results"]
     CHOICES_MENUS = [
         "settings",
+        "feature",
     ]
 
     for router, value in PLATFORM_ROUTERS.items():
@@ -201,14 +202,36 @@ class CLIController(BaseController):
                 "-h": "--help",
             }
             choices["stop"] = {"--help": None, "-h": "--help"}
+            
+            # Get dynamic index and key completions from registry
+            registry_all = session.obbject_registry.all
+            index_completions = {str(idx): None for idx in registry_all.keys()}
+            key_completions = {
+                data.get("key"): None 
+                for data in registry_all.values() 
+                if data.get("key")
+            }
+            
             choices["results"] = {
+                "--index": index_completions if index_completions else None,
+                "-i": "--index",
+                "--key": key_completions if key_completions else None,
+                "-k": "--key",
+                "--chart": None,
+                "-c": "--chart",
+                "--export": {c: None for c in ["csv", "json", "xlsx", "png", "jpg", "db", "sqlite", "sqlite3"]},
+                "-e": "--export",
+                "--sheet-name": None,
                 "--help": None,
                 "-h": "--help",
-                "--export": {c: None for c in ["csv", "json", "xlsx", "png", "jpg"]},
-                "--index": None,
-                "--key": None,
-                "--chart": None,
-                "--sheet_name": None,
+            }
+            choices["load"] = {
+                "--file": None,
+                "-f": "--file",
+                "--sheet-name": None,
+                "--register_key": None,
+                "--help": None,
+                "-h": "--help",
             }
 
             self.update_completer(choices)
@@ -266,6 +289,9 @@ class CLIController(BaseController):
                     mt.add_cmd(router)
 
         mt.add_raw("\n")
+        mt.add_info("Data manipulation and feature engineering")
+        mt.add_menu("feature", description="feature engineering and table operations")
+        mt.add_cmd("load", description="load data from file in OpenBBUserData")
         mt.add_cmd("results")
         if session.obbject_registry.obbjects:
             mt.add_info("\nCached Results")
@@ -287,6 +313,14 @@ class CLIController(BaseController):
         )
 
         self.queue = self.load_class(SettingsController, self.queue)
+
+    def call_feature(self, _):
+        """Process feature engineering command."""
+        from openbb_cli.controllers.feature_controller import (
+            FeatureController,
+        )
+
+        self.queue = self.load_class(FeatureController, self.queue)
 
     def call_exe(self, other_args: list[str]):
         """Process exe command."""

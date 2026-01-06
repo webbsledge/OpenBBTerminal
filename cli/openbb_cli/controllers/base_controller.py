@@ -20,7 +20,6 @@ from openbb_cli.controllers.utils import (
     get_flair_and_username,
     handle_obbject_display,
     parse_unknown_args_to_dict,
-    print_rich_table,
     system_clear,
     validate_register_key,
 )
@@ -62,6 +61,7 @@ class BaseController(metaclass=ABCMeta):
         "reset",
         "stop",
         "results",
+        "load",
     ]
 
     CHOICES_COMMANDS: list[str] = []
@@ -119,6 +119,59 @@ class BaseController(metaclass=ABCMeta):
     def update_completer(self, choices) -> None:
         """Update the completer with new choices."""
         if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
+            # Add file completions for load command
+            from openbb_cli.controllers.utils import get_data_files_for_completion
+            
+            if "load" not in choices:
+                choices["load"] = {}
+            
+            # Add file path completions for --file and -f flags
+            data_files = get_data_files_for_completion()
+            if data_files:
+                # Create completions for both --file and -f flags
+                file_completions = {file: None for file in data_files}
+                choices["load"]["--file"] = file_completions
+                choices["load"]["-f"] = file_completions
+            # Also add other load command flags
+            choices["load"]["--sheet-name"] = None
+            choices["load"]["--register_key"] = None
+            choices["load"]["--help"] = None
+            choices["load"]["-h"] = "--help"
+            
+            # Add completions for results command with dynamic indices/keys
+            if "results" not in choices:
+                choices["results"] = {}
+            
+            # Get dynamic index and key completions from registry
+            registry_all = session.obbject_registry.all
+            index_completions = {str(idx): None for idx in registry_all.keys()}
+            key_completions = {
+                data.get("key"): None 
+                for data in registry_all.values() 
+                if data.get("key")
+            }
+            
+            choices["results"]["--index"] = index_completions if index_completions else None
+            choices["results"]["-i"] = "--index"
+            choices["results"]["--key"] = key_completions if key_completions else None
+            choices["results"]["-k"] = "--key"
+            choices["results"]["--chart"] = None
+            choices["results"]["-c"] = "--chart"
+            choices["results"]["--export"] = {
+                "csv": None,
+                "json": None,
+                "xlsx": None,
+                "png": None,
+                "jpg": None,
+                "db": None,
+                "sqlite": None,
+                "sqlite3": None,
+            }
+            choices["results"]["-e"] = "--export"
+            choices["results"]["--sheet-name"] = None
+            choices["results"]["--help"] = None
+            choices["results"]["-h"] = "--help"
+            
             self.completer = NestedCompleter.from_nested_dict(choices)
 
     def check_path(self) -> None:
@@ -141,6 +194,8 @@ class BaseController(metaclass=ABCMeta):
         if class_ins.PATH in controllers and arguments == 1:
             old_class = controllers[class_ins.PATH]
             old_class.queue = self.queue
+            # Refresh completer to get updated dynamic completions
+            old_class.update_completer(old_class.choices_default)
             return old_class.menu()
         return class_ins(*args, **kwargs).menu()
 
@@ -161,14 +216,52 @@ class BaseController(metaclass=ABCMeta):
         raise NotImplementedError("Must override print_help.")
 
     def parse_input(self, an_input: str) -> list:
-        """Parse controller input."""
-        # The original regex has been improved to handle quoted strings.
-        # It now splits by '/' only when it's not enclosed in single or double quotes.
-        # This allows commands like: exe --file "folder with spaces/file.openbb"
-        # or exe --file 'folder with spaces/file.openbb'
+        """Parse controller input.
+        
+        Protects file paths with -f/--file flags from being split on '/'.
+        """
+        # Protect file paths from being split by replacing them with placeholders
+        # Pattern matches: -f or --file followed by path ending in known extension,
+        # including any arguments after the file path
+        file_flag = r"(\ -f |\ --file )"
+        up_to = r".*?"
+        known_extensions = r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb|db|sqlite|sqlite3))"
+        # Match everything from -f/--file through extension and arguments until / or end
+        optional_args = r"(?:\ [^/]+)*?"
+        file_path_pattern = f"({file_flag}{up_to}{known_extensions}{optional_args})"
+        
+        # Find and replace file paths with placeholders
+        placeholders: dict[str, str] = {}
+        placeholder_count = 0
+        
+        while True:
+            match = re.search(pattern=file_path_pattern, string=an_input)
+            if match is None:
+                break
+            
+            placeholder = f"{{placeholder{placeholder_count}}}"
+            placeholders[placeholder] = an_input[match.span()[0]:match.span()[1]]
+            an_input = (
+                an_input[:match.span()[0]] + placeholder + an_input[match.span()[1]:]
+            )
+            placeholder_count += 1
+        
+        # Now split on '/' - the placeholders protect file paths
+        # The original regex handles quoted strings
         commands = re.split(r"/(?=(?:[^\"']*[\"'][^\"']*[\"'])*[^\"']*$)", an_input)
-        # Remove empty strings from the list of commands
-        return [cmd.strip() for cmd in commands if cmd.strip()]
+        
+        # Restore placeholders in commands
+        result = []
+        for idx, cmd in enumerate(commands):
+            cleaned = cmd.strip()
+            # Keep empty string at index 0 (indicates absolute path with leading /)
+            if cleaned or idx == 0:
+                # Replace any placeholders back to original file paths
+                for placeholder, original in placeholders.items():
+                    cleaned = cleaned.replace(placeholder, original)
+                result.append(cleaned)
+        
+        return result
 
     def switch(self, an_input: str) -> list[str]:
         """Process and dispatch input.
@@ -524,9 +617,9 @@ class BaseController(metaclass=ABCMeta):
         parser.add_argument(
             "--export",
             default="",
-            type=check_file_type_saved(["csv", "json", "xlsx", "png", "jpg"]),
+            type=check_file_type_saved(["csv", "json", "xlsx", "png", "jpg", "db", "sqlite", "sqlite3"]),
             dest="export",
-            help="Export raw data into csv, json, xlsx and figure into png or jpg.",
+            help="Export raw data into csv, json, xlsx, db/sqlite and figure into png or jpg.",
             nargs="+",
         )
         parser.add_argument(
@@ -547,11 +640,11 @@ class BaseController(metaclass=ABCMeta):
                 results = session.obbject_registry.all
                 if results:
                     df = pd.DataFrame.from_dict(results, orient="index")
-                    print_rich_table(
-                        df,
-                        show_index=True,
-                        index_name="stack index",
+                    session.output_adapter.display(
+                        data=df,
                         title="OBBject Results",
+                        export=False,
+                        chart=False,
                     )
                 else:
                     session.console.print("[info]No results found.[/info]")
@@ -589,6 +682,312 @@ class BaseController(metaclass=ABCMeta):
                     session.console.print(
                         f"[info]No result found with key '{ns_parser.key}'.[/info]"
                     )
+
+    def call_load(self, other_args: list[str]):
+        """Load data from CSV, JSON, or Excel file."""
+        parser = argparse.ArgumentParser(
+            add_help=False,
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            prog="load",
+            description="Load data from a CSV, JSON, or Excel file in OpenBBUserData folder. "
+            "The loaded data will be added to the results cache.",
+        )
+        parser.add_argument(
+            "-f",
+            "--file",
+            dest="file",
+            type=str,
+            required=True,
+            help="Path to file relative to OpenBBUserData folder.",
+        )
+        parser.add_argument(
+            "--sheet-name",
+            dest="sheet_name",
+            type=str,
+            default=None,
+            help="Name of excel sheet to load. Only for .xlsx files. If not provided, loads first sheet.",
+        )
+        parser.add_argument(
+            "--register_key",
+            dest="register_key",
+            default="",
+            help="Key to reference data in the OBBject registry.",
+            type=validate_register_key,
+        )
+
+        ns_parser = self.parse_simple_args(parser, other_args)[0]
+
+        if ns_parser and ns_parser.file:
+            from openbb_core.app.model.obbject import OBBject
+
+            # Use the file path directly from parsed args
+            # parse_and_split_input already protects file paths from being split by '/'
+            file_path_str = ns_parser.file
+
+            # Get the user data directory from settings
+            user_data_dir = Path(session.user.preferences.data_directory)
+            file_path = user_data_dir / file_path_str
+
+            if not file_path.exists():
+                session.console.print(f"[red]File not found: {file_path}[/red]")
+                return
+
+            try:
+                # Determine file type and load accordingly
+                file_ext = file_path.suffix.lower()
+
+                if file_ext == ".csv":
+                    # Load with no index column
+                    df = pd.read_csv(file_path, index_col=None)
+                    # Drop any "Unnamed: 0" type columns that are just saved index artifacts
+                    df = df.loc[:, ~df.columns.str.startswith("Unnamed:")]
+                    
+                    # Create OBBject with the loaded data
+                    obbject = OBBject(results=df)
+                    
+                    # Store command in extra
+                    command = f"/load -f {file_path_str}"
+                    obbject.extra["command"] = command
+                    
+                    # Handle register key
+                    if ns_parser.register_key:
+                        if (
+                            ns_parser.register_key
+                            not in session.obbject_registry.obbject_keys
+                        ):
+                            obbject.extra["register_key"] = ns_parser.register_key
+                        else:
+                            session.console.print(
+                                f"[yellow]Key `{ns_parser.register_key}` already exists in the registry. "
+                                "The `OBBject` was kept without the key.[/yellow]"
+                            )
+                    
+                    # Register and display
+                    if session.max_obbjects_exceeded():
+                        session.obbject_registry.remove()
+                        session.console.print(
+                            "[yellow]Maximum number of OBBjects reached. The oldest entry was removed.[/yellow]"
+                        )
+                    
+                    if session.obbject_registry.register(obbject):
+                        session.console.print(
+                            f"[green]Successfully loaded {len(df)} rows from {file_path.name}[/green]"
+                        )
+                        
+                        if hasattr(self, "_link_obbject_to_data_processing_commands"):
+                            self._link_obbject_to_data_processing_commands()
+                            self.update_completer(self.choices_default)
+                        
+                        session.output_adapter.display(
+                            data=obbject,
+                            title=f"Loaded: {file_path_str}",
+                            export=False,
+                            chart=False,
+                        )
+                    else:
+                        session.console.print(
+                            "[yellow]Failed to register OBBject in registry.[/yellow]"
+                        )
+                        
+                elif file_ext == ".json":
+                    df = pd.read_json(file_path)
+                    
+                    obbject = OBBject(results=df)
+                    command = f"/load -f {file_path_str}"
+                    obbject.extra["command"] = command
+                    
+                    if ns_parser.register_key:
+                        if (
+                            ns_parser.register_key
+                            not in session.obbject_registry.obbject_keys
+                        ):
+                            obbject.extra["register_key"] = ns_parser.register_key
+                        else:
+                            session.console.print(
+                                f"[yellow]Key `{ns_parser.register_key}` already exists in the registry. "
+                                "The `OBBject` was kept without the key.[/yellow]"
+                            )
+                    
+                    if session.max_obbjects_exceeded():
+                        session.obbject_registry.remove()
+                        session.console.print(
+                            "[yellow]Maximum number of OBBjects reached. The oldest entry was removed.[/yellow]"
+                        )
+                    
+                    if session.obbject_registry.register(obbject):
+                        session.console.print(
+                            f"[green]Successfully loaded {len(df)} rows from {file_path.name}[/green]"
+                        )
+                        
+                        if hasattr(self, "_link_obbject_to_data_processing_commands"):
+                            self._link_obbject_to_data_processing_commands()
+                            self.update_completer(self.choices_default)
+                        
+                        session.output_adapter.display(
+                            data=obbject,
+                            title=f"Loaded: {file_path_str}",
+                            export=False,
+                            chart=False,
+                        )
+                    else:
+                        session.console.print(
+                            "[yellow]Failed to register OBBject in registry.[/yellow]"
+                        )
+                        
+                elif file_ext in [".xlsx", ".xls"]:
+                    sheet_name = ns_parser.sheet_name if ns_parser.sheet_name else 0
+                    df = pd.read_excel(file_path, sheet_name=sheet_name, index_col=None)
+                    # Drop any "Unnamed: 0" type columns
+                    df = df.loc[:, ~df.columns.str.startswith("Unnamed:")]
+                    
+                    obbject = OBBject(results=df)
+                    command = f"/load -f {file_path_str}"
+                    if ns_parser.sheet_name:
+                        command += f" --sheet-name {ns_parser.sheet_name}"
+                    obbject.extra["command"] = command
+                    
+                    if ns_parser.register_key:
+                        if (
+                            ns_parser.register_key
+                            not in session.obbject_registry.obbject_keys
+                        ):
+                            obbject.extra["register_key"] = ns_parser.register_key
+                        else:
+                            session.console.print(
+                                f"[yellow]Key `{ns_parser.register_key}` already exists in the registry. "
+                                "The `OBBject` was kept without the key.[/yellow]"
+                            )
+                    
+                    if session.max_obbjects_exceeded():
+                        session.obbject_registry.remove()
+                        session.console.print(
+                            "[yellow]Maximum number of OBBjects reached. The oldest entry was removed.[/yellow]"
+                        )
+                    
+                    if session.obbject_registry.register(obbject):
+                        session.console.print(
+                            f"[green]Successfully loaded {len(df)} rows from {file_path.name}[/green]"
+                        )
+                        
+                        if hasattr(self, "_link_obbject_to_data_processing_commands"):
+                            self._link_obbject_to_data_processing_commands()
+                            self.update_completer(self.choices_default)
+                        
+                        session.output_adapter.display(
+                            data=obbject,
+                            title=f"Loaded: {file_path_str}",
+                            export=False,
+                            chart=False,
+                        )
+                    else:
+                        session.console.print(
+                            "[yellow]Failed to register OBBject in registry.[/yellow]"
+                        )
+                        
+                elif file_ext in [".db", ".sqlite", ".sqlite3"]:
+                    # SQLite database - load all tables with lazy loading
+                    import sqlite3
+                    from openbb_cli.controllers.utils import SQLiteTable
+                    
+                    conn = sqlite3.connect(file_path)
+                    try:
+                        cursor = conn.cursor()
+                        # Get all table names
+                        cursor.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+                        )
+                        tables = [row[0] for row in cursor.fetchall()]
+                        
+                        if not tables:
+                            session.console.print(
+                                f"[yellow]No tables found in database: {file_path.name}[/yellow]"
+                            )
+                            return
+                        
+                        # Load each table as a separate OBBject with SQLiteTable wrapper
+                        loaded_count = 0
+                        for table_name in tables:
+                            # Get row count for metadata
+                            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                            row_count = cursor.fetchone()[0]
+                            
+                            # Create SQLiteTable wrapper (lazy - no data loaded yet)
+                            sqlite_table = SQLiteTable(
+                                db_path=str(file_path),
+                                table_name=table_name,
+                                row_count=row_count,
+                            )
+                            
+                            # Create OBBject with SQLiteTable
+                            obbject = OBBject(results=sqlite_table)
+                            command = f"/load -f {file_path_str} --table {table_name}"
+                            obbject.extra["command"] = command
+                            
+                            # Auto-generate register key: filename_tablename
+                            base_name = file_path.stem  # filename without extension
+                            auto_key = f"{base_name}_{table_name}"
+                            
+                            # If user provided a key and this is the only table, use it
+                            if ns_parser.register_key and len(tables) == 1:
+                                if (
+                                    ns_parser.register_key
+                                    not in session.obbject_registry.obbject_keys
+                                ):
+                                    obbject.extra["register_key"] = ns_parser.register_key
+                                else:
+                                    session.console.print(
+                                        f"[yellow]Key `{ns_parser.register_key}` already exists. "
+                                        f"Using auto-generated key: {auto_key}[/yellow]"
+                                    )
+                                    obbject.extra["register_key"] = auto_key
+                            else:
+                                # Multiple tables or no user key - use auto key
+                                if auto_key not in session.obbject_registry.obbject_keys:
+                                    obbject.extra["register_key"] = auto_key
+                                else:
+                                    session.console.print(
+                                        f"[yellow]Key `{auto_key}` already exists in the registry. "
+                                        "The `OBBject` was kept without the key.[/yellow]"
+                                    )
+                            
+                            # Register
+                            if session.max_obbjects_exceeded():
+                                session.obbject_registry.remove()
+                                session.console.print(
+                                    "[yellow]Maximum number of OBBjects reached. The oldest entry was removed.[/yellow]"
+                                )
+                            
+                            if session.obbject_registry.register(obbject):
+                                loaded_count += 1
+                                # Get schema info for display
+                                cursor.execute(f"PRAGMA table_info({table_name})")
+                                columns = [col[1] for col in cursor.fetchall()]
+                                
+                                session.console.print(
+                                    f"[green]Loaded table '{table_name}': {row_count} rows, "
+                                    f"{len(columns)} columns (lazy)[/green]"
+                                )
+                        
+                        if loaded_count > 0:
+                            session.console.print(
+                                f"[green]Successfully loaded {loaded_count} table(s) from {file_path.name}[/green]"
+                            )
+                            
+                            if hasattr(self, "_link_obbject_to_data_processing_commands"):
+                                self._link_obbject_to_data_processing_commands()
+                                self.update_completer(self.choices_default)
+                    finally:
+                        conn.close()
+                        
+                else:
+                    session.console.print(
+                        f"[red]Unsupported file type: {file_ext}. "
+                        "Supported: .csv, .json, .xlsx, .xls, .db, .sqlite, .sqlite3[/red]"
+                    )
+                    return
+
+            except Exception as e:
+                session.console.print(f"[red]Error loading file: {e}[/red]")
 
     @staticmethod
     def parse_simple_args(
@@ -685,9 +1084,9 @@ class BaseController(metaclass=ABCMeta):
                 choices_export = ["png", "jpg"]
                 help_export = "Export figure into png or jpg."
             else:
-                choices_export = ["csv", "json", "xlsx", "png", "jpg"]
+                choices_export = ["csv", "json", "xlsx", "png", "jpg", "db", "sqlite", "sqlite3"]
                 help_export = (
-                    "Export raw data into csv, json, xlsx and figure into png or jpg."
+                    "Export raw data into csv, json, xlsx, db/sqlite and figure into png or jpg."
                 )
 
             parser.add_argument(

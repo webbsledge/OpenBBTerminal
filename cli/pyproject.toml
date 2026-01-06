@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "openbb-cli"
-version = "1.3.0"
+version = "1.2.1"
 description = "Investment Research for Everyone, Anywhere."
 authors = ["OpenBB <hello@openbb.co>"]
 packages = [{ include = "openbb_cli" }]
@@ -17,14 +17,18 @@ openbb = 'openbb_cli.cli:main'
 python = "^3.10,<3.14"
 
 # OpenBB dependencies
-openbb = { version = "^4.6.0", extras = ["all"] }
+openbb-core = "^1.5.7"
 
 # CLI dependencies
 prompt-toolkit = "^3.0.50"
 rich = "^14.0.0"
 python-dotenv = "^1.0.1"
 openpyxl = "^3.1.5"
-pywry = "^0.6.2"
+
+[tool.poetry.extras]
+charting = ["openbb-charting"]
+interactive = ["pywry"]
+all = ["openbb-charting", "pywry"]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
