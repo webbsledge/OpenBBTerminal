@@ -321,6 +321,10 @@ def create_mcp_server(
                 )
             )
 
+            # Also set as instructions so it is delivered during initialize.
+            if not mcp.instructions:
+                mcp.instructions = system_prompt_content
+
             @mcp.resource("resource://system_prompt")
             def system_prompt_resource() -> str:
                 """System prompt resource for the MCP Server."""
@@ -461,6 +465,89 @@ def create_mcp_server(
 
     if inline_prompts_added:
         logger.info("Successfully added %d inline prompts.", len(inline_prompts_added))
+
+    # Load bundled skill files from the default_skills_dir
+    skills_added: list = []
+    if settings.default_skills_dir:
+        skills_dir = Path(settings.default_skills_dir)
+        if skills_dir.is_dir():
+            for skill_file in sorted(skills_dir.iterdir()):
+                if skill_file.suffix.lower() not in (".md", ".txt"):
+                    continue
+                if not skill_file.is_file():
+                    continue
+                try:
+                    content = skill_file.read_text(encoding="utf-8").strip()
+                    if not content:
+                        logger.warning("Skipping empty skill file: %s", skill_file.name)
+                        continue
+
+                    # Derive skill name from filename (e.g., develop_extension.md -> develop_extension)
+                    skill_name = skill_file.stem
+
+                    # Use the first heading or first non-empty line as the description
+                    first_line = ""
+                    for line in content.splitlines():
+                        stripped = line.strip().lstrip("#").strip()
+                        if stripped:
+                            first_line = stripped
+                            break
+                    skill_description = (
+                        first_line or f"Skill loaded from {skill_file.name}"
+                    )
+
+                    static_prompt = StaticPrompt(
+                        name=skill_name,
+                        description=skill_description,
+                        content=content,
+                        arguments=None,
+                        tags={"skill"},
+                    )
+                    mcp.add_prompt(static_prompt)
+                    skills_added.append(skill_name)
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.error(
+                        "Failed to load skill file '%s': %s", skill_file.name, e
+                    )
+            if skills_added:
+                logger.info(
+                    "Successfully loaded %d skill(s): %s",
+                    len(skills_added),
+                    ", ".join(skills_added),
+                )
+
+    # If skills were loaded and no custom system prompt is configured,
+    # add a brief default system prompt nudging agents to discover them.
+    if skills_added and not settings.system_prompt_file:
+        skills_list = ", ".join(skills_added)
+        _default_system_content = (
+            "This server includes bundled skill guides that teach you how to "
+            "use advanced OpenBB Platform capabilities. "
+            "Use the 'list_prompts' tool to discover available prompts, "
+            "then 'execute_prompt' with a skill name to read its full content.\n\n"
+            f"Available skills: {skills_list}"
+        )
+
+        def _default_system_prompt() -> str:
+            """Default system prompt for the OpenBB MCP server."""
+            return _default_system_content
+
+        mcp.add_prompt(
+            FunctionPrompt.from_function(
+                _default_system_prompt,
+                name="system_prompt",
+                description=(
+                    "System prompt with guidance on discovering and using this server's bundled skills and tools."
+                ),
+                tags={"system"},
+            )
+        )
+
+        # Also set as instructions so it is delivered during initialize.
+        if not mcp.instructions:
+            mcp.instructions = _default_system_content
+
+        logger.info("Added default system prompt with skill awareness nudge.")
 
     # Admin/discovery tools if enabled
     if settings.enable_tool_discovery:

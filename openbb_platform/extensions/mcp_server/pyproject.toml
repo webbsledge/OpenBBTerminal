@@ -9,6 +9,7 @@ homepage = "https://openbb.co"
 repository = "https://github.com/openbb-finance/openbb"
 documentation = "https://docs.openbb.co"
 packages = [{ include = "openbb_mcp_server" }]
+include = ["openbb_mcp_server/skills/*.md", "openbb_mcp_server/skills/*.txt"]
 
 [tool.poetry.scripts]
 openbb-mcp = "openbb_mcp_server.app.app:main"

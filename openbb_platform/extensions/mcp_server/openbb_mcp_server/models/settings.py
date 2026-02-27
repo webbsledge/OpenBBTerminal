@@ -1,9 +1,12 @@
 """MCP Server Settings model."""
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+_DEFAULT_SKILLS_DIR = str(Path(__file__).resolve().parent.parent / "skills")
 
 DuplicateBehavior = Literal["warn", "error", "replace", "ignore"]
 
@@ -73,6 +76,14 @@ the exact same operations available to REST clients.""",
     )
 
     # Prompt configuration
+    instructions: str | None = Field(
+        default=None,
+        description="Server instructions sent to the agent during the MCP initialize handshake."
+        " When set, this text is delivered before any tools or prompts are called."
+        " If not explicitly set, it is auto-populated from the system prompt content.",
+        alias="OPENBB_MCP_INSTRUCTIONS",
+    )
+
     system_prompt_file: str | None = Field(
         default=None,
         description="Path to a text file containing the system prompt for the server",
@@ -83,6 +94,13 @@ the exact same operations available to REST clients.""",
         default=None,
         description="Path to a JSON file containing prompt templates for the server",
         alias="OPENBB_MCP_SERVER_PROMPTS_FILE",
+    )
+
+    default_skills_dir: str | None = Field(
+        default=_DEFAULT_SKILLS_DIR,
+        description="Path to a directory containing bundled skill prompt files (.md/.txt)."
+        " Set to None or empty string to disable loading default skills.",
+        alias="OPENBB_MCP_DEFAULT_SKILLS_DIR",
     )
 
     # ===== FastMCP Core Configuration =====
@@ -236,6 +254,7 @@ the exact same operations available to REST clients.""",
         """
         fastmcp_fields = {
             "name": self.name,
+            "instructions": self.instructions,
             "version": self.version,
             "cache_expiration_seconds": self.cache_expiration_seconds,
             "on_duplicate_tools": self.on_duplicate_tools,
