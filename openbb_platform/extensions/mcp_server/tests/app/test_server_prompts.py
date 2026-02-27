@@ -37,7 +37,7 @@ def test_load_prompts_from_json(
     prompts_file = tmp_path / "prompts.json"
     prompts_file.write_text(json.dumps(prompts_data))
 
-    settings = MCPSettings(server_prompts_file=str(prompts_file))  # type: ignore
+    settings = MCPSettings(server_prompts_file=str(prompts_file), default_skills_dir=None)  # type: ignore
     fastapi_app = FastAPI()
 
     mock_processed_data = MagicMock()
@@ -84,7 +84,7 @@ def test_skip_invalid_prompts(
     prompts_file = tmp_path / "prompts.json"
     prompts_file.write_text(json.dumps(prompts_data))
 
-    settings = MCPSettings(server_prompts_file=str(prompts_file))  # type: ignore
+    settings = MCPSettings(server_prompts_file=str(prompts_file), default_skills_dir=None)  # type: ignore
     fastapi_app = FastAPI()
 
     mock_processed_data = MagicMock()
@@ -128,7 +128,7 @@ def test_skip_invalid_arguments_in_prompts(
     prompts_file = tmp_path / "prompts.json"
     prompts_file.write_text(json.dumps(prompts_data))
 
-    settings = MCPSettings(server_prompts_file=str(prompts_file))  # type: ignore
+    settings = MCPSettings(server_prompts_file=str(prompts_file), default_skills_dir=None)  # type: ignore
     fastapi_app = FastAPI()
 
     mock_processed_data = MagicMock()
@@ -179,7 +179,7 @@ async def test_execute_prompt_tool(
     prompts_file = tmp_path / "prompts.json"
     prompts_file.write_text(json.dumps(prompts_data))
 
-    settings = MCPSettings(server_prompts_file=str(prompts_file))  # type: ignore
+    settings = MCPSettings(server_prompts_file=str(prompts_file), default_skills_dir=None)  # type: ignore
     fastapi_app = FastAPI()
 
     mock_processed_data = MagicMock()
