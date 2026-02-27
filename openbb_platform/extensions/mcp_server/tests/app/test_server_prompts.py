@@ -201,7 +201,7 @@ async def test_execute_prompt_tool(
     decorated_functions = {}
 
     def tool_decorator_factory(*args, **kwargs):
-        """Factory for creating tool decorators."""
+        """Create a decorator that records decorated tool functions."""
 
         def decorator(func):
             decorated_functions[func.__name__] = func

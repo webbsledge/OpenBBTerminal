@@ -30,8 +30,8 @@ SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / (
 )
 
 
-def _make_tool(name: str, description: str = "desc", enabled: bool = True):
-    """Create a minimal OpenAPITool mock with .enabled / .enable / .disable."""
+def _make_tool(name: str, description: str = "desc"):
+    """Create a minimal OpenAPITool mock."""
     tool = OpenAPITool(
         MagicMock(),
         HTTPRoute(path=f"/{name}", method="GET"),
@@ -40,8 +40,6 @@ def _make_tool(name: str, description: str = "desc", enabled: bool = True):
         parameters={},
         director=MagicMock(),
     )
-    if not enabled:
-        tool.disable()
     return tool
 
 
@@ -117,6 +115,7 @@ class TestAvailableCategories:
     """Tests for the ``available_categories`` discovery tool."""
 
     def test_returns_categories_with_subcategories(self):
+        """Return categories with their subcategories and tool counts."""
         registry = ToolRegistry()
         registry.register_tool(
             category="equity",
@@ -150,6 +149,7 @@ class TestAvailableCategories:
         assert subcat_names == {"price", "fundamental"}
 
     def test_empty_registry(self):
+        """Return empty list when the registry has no tools."""
         settings = MCPSettings(enable_tool_discovery=True)  # type: ignore
         _, decorated, _ = _build_server(settings, registry=ToolRegistry())
         assert decorated["available_categories"]() == []
@@ -170,24 +170,28 @@ class TestAvailableTools:
             category="equity",
             subcategory="price",
             tool_name="equity_price_quote",
-            tool=_make_tool("equity_price_quote", "Get quote", enabled=False),
+            tool=_make_tool("equity_price_quote", "Get quote"),
+            enabled=False,
         )
         settings = MCPSettings(enable_tool_discovery=True)  # type: ignore
         _, decorated, _ = _build_server(settings, registry=registry)
         return decorated
 
     def test_list_tools_in_category(self):
+        """List all tools in a given category."""
         decorated = self._setup()
         result = decorated["available_tools"](category="equity")
         names = {t.name for t in result}
         assert names == {"equity_price_historical", "equity_price_quote"}
 
     def test_list_tools_in_subcategory(self):
+        """List tools filtered to a specific subcategory."""
         decorated = self._setup()
         result = decorated["available_tools"](category="equity", subcategory="price")
         assert len(result) == 2
 
     def test_reflects_active_state(self):
+        """Report active/inactive state correctly based on registry enabled state."""
         decorated = self._setup()
         result = decorated["available_tools"](category="equity")
         by_name = {t.name: t for t in result}
@@ -195,11 +199,13 @@ class TestAvailableTools:
         assert by_name["equity_price_quote"].active is False
 
     def test_unknown_category_raises(self):
+        """Raise ValueError when the requested category does not exist."""
         decorated = self._setup()
         with pytest.raises(ValueError, match="not found"):
             decorated["available_tools"](category="nonexistent")
 
     def test_unknown_subcategory_raises(self):
+        """Raise ValueError when the requested subcategory does not exist."""
         decorated = self._setup()
         with pytest.raises(ValueError, match="not found"):
             decorated["available_tools"](category="equity", subcategory="options")
@@ -214,45 +220,52 @@ class TestToggleTools:
             category="equity",
             subcategory="price",
             tool_name="equity_price_historical",
-            tool=_make_tool("equity_price_historical", enabled=False),
+            tool=_make_tool("equity_price_historical"),
+            enabled=False,
         )
         registry.register_tool(
             category="equity",
             subcategory="price",
             tool_name="equity_price_quote",
-            tool=_make_tool("equity_price_quote", enabled=True),
+            tool=_make_tool("equity_price_quote"),
+            enabled=True,
         )
         settings = MCPSettings(enable_tool_discovery=True)  # type: ignore
         _, decorated, reg = _build_server(settings, registry=registry)
         return decorated, reg
 
     def test_activate_tools(self):
+        """Activate tools and confirm enabled state in registry."""
         decorated, registry = self._setup()
         msg = decorated["activate_tools"](tool_names=["equity_price_historical"])
         assert "Activated" in msg
-        assert registry.get_tool("equity_price_historical").enabled is True
+        assert registry.is_enabled("equity_price_historical") is True
 
     def test_deactivate_tools(self):
+        """Deactivate tools and confirm disabled state in registry."""
         decorated, registry = self._setup()
         msg = decorated["deactivate_tools"](tool_names=["equity_price_quote"])
         assert "Deactivated" in msg
-        assert registry.get_tool("equity_price_quote").enabled is False
+        assert registry.is_enabled("equity_price_quote") is False
 
     def test_activate_unknown_tool(self):
+        """Report not-found when an unknown tool name is supplied."""
         decorated, _ = self._setup()
         msg = decorated["activate_tools"](tool_names=["nonexistent"])
         assert "Not found" in msg
 
     def test_activate_mixed(self):
+        """Activate a mix of known and unknown tools, reporting both outcomes."""
         decorated, registry = self._setup()
         msg = decorated["activate_tools"](
             tool_names=["equity_price_historical", "nonexistent"]
         )
         assert "Activated" in msg
         assert "Not found" in msg
-        assert registry.get_tool("equity_price_historical").enabled is True
+        assert registry.is_enabled("equity_price_historical") is True
 
     def test_discovery_tools_not_registered_when_disabled(self):
+        """Omit all discovery tools when tool discovery is disabled in settings."""
         settings = MCPSettings(enable_tool_discovery=False)  # type: ignore
         _, decorated, _ = _build_server(settings)
         assert "available_categories" not in decorated
@@ -271,6 +284,7 @@ class TestListPrompts:
 
     @pytest.mark.asyncio
     async def test_list_prompts_returns_prompt_data(self):
+        """Return prompt metadata for all registered prompts."""
         settings = MCPSettings()  # type: ignore
         mock_mcp, decorated, _ = _build_server(settings)
 
@@ -288,6 +302,7 @@ class TestListPrompts:
 
     @pytest.mark.asyncio
     async def test_list_prompts_empty(self):
+        """Return empty list when no prompts are registered."""
         settings = MCPSettings()  # type: ignore
         mock_mcp, decorated, _ = _build_server(settings)
         mock_mcp.get_prompts = AsyncMock(return_value={})
@@ -374,12 +389,18 @@ class TestBundledSkillRendering:
     }
 
     def test_skills_directory_exists(self):
+        """Verify the skills directory exists at the expected path."""
         assert SKILLS_DIR.is_dir(), f"Skills directory not found: {SKILLS_DIR}"
 
     def test_all_expected_skills_present(self):
-        md_files = {f.stem for f in SKILLS_DIR.glob("*.md") if f.stem != "__init__"}
+        """Confirm all expected skill subdirectories with SKILL.md are present."""
+        skill_dirs = {
+            d.name
+            for d in SKILLS_DIR.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        }
         for name in self.EXPECTED_SKILLS:
-            assert name in md_files, f"Missing skill file: {name}.md"
+            assert name in skill_dirs, f"Missing skill subdirectory: {name}/SKILL.md"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -389,7 +410,7 @@ class TestBundledSkillRendering:
     )
     async def test_skill_renders_without_error(self, skill_name, expected_heading):
         """Each skill file renders to a PromptMessage with full content intact."""
-        skill_file = SKILLS_DIR / f"{skill_name}.md"
+        skill_file = SKILLS_DIR / skill_name / "SKILL.md"
         content = skill_file.read_text(encoding="utf-8")
         assert len(content) > 100, f"Skill {skill_name} seems too short"
 
@@ -415,7 +436,7 @@ class TestBundledSkillRendering:
     )
     async def test_skill_preserves_curly_braces(self, skill_name):
         """Skills with code blocks containing {} must not raise KeyError."""
-        skill_file = SKILLS_DIR / f"{skill_name}.md"
+        skill_file = SKILLS_DIR / skill_name / "SKILL.md"
         content = skill_file.read_text(encoding="utf-8")
 
         prompt = StaticPrompt(
@@ -432,7 +453,7 @@ class TestBundledSkillRendering:
     @pytest.mark.asyncio
     async def test_skill_render_with_empty_arguments(self):
         """Passing empty dict as arguments should still bypass str.format."""
-        skill_file = SKILLS_DIR / "develop_extension.md"
+        skill_file = SKILLS_DIR / "develop_extension" / "SKILL.md"
         content = skill_file.read_text(encoding="utf-8")
 
         prompt = StaticPrompt(
@@ -447,13 +468,23 @@ class TestBundledSkillRendering:
         assert rendered[0].content.text == content
 
     def test_skill_description_from_first_heading(self):
-        """Verify the heading extraction logic matches expected descriptions."""
+        """Verify that each SKILL.md has the expected markdown heading (after YAML frontmatter)."""
         for skill_name, expected_heading in self.EXPECTED_SKILLS.items():
-            skill_file = SKILLS_DIR / f"{skill_name}.md"
+            skill_file = SKILLS_DIR / skill_name / "SKILL.md"
             content = skill_file.read_text(encoding="utf-8")
-            first_line = content.strip().split("\n")[0]
-            # First line should be a markdown heading matching expected
-            heading = first_line.lstrip("# ").strip()
+            # Skip YAML frontmatter block (--- ... ---)
+            lines = content.splitlines()
+            in_frontmatter = lines[0].strip() == "---" if lines else False
+            heading = ""
+            for i, line in enumerate(lines):
+                if i == 0 and in_frontmatter:
+                    continue
+                if in_frontmatter and line.strip() == "---":
+                    in_frontmatter = False
+                    continue
+                if not in_frontmatter and line.startswith("#"):
+                    heading = line.lstrip("# ").strip()
+                    break
             assert (
                 heading == expected_heading
             ), f"Skill '{skill_name}' heading mismatch: got '{heading}', expected '{expected_heading}'"
@@ -470,10 +501,12 @@ class TestSkillsIntegration:
     @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
     @patch("openbb_mcp_server.app.app.ToolRegistry")
     @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
-    def test_bundled_skills_registered_as_prompts(
+    def test_bundled_skills_registered_via_provider(
         self, mock_from_fastapi, mock_tool_registry, mock_process_routes
     ):
-        """All four bundled skills are registered via mcp.add_prompt."""
+        """Bundled skills are registered via mcp.add_provider(SkillsDirectoryProvider)."""
+        from fastmcp.server.providers.skills import SkillsDirectoryProvider
+
         settings = MCPSettings()  # type: ignore  (uses default skills dir)
         fastapi_app = FastAPI()
 
@@ -491,26 +524,37 @@ class TestSkillsIntegration:
 
         create_mcp_server(settings, fastapi_app)
 
-        skill_calls = [
-            call
-            for call in mock_mcp_instance.add_prompt.call_args_list
-            if hasattr(call[0][0], "tags") and "skill" in call[0][0].tags
-        ]
-        skill_names = {call[0][0].name for call in skill_calls}
-        assert skill_names == {
+        provider_calls = mock_mcp_instance.add_provider.call_args_list
+        assert len(provider_calls) >= 1
+        assert isinstance(provider_calls[0][0][0], SkillsDirectoryProvider)
+
+    @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
+    @patch("openbb_mcp_server.app.app.ToolRegistry")
+    @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
+    def test_skill_md_files_have_content(
+        self, mock_from_fastapi, mock_tool_registry, mock_process_routes
+    ):
+        """Each bundled SKILL.md file has non-trivial content."""
+        for skill_name in [
             "develop_extension",
             "build_workspace_app",
             "configure_mcp_server",
             "work_with_server",
-        }
+        ]:
+            skill_file = SKILLS_DIR / skill_name / "SKILL.md"
+            assert skill_file.exists(), f"Missing: {skill_file}"
+            content = skill_file.read_text(encoding="utf-8")
+            assert (
+                len(content) > 500
+            ), f"Skill '{skill_name}' SKILL.md is suspiciously short ({len(content)} chars)"
 
     @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
     @patch("openbb_mcp_server.app.app.ToolRegistry")
     @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
-    def test_skill_content_not_empty(
+    def test_no_skill_prompts_registered(
         self, mock_from_fastapi, mock_tool_registry, mock_process_routes
     ):
-        """Each registered skill has non-trivial content."""
+        """Skills are no longer registered as prompts with the 'skill' tag."""
         settings = MCPSettings()  # type: ignore
         fastapi_app = FastAPI()
 
@@ -528,48 +572,11 @@ class TestSkillsIntegration:
 
         create_mcp_server(settings, fastapi_app)
 
-        skill_calls = [
-            call
-            for call in mock_mcp_instance.add_prompt.call_args_list
-            if hasattr(call[0][0], "tags") and "skill" in call[0][0].tags
+        skill_prompt_calls = [
+            c
+            for c in mock_mcp_instance.add_prompt.call_args_list
+            if hasattr(c[0][0], "tags") and "skill" in c[0][0].tags
         ]
-        for call in skill_calls:
-            prompt = call[0][0]
-            assert (
-                len(prompt.content) > 500
-            ), f"Skill '{prompt.name}' content is suspiciously short ({len(prompt.content)} chars)"
-
-    @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-    @patch("openbb_mcp_server.app.app.ToolRegistry")
-    @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
-    def test_skill_has_no_arguments(
-        self, mock_from_fastapi, mock_tool_registry, mock_process_routes
-    ):
-        """Skills are static prompts with no arguments."""
-        settings = MCPSettings()  # type: ignore
-        fastapi_app = FastAPI()
-
-        mock_processed_data = MagicMock()
-        mock_processed_data.route_lookup = {}
-        mock_processed_data.route_maps = []
-        mock_processed_data.prompt_definitions = []
-        mock_process_routes.return_value = mock_processed_data
-
-        mock_registry_instance = MagicMock()
-        mock_tool_registry.return_value = mock_registry_instance
-
-        mock_mcp_instance = MagicMock()
-        mock_from_fastapi.return_value = mock_mcp_instance
-
-        create_mcp_server(settings, fastapi_app)
-
-        skill_calls = [
-            call
-            for call in mock_mcp_instance.add_prompt.call_args_list
-            if hasattr(call[0][0], "tags") and "skill" in call[0][0].tags
-        ]
-        for call in skill_calls:
-            prompt = call[0][0]
-            assert (
-                prompt.arguments is None
-            ), f"Skill '{prompt.name}' should have no arguments"
+        assert (
+            skill_prompt_calls == []
+        ), "Skills should not be registered as prompts in FastMCP v3 — use add_provider instead"

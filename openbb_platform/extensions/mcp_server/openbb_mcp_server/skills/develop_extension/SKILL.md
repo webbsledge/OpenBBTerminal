@@ -1,3 +1,7 @@
+﻿---
+description: Build an OpenBB Platform Extension from scratch
+---
+
 # Build an OpenBB Platform Extension
 
 This is a complete guide for creating a new OpenBB Platform extension from scratch.

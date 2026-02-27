@@ -93,16 +93,16 @@ def sample_app():
     app = FastAPI()
 
     def endpoint_a():
-        """Example endpoint."""
+        """Handle example endpoint request."""
 
     def endpoint_b():
-        """Example endpoint."""
+        """Handle example endpoint request."""
 
     def endpoint_c():
-        """Example endpoint."""
+        """Handle example endpoint request."""
 
     def endpoint_d(arg1: str, arg2: int = 42):
-        """Example endpoint."""
+        """Handle example endpoint request."""
 
     app.add_api_route("/api/v1/stocks/load", endpoint_a, methods=["GET"])
     app.add_api_route(
@@ -192,7 +192,7 @@ def test_create_prompt_definitions_for_route():
     """Test the prompt definition helper function."""
 
     def my_endpoint(param1: str, param2: bool = False):
-        """Example endpoint."""
+        """Handle example endpoint request."""
 
     route = APIRoute(
         "/prompts/complex",

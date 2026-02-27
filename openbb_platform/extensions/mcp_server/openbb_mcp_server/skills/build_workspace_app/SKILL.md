@@ -1,3 +1,7 @@
+﻿---
+description: Build and Run OpenBB Workspace Applications
+---
+
 # Build and Run OpenBB Workspace Applications
 
 This guide covers the full lifecycle of building, running, and serving a custom

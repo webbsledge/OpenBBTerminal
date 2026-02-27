@@ -59,7 +59,7 @@ def test_create_mcp_server_customization(
 
     @fastapi_app.get("/test/dummy")
     def dummy_route():
-        """Dummy Route."""
+        """Handle the test dummy route request."""
 
     route = next(r for r in fastapi_app.routes if isinstance(r, APIRoute))
     route.openapi_extra = {"mcp_config": {"name": "my_dummy_tool"}}
@@ -104,6 +104,7 @@ def test_create_mcp_server_customization(
         subcategory="general",
         tool_name="my_dummy_tool",
         tool=mock_openapi_tool,
+        enabled=True,
     )
 
 
@@ -168,7 +169,14 @@ def test_create_mcp_server_tool_enable_disable(
         director=MagicMock(),
     )
     customize_components_func(enabled_http_route, enabled_tool)
-    assert enabled_tool.enabled
+    # Verify enabled=True was passed to register_tool for the enabled tool
+    # (the tool is renamed to enabled_category_tool1 by the path-based naming logic)
+    calls = mock_registry_instance.register_tool.call_args_list
+    enabled_call = next(
+        (c for c in calls if c.kwargs.get("category") == "enabled_category"), None
+    )
+    assert enabled_call is not None
+    assert enabled_call.kwargs["enabled"] is True
 
     # Test disabled tool
     disabled_http_route = HTTPRoute(path="/disabled_category/tool2", method="GET")
@@ -181,4 +189,9 @@ def test_create_mcp_server_tool_enable_disable(
         director=MagicMock(),
     )
     customize_components_func(disabled_http_route, disabled_tool)
-    assert not disabled_tool.enabled
+    calls = mock_registry_instance.register_tool.call_args_list
+    disabled_call = next(
+        (c for c in calls if c.kwargs.get("category") == "disabled_category"), None
+    )
+    assert disabled_call is not None
+    assert disabled_call.kwargs["enabled"] is False

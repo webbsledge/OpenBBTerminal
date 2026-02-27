@@ -199,16 +199,16 @@ def test_toggle_tools(tool_registry):
     assert result.action == "activated"
     assert set(result.successful) == {"tool1", "tool2"}
     assert result.failed == ["missing"]
-    assert tool1.enabled
-    assert tool2.enabled
+    assert tool_registry.is_enabled("tool1")
+    assert tool_registry.is_enabled("tool2")
 
     # Disable
     result = tool_registry.toggle_tools(["tool1"], enable=False)
     assert result.action == "deactivated"
     assert result.successful == ["tool1"]
     assert result.failed == []
-    assert not tool1.enabled
-    assert tool2.enabled  # Still enabled
+    assert not tool_registry.is_enabled("tool1")
+    assert tool_registry.is_enabled("tool2")  # Still enabled
 
     # Empty list
     result = tool_registry.toggle_tools([], enable=True)

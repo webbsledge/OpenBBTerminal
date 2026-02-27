@@ -1,3 +1,7 @@
+﻿---
+description: Configure and Build the OpenBB MCP Server
+---
+
 # Configure and Build the OpenBB MCP Server
 
 This guide covers installation, configuration, authentication, tool discovery,
@@ -147,6 +151,8 @@ OPENBB_MCP_SERVER_PROMPTS_FILE="/path/to/prompts.json"
 | `system_prompt_file` | `OPENBB_MCP_SYSTEM_PROMPT_FILE` | `str \| None` | `None` |
 | `server_prompts_file` | `OPENBB_MCP_SERVER_PROMPTS_FILE` | `str \| None` | `None` |
 | `default_skills_dir` | `OPENBB_MCP_DEFAULT_SKILLS_DIR` | `str \| None` | Built-in skills dir |
+| `skills_reload` | `OPENBB_MCP_SKILLS_RELOAD` | `bool` | `false` |
+| `skills_providers` | `OPENBB_MCP_SKILLS_PROVIDERS` | `list[str] \| None` | `None` |
 
 ### HTTP Transport
 
@@ -163,13 +169,6 @@ OPENBB_MCP_SERVER_PROMPTS_FILE="/path/to/prompts.json"
 | `on_duplicate_prompts` | `OPENBB_MCP_ON_DUPLICATE_PROMPTS` | `str \| None` | `None` |
 
 Options: `"warn"`, `"error"`, `"replace"`, `"ignore"`
-
-### Tag Filtering
-
-| Setting | Env Var | Type | Default |
-|---|---|---|---|
-| `include_tags` | `OPENBB_MCP_INCLUDE_TAGS` | `set[str] \| None` | `None` |
-| `exclude_tags` | `OPENBB_MCP_EXCLUDE_TAGS` | `set[str] \| None` | `None` |
 
 ### Module Exclusion
 
@@ -375,13 +374,18 @@ async def my_endpoint(symbol: str) -> OBBject:
     ...
 ```
 
-### 4. Bundled Skills (tag: `skill`)
+### 4. Bundled Skills (Resources)
 
-Markdown or plain text files in the skills directory. Loaded automatically
-at startup. Each file becomes a prompt with:
-- **name** — derived from the filename (without extension)
-- **description** — first heading or first line of the file
-- **arguments** — none (static content)
+Skill guides are exposed as MCP resources discoverable via `list_resources()`.
+Each skill is accessible at a `skill://<name>/SKILL.md` URI.
+
+```
+# Discover available skills
+list_resources()  # returns skill://develop_extension/SKILL.md, etc.
+
+# Read a specific skill
+read_resource("skill://configure_mcp_server/SKILL.md")
+```
 
 Custom skills directory:
 
@@ -394,6 +398,51 @@ Set to empty string to disable bundled skills:
 ```
 OPENBB_MCP_DEFAULT_SKILLS_DIR=""
 ```
+
+### Skills Reload
+
+Enable hot-reload of skill files without restarting the server (useful during development):
+
+```json
+{
+    "skills_reload": true
+}
+```
+
+Or via environment variable:
+
+```
+OPENBB_MCP_SKILLS_RELOAD=true
+```
+
+### Vendor Skills Providers
+
+Load skill directories from well-known vendor locations (e.g. `~/.claude/skills/`).
+Sets the `skills_providers` list in `mcp_settings.json`:
+
+```json
+{
+    "skills_providers": ["claude", "cursor"]
+}
+```
+
+Or via environment variable (comma-separated):
+
+```
+OPENBB_MCP_SKILLS_PROVIDERS="claude,cursor"
+```
+
+Supported provider names:
+
+| Name | Default Directory |
+|---|---|
+| `claude` | `~/.claude/skills/` |
+| `cursor` | `~/.cursor/skills/` |
+| `vscode` / `copilot` | `~/.copilot/skills/` |
+| `codex` | `/etc/codex/skills/` + `~/.codex/skills/` |
+| `gemini` | `~/.gemini/skills/` |
+| `goose` | `~/.config/agents/skills/` |
+| `opencode` | `~/.config/opencode/skills/` |
 
 ---
 

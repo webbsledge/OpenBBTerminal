@@ -20,6 +20,16 @@ from fastmcp.server.openapi import (
     OpenAPIResourceTemplate,
     OpenAPITool,
 )
+from fastmcp.server.providers.skills import (
+    ClaudeSkillsProvider,
+    CodexSkillsProvider,
+    CopilotSkillsProvider,
+    CursorSkillsProvider,
+    GeminiSkillsProvider,
+    GooseSkillsProvider,
+    OpenCodeSkillsProvider,
+    SkillsDirectoryProvider,
+)
 from fastmcp.utilities.json_schema import compress_schema
 from fastmcp.utilities.logging import get_logger
 from fastmcp.utilities.openapi import HTTPRoute
@@ -46,6 +56,17 @@ from openbb_mcp_server.utils.fastapi import (
 )
 
 logger = get_logger(__name__)
+
+_VENDOR_SKILLS_PROVIDERS = {
+    "claude": ClaudeSkillsProvider,
+    "cursor": CursorSkillsProvider,
+    "vscode": CopilotSkillsProvider,
+    "copilot": CopilotSkillsProvider,
+    "codex": CodexSkillsProvider,
+    "gemini": GeminiSkillsProvider,
+    "goose": GooseSkillsProvider,
+    "opencode": OpenCodeSkillsProvider,
+}
 
 
 def _extract_brief_description(full_description: str) -> str:
@@ -108,6 +129,195 @@ def _build_runtime_middleware() -> list:
             expose_headers=["Mcp-Session-Id"],
         )
     ]
+
+
+def _setup_file_system_prompt(mcp: FastMCP, settings: MCPSettings) -> None:
+    """Set up system prompt from a file and expose it as a prompt and resource."""
+    system_prompt_content = _read_system_prompt_file(settings.system_prompt_file)
+    if not system_prompt_content:
+        return
+
+    def system_prompt_func() -> str:
+        """Return the configured system prompt."""
+        return system_prompt_content
+
+    mcp.add_prompt(
+        FunctionPrompt.from_function(
+            system_prompt_func,
+            name="system_prompt",
+            description="This is the system prompt for the MCP Server."
+            + " If you are an agent connected to this server,"
+            + " please read this carefully to understand how to interact with, and utilize, the MCP features."
+            + " This prompt provides essential guidance and usage instructions"
+            + " for effective use of the tools and resources provided by this server.",
+            tags={"system"},
+        )
+    )
+
+    if not mcp.instructions:
+        mcp.instructions = system_prompt_content
+
+    @mcp.resource("resource://system_prompt")
+    def system_prompt_resource() -> str:
+        """Return the system prompt resource content."""
+        return system_prompt_func()
+
+
+def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> list:
+    """Load prompts from server_prompts_file, register them with mcp, and return the raw list."""
+    if not settings.server_prompts_file:
+        return []
+
+    try:
+        with open(settings.server_prompts_file, encoding="utf-8") as f:
+            prompts_json: list = json.load(f) or []
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Failed to load prompts from JSON file: %s", e)
+        return []
+
+    prompts_added: list = []
+    for prompt_def in prompts_json:
+        prompt_name = prompt_def.get("name", "")
+        if not prompt_name:
+            logger.error("Skipping prompt definition without a name: %s", prompt_def)
+            continue
+
+        prompt_description = prompt_def.get("description", "")
+        if not prompt_description:
+            logger.error(
+                "Skipping prompt definition without a description: %s", prompt_def
+            )
+            continue
+
+        prompt_content = prompt_def.get("content", "")
+        if not prompt_content:
+            logger.error("Skipping prompt definition without content: %s", prompt_def)
+            continue
+
+        if not isinstance(prompt_content, str):
+            logger.error(
+                "Skipping prompt definition with invalid content type. Expected string, got: %s",
+                prompt_def,
+            )
+            continue
+
+        prompt_arguments_def = prompt_def.get("arguments", [])
+        arguments: list = []
+        if prompt_arguments_def:
+            for arg in prompt_arguments_def:
+                try:
+                    validated_arg = ArgumentDefinitionModel(**arg).model_dump(
+                        exclude_none=True
+                    )
+                    arguments.append(
+                        PromptArgument(
+                            name=validated_arg["name"],
+                            description=validated_arg["description"],
+                            required="default" not in validated_arg,
+                        )
+                    )
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.error(
+                        "Skipping argument definition in server prompt, %s, due to error: %s\nDefinition: %s",
+                        prompt_name,
+                        e,
+                        arg,
+                    )
+                    continue
+
+        prompt_tags = prompt_def.get("tags", [])
+        tags = set(prompt_tags) if isinstance(prompt_tags, (list, set)) else set()
+        tags.add("server")
+        mcp.add_prompt(
+            StaticPrompt(
+                name=prompt_name,
+                description=prompt_description,
+                content=prompt_content,
+                arguments=arguments if arguments else None,
+                tags=tags,
+            )
+        )
+        prompts_added.append(prompt_name)
+
+    logger.info("Successfully added %d server prompts.", len(prompts_added))
+    return prompts_json
+
+
+def _add_inline_prompts(mcp: FastMCP, prompt_definitions: list) -> None:
+    """Register inline prompts from route configurations with mcp."""
+    inline_prompts_added: list = []
+    for prompt_def in prompt_definitions:
+        try:
+            prompt_name = prompt_def["name"]
+            prompt_description = prompt_def["description"]
+            prompt_content = prompt_def["content"]
+            prompt_arguments_def = prompt_def.get("arguments", [])
+            prompt_tags = prompt_def.get("tags", [])
+            tool = prompt_def.get("tool", "")
+
+            tags = set(prompt_tags) if isinstance(prompt_tags, (list, set)) else set()
+            tags.add("route-specific")
+            tags.add(tool)
+
+            arguments = [
+                PromptArgument(
+                    name=arg["name"],
+                    description=arg.get("description"),
+                    required="default" not in arg,
+                )
+                for arg in prompt_arguments_def
+            ]
+
+            mcp.add_prompt(
+                StaticPrompt(
+                    name=prompt_name,
+                    description=prompt_description,
+                    arguments=arguments,
+                    tags=tags,
+                    content=prompt_content,
+                )
+            )
+            inline_prompts_added.append(prompt_name)
+
+        except (KeyError, TypeError) as e:
+            logger.warning(
+                "Skipping invalid prompt definition due to error: %s\nDefinition: %s",
+                e,
+                prompt_def,
+            )
+            continue
+
+    if inline_prompts_added:
+        logger.info("Successfully added %d inline prompts.", len(inline_prompts_added))
+
+
+def _add_skills_default_prompt(mcp: FastMCP) -> None:
+    """Register a default skills-awareness system prompt when no file prompt is configured."""
+    _default_system_content = (
+        "This server includes bundled skill guides that teach you how to "
+        "use advanced OpenBB Platform capabilities. "
+        "Use list_resources() to discover available skills at skill://<name>/SKILL.md URIs."
+    )
+
+    def _default_system_prompt() -> str:
+        """Return default system prompt content."""
+        return _default_system_content
+
+    mcp.add_prompt(
+        FunctionPrompt.from_function(
+            _default_system_prompt,
+            name="system_prompt",
+            description=(
+                "System prompt with guidance on discovering and using this server's bundled skills and tools."
+            ),
+            tags={"system"},
+        )
+    )
+
+    if not mcp.instructions:
+        mcp.instructions = _default_system_content
+
+    logger.info("Added default system prompt with skill awareness nudge.")
 
 
 # pylint: disable=R0914,R0915
@@ -258,17 +468,14 @@ def create_mcp_server(
         # Enable/disable: per-route override first, then category defaults
         enable_override = mcp_cfg.get("enable")
         if isinstance(enable_override, bool):
-            if enable_override:
-                component.enable()
-            else:
-                component.disable()
+            should_enable = enable_override
         elif "all" in settings.default_tool_categories or any(
             tag in settings.default_tool_categories
             for tag in getattr(component, "tags", set())
         ):
-            component.enable()
+            should_enable = True
         else:
-            component.disable()
+            should_enable = False
 
         # Resource-specific mime type
         if isinstance(component, OpenAPIResource):
@@ -283,6 +490,7 @@ def create_mcp_server(
                 subcategory=subcategory,
                 tool_name=component.name,
                 tool=component,
+                enabled=should_enable,
             )
 
     # Extract httpx_client_kwargs from settings/kwargs if available
@@ -301,255 +509,57 @@ def create_mcp_server(
         **fastmcp_kwargs,
     )
 
+    # Sync initial enabled/disabled state to FastMCP v3 server-level visibility transforms
+    all_registered = set(tool_registry._by_name.keys())  # noqa: SLF001
+    initially_disabled = all_registered - tool_registry._enabled_names  # noqa: SLF001
+    if initially_disabled:
+        mcp.disable(names=initially_disabled)
+    tool_registry.set_mcp(mcp)
+
     # Add system prompt if configured
     if settings.system_prompt_file:
-        system_prompt_content = _read_system_prompt_file(settings.system_prompt_file)
-        if system_prompt_content:
-
-            def system_prompt_func() -> str:
-                """System prompt for the OpenBB MCP server."""
-                return system_prompt_content
-
-            mcp.add_prompt(
-                FunctionPrompt.from_function(
-                    system_prompt_func,
-                    name="system_prompt",
-                    description="This is the system prompt for the MCP Server."
-                    + " If you are an agent connected to this server,"
-                    + " please read this carefully to understand how to interact with, and utilize, the MCP features."
-                    + " This prompt provides essential guidance and usage instructions"
-                    + " for effective use of the tools and resources provided by this server.",
-                    tags={"system"},
-                )
-            )
-
-            # Also set as instructions so it is delivered during initialize.
-            if not mcp.instructions:
-                mcp.instructions = system_prompt_content
-
-            @mcp.resource("resource://system_prompt")
-            def system_prompt_resource() -> str:
-                """System prompt resource for the MCP Server."""
-                return system_prompt_func()
+        _setup_file_system_prompt(mcp, settings)
 
     # Load the prompts json file, if added to the settings configuration.
-    prompts_json: list = []
-
-    if settings.server_prompts_file:
-        try:
-            with open(settings.server_prompts_file, encoding="utf-8") as f:
-                prompts_json = json.load(f) or []
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error("Failed to load prompts from JSON file: %s", e)
-
-    if prompts_json:
-        prompts_added: list = []
-        for prompt_def in prompts_json:
-            prompt_name = prompt_def.get("name", "")
-
-            if not prompt_name:
-                logger.error(
-                    "Skipping prompt definition without a name: %s", prompt_def
-                )
-                continue
-
-            prompt_description = prompt_def.get("description", "")
-
-            if not prompt_description:
-                logger.error(
-                    "Skipping prompt definition without a description: %s",
-                    prompt_def,
-                )
-                continue
-
-            prompt_content = prompt_def.get("content", "")
-
-            if not prompt_content:
-                logger.error(
-                    "Skipping prompt definition without content: %s",
-                    prompt_def,
-                )
-                continue
-
-            if prompt_content and not isinstance(prompt_content, str):
-                logger.error(
-                    "Skipping prompt definition with invalid content type. Expected string, got: %s",
-                    prompt_def,
-                )
-                continue
-
-            prompt_arguments_def = prompt_def.get("arguments", [])
-            arguments: list = []
-
-            if prompt_arguments_def:
-                for arg in prompt_arguments_def:
-                    try:
-                        # Validate the argument definition
-                        validated_arg = ArgumentDefinitionModel(**arg).model_dump(
-                            exclude_none=True
-                        )
-                        arguments.append(
-                            PromptArgument(
-                                name=validated_arg["name"],
-                                description=validated_arg["description"],
-                                required="default" not in validated_arg,
-                            )
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Skipping argument definition in server prompt, %s, due to error: %s\nDefinition: %s",
-                            prompt_name,
-                            e,
-                            arg,
-                        )
-                        continue
-
-            prompt_tags = prompt_def.get("tags", [])
-            tags = set(prompt_tags) if isinstance(prompt_tags, (list, set)) else set()
-            tags.add("server")
-            static_prompt = StaticPrompt(
-                name=prompt_name,
-                description=prompt_description,
-                content=prompt_content,
-                arguments=arguments if arguments else None,
-                tags=tags,
-            )
-            mcp.add_prompt(static_prompt)
-            prompts_added.append(prompt_name)
-
-        logger.info("Successfully added %d server prompts.", len(prompts_added))
+    prompts_json = _add_prompts_from_json(mcp, settings)
 
     # Add inline prompts from route configurations
-    inline_prompts_added: list = []
-    for prompt_def in processed_data.prompt_definitions:
-        try:
-            prompt_name = prompt_def["name"]
-            prompt_description = prompt_def["description"]
-            prompt_content = prompt_def["content"]
-            prompt_arguments_def = prompt_def.get("arguments", [])
-            prompt_tags = prompt_def.get("tags", [])
-            tool = prompt_def.get("tool", "")
+    _add_inline_prompts(mcp, processed_data.prompt_definitions)
 
-            # Ensure tags are a set
-            tags = set(prompt_tags) if isinstance(prompt_tags, (list, set)) else set()
-            tags.add("route-specific")
-            tags.add(tool)
-
-            # Convert argument definitions to PromptArgument objects
-            arguments = [
-                PromptArgument(
-                    name=arg["name"],
-                    description=arg.get("description"),
-                    required="default" not in arg,
-                )
-                for arg in prompt_arguments_def
-            ]
-
-            # Create and register the static prompt
-            static_prompt = StaticPrompt(
-                name=prompt_name,
-                description=prompt_description,
-                arguments=arguments,
-                tags=tags,
-                content=prompt_content,
-                enabled=True,
-            )
-            mcp.add_prompt(static_prompt)
-            inline_prompts_added.append(prompt_name)
-
-        except (KeyError, TypeError) as e:
-            logger.warning(
-                "Skipping invalid prompt definition due to error: %s\nDefinition: %s",
-                e,
-                prompt_def,
-            )
-            continue
-
-    if inline_prompts_added:
-        logger.info("Successfully added %d inline prompts.", len(inline_prompts_added))
-
-    # Load bundled skill files from the default_skills_dir
-    skills_added: list = []
+    # Load bundled skills via SkillsDirectoryProvider
+    _bundled_skills_loaded = False
     if settings.default_skills_dir:
         skills_dir = Path(settings.default_skills_dir)
         if skills_dir.is_dir():
-            for skill_file in sorted(skills_dir.iterdir()):
-                if skill_file.suffix.lower() not in (".md", ".txt"):
-                    continue
-                if not skill_file.is_file():
-                    continue
-                try:
-                    content = skill_file.read_text(encoding="utf-8").strip()
-                    if not content:
-                        logger.warning("Skipping empty skill file: %s", skill_file.name)
-                        continue
+            mcp.add_provider(
+                SkillsDirectoryProvider(
+                    roots=skills_dir,
+                    reload=settings.skills_reload,
+                )
+            )
+            _bundled_skills_loaded = True
+            logger.info("Loaded bundled skills from '%s'", skills_dir)
 
-                    # Derive skill name from filename (e.g., develop_extension.md -> develop_extension)
-                    skill_name = skill_file.stem
-
-                    # Use the first heading or first non-empty line as the description
-                    first_line = ""
-                    for line in content.splitlines():
-                        stripped = line.strip().lstrip("#").strip()
-                        if stripped:
-                            first_line = stripped
-                            break
-                    skill_description = (
-                        first_line or f"Skill loaded from {skill_file.name}"
-                    )
-
-                    static_prompt = StaticPrompt(
-                        name=skill_name,
-                        description=skill_description,
-                        content=content,
-                        arguments=None,
-                        tags={"skill"},
-                    )
-                    mcp.add_prompt(static_prompt)
-                    skills_added.append(skill_name)
-                except Exception as e:  # pylint: disable=broad-except
-                    logger.error(
-                        "Failed to load skill file '%s': %s", skill_file.name, e
-                    )
-            if skills_added:
-                logger.info(
-                    "Successfully loaded %d skill(s): %s",
-                    len(skills_added),
-                    ", ".join(skills_added),
+    # Load user-configured vendor skill providers
+    if settings.skills_providers:
+        for provider_name in settings.skills_providers:
+            key = provider_name.lower().strip()
+            provider_cls = _VENDOR_SKILLS_PROVIDERS.get(key)
+            if provider_cls:
+                mcp.add_provider(provider_cls(reload=settings.skills_reload))
+                logger.info("Loaded vendor skills provider: '%s'", key)
+            else:
+                logger.warning(
+                    "Unknown skills provider '%s'. Supported: %s",
+                    key,
+                    ", ".join(_VENDOR_SKILLS_PROVIDERS),
                 )
 
-    # If skills were loaded and no custom system prompt is configured,
+    # If any skills were loaded and no custom system prompt is configured,
     # add a brief default system prompt nudging agents to discover them.
-    if skills_added and not settings.system_prompt_file:
-        skills_list = ", ".join(skills_added)
-        _default_system_content = (
-            "This server includes bundled skill guides that teach you how to "
-            "use advanced OpenBB Platform capabilities. "
-            "Use the 'list_prompts' tool to discover available prompts, "
-            "then 'execute_prompt' with a skill name to read its full content.\n\n"
-            f"Available skills: {skills_list}"
-        )
-
-        def _default_system_prompt() -> str:
-            """Default system prompt for the OpenBB MCP server."""
-            return _default_system_content
-
-        mcp.add_prompt(
-            FunctionPrompt.from_function(
-                _default_system_prompt,
-                name="system_prompt",
-                description=(
-                    "System prompt with guidance on discovering and using this server's bundled skills and tools."
-                ),
-                tags={"system"},
-            )
-        )
-
-        # Also set as instructions so it is delivered during initialize.
-        if not mcp.instructions:
-            mcp.instructions = _default_system_content
-
-        logger.info("Added default system prompt with skill awareness nudge.")
+    _skills_loaded = _bundled_skills_loaded or bool(settings.skills_providers)
+    if _skills_loaded and not settings.system_prompt_file:
+        _add_skills_default_prompt(mcp)
 
     # Admin/discovery tools if enabled
     if settings.enable_tool_discovery:
@@ -605,7 +615,7 @@ def create_mcp_server(
                 return [
                     ToolInfo(
                         name=name,
-                        active=tool.enabled,
+                        active=tool_registry.is_enabled(name),
                         description=_extract_brief_description(tool.description or ""),
                     )
                     for name, tool in sorted(tools_dict.items())
@@ -616,7 +626,7 @@ def create_mcp_server(
             return [
                 ToolInfo(
                     name=name,
-                    active=tool.enabled,
+                    active=tool_registry.is_enabled(name),
                     description=_extract_brief_description(tool.description or ""),
                 )
                 for name, tool in sorted(tools_dict.items())

@@ -150,16 +150,17 @@ the exact same operations available to REST clients.""",
         alias="OPENBB_MCP_DEPENDENCIES",
     )
 
-    include_tags: set[str] | None = Field(
-        default=None,
-        description="If provided, only components that match these tags will be exposed to clients",
-        alias="OPENBB_MCP_INCLUDE_TAGS",
+    skills_reload: bool = Field(
+        default=False,
+        description="If True, skills providers will reload skill files on every read (useful during development).",
+        alias="OPENBB_MCP_SKILLS_RELOAD",
     )
 
-    exclude_tags: set[str] | None = Field(
+    skills_providers: list[str] | None = Field(
         default=None,
-        description="If provided, components that match these tags will be excluded from the server",
-        alias="OPENBB_MCP_EXCLUDE_TAGS",
+        description="List of vendor skill provider short-names to load (e.g. ['claude', 'cursor']). "
+        "Supported: claude, cursor, vscode, copilot, codex, gemini, goose, opencode.",
+        alias="OPENBB_MCP_SKILLS_PROVIDERS",
     )
 
     module_exclusion_map: dict[str, str] | None = Field(
@@ -214,21 +215,13 @@ the exact same operations available to REST clients.""",
         "default_tool_categories",
         "allowed_tool_categories",
         "dependencies",
+        "skills_providers",
         mode="before",
     )
     @classmethod
     def _split_list(cls, v):
         if isinstance(v, str):
             return [part.strip() for part in v.split(",") if part.strip()]
-        return v
-
-    @field_validator("include_tags", "exclude_tags", mode="before")
-    @classmethod
-    def _split_set(cls, v):
-        if isinstance(v, str):
-            return {part.strip() for part in v.split(",") if part.strip()}
-        if isinstance(v, list):
-            return set(v)
         return v
 
     @field_validator("httpx_client_kwargs", "client_auth", "server_auth", mode="before")
@@ -263,8 +256,6 @@ the exact same operations available to REST clients.""",
             "resource_prefix_format": self.resource_prefix_format,
             "mask_error_details": self.mask_error_details,
             "dependencies": self.dependencies,
-            "include_tags": self.include_tags,
-            "exclude_tags": self.exclude_tags,
         }
 
         # Only include non-None values

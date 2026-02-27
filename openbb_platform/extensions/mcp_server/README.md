@@ -221,12 +221,16 @@ All settings in the `MCPSettings` model can be configured via the `mcp_settings.
 | `name` | `OPENBB_MCP_NAME` | string | `"OpenBB MCP"` | Server name. |
 | `description` | `OPENBB_MCP_DESCRIPTION` | string | | Server description. |
 | `version` | `OPENBB_MCP_VERSION` | string | `None` | Server version. |
+| `instructions` | `OPENBB_MCP_INSTRUCTIONS` | string | `None` | Server instructions sent during the MCP `initialize` handshake. Auto-populated from system prompt if not set. |
 | `default_tool_categories` | `OPENBB_MCP_DEFAULT_TOOL_CATEGORIES` | list[string] | `["all"]` | Default active tool categories on startup. |
 | `allowed_tool_categories` | `OPENBB_MCP_ALLOWED_TOOL_CATEGORIES` | list[string] | `None` | Restricts available tool categories to this list. |
 | `enable_tool_discovery` | `OPENBB_MCP_ENABLE_TOOL_DISCOVERY` | boolean | `True` | Enable tool discovery. |
 | `describe_responses` | `OPENBB_MCP_DESCRIBE_RESPONSES` | boolean | `False` | Include response types in tool descriptions. |
 | `system_prompt_file` | `OPENBB_MCP_SYSTEM_PROMPT_FILE` | string | `None` | Path to a text file for the system prompt. |
 | `server_prompts_file` | `OPENBB_MCP_SERVER_PROMPTS_FILE` | string | `None` | Path to a JSON file with a list of server prompt definitions. |
+| `default_skills_dir` | `OPENBB_MCP_DEFAULT_SKILLS_DIR` | string | *(bundled skills dir)* | Path to a directory of bundled skill files. Set to `null` to disable. |
+| `skills_reload` | `OPENBB_MCP_SKILLS_RELOAD` | boolean | `False` | Reload skill files on every read (useful during development). |
+| `skills_providers` | `OPENBB_MCP_SKILLS_PROVIDERS` | list[string] | `None` | Vendor skill provider short-names to load (e.g. `["claude", "cursor"]`). |
 | `cache_expiration_seconds` | `OPENBB_MCP_CACHE_EXPIRATION_SECONDS` | float | `None` | Cache expiration time in seconds. `0` to disable. |
 | `on_duplicate_tools` | `OPENBB_MCP_ON_DUPLICATE_TOOLS` | string | `None` | Behavior for duplicate tools (`warn`, `error`, `replace`, `ignore`). |
 | `on_duplicate_resources` | `OPENBB_MCP_ON_DUPLICATE_RESOURCES` | string | `None` | Behavior for duplicate resources. |
@@ -234,8 +238,6 @@ All settings in the `MCPSettings` model can be configured via the `mcp_settings.
 | `resource_prefix_format` | `OPENBB_MCP_RESOURCE_PREFIX_FORMAT` | string | `None` | Format for resource URI prefixes (`protocol` or `path`). |
 | `mask_error_details` | `OPENBB_MCP_MASK_ERROR_DETAILS` | boolean | `None` | Mask error details from user functions. |
 | `dependencies` | `OPENBB_MCP_DEPENDENCIES` | list[string] | `None` | List of dependencies to install. |
-| `include_tags` | `OPENBB_MCP_INCLUDE_TAGS` | set[string] | `None` | Only expose components with these tags. |
-| `exclude_tags` | `OPENBB_MCP_EXCLUDE_TAGS` | set[string] | `None` | Exclude components with these tags. |
 | `module_exclusion_map` | `OPENBB_MCP_MODULE_EXCLUSION_MAP` | dict[str, str] | `None` | Map API tags to Python module names for exclusion. |
 | `uvicorn_config` | `OPENBB_MCP_UVICORN_CONFIG` | dict | `{"host": "127.0.0.1", "port": "8001"}` | Configuration for the Uvicorn server. |
 | `httpx_client_kwargs` | `OPENBB_MCP_HTTPX_CLIENT_KWARGS` | dict | `{}` | Configuration for the async httpx client. |
@@ -308,6 +310,54 @@ It should be a valid, relative or absolute, path to a `.txt` file.
 The system prompt is made available as a resource, `resource://system_prompt`, and is discoverable from the, `list_prompts`, tool.
 
 Clients will not automatically use the system prompt, instruct them to use it as part of their onboarding and orientation.
+
+## Skills
+
+The server ships with a set of bundled **skill guides** — Markdown documents that teach an agent how to perform complex multi-step tasks with the OpenBB Platform.
+Skills are exposed as MCP resources and are discoverable via `list_resources()`.
+
+Each skill is available at a URI of the form `skill://<name>/SKILL.md`.
+
+### Bundled Skills
+
+| Skill | URI | Description |
+|---|---|---|
+| `develop_extension` | `skill://develop_extension/SKILL.md` | Step-by-step guide for building an OpenBB Platform extension. |
+| `build_workspace_app` | `skill://build_workspace_app/SKILL.md` | Guide for building and running OpenBB Workspace applications. |
+| `configure_mcp_server` | `skill://configure_mcp_server/SKILL.md` | Reference for configuring and customising the OpenBB MCP Server. |
+| `work_with_server` | `skill://work_with_server/SKILL.md` | Practical guide for working with the OpenBB MCP Server as an agent. |
+
+When any skills are loaded and no `system_prompt_file` is configured, the server automatically adds a brief default system prompt that nudges the agent to discover available skills.
+
+### Skill Settings
+
+| Setting | Description |
+|---|---|
+| `default_skills_dir` | Path to the bundled skills directory. Set to `null` or an empty string to disable loading the built-in skills. |
+| `skills_reload` | Set to `true` to reload skill files from disk on every read — useful when authoring or iterating on skill content. |
+| `skills_providers` | A list of vendor skill provider short-names. Supported values: `claude`, `cursor`, `vscode`, `copilot`, `codex`, `gemini`, `goose`, `opencode`. |
+
+**Example — disable bundled skills:**
+
+```json
+{
+  "default_skills_dir": null
+}
+```
+
+**Example — load vendor skill providers:**
+
+```json
+{
+  "skills_providers": ["claude", "cursor"]
+}
+```
+
+**Example — enable skill reload during development:**
+
+```env
+OPENBB_MCP_SKILLS_RELOAD=true
+```
 
 ## Server Prompts
 

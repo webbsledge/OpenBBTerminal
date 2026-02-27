@@ -3,6 +3,7 @@
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastmcp.server.openapi import OpenAPITool
 
@@ -11,19 +12,50 @@ from openbb_mcp_server.models.tools import ToggleResult
 
 @dataclass
 class ToolRegistry:
-    """Keeps track of categories, subcategories and tool instances."""
+    """Keeps track of categories, subcategories and tool instances.
+
+    In FastMCP v3, enabled/disabled state is managed via server-level
+    visibility transforms (``mcp.enable()`` / ``mcp.disable()``).  The
+    registry therefore maintains its own ``_enabled_names`` set as the
+    source of truth for the admin discovery tools, and synchronises
+    changes back to the FastMCP server through ``_mcp``.
+    """
 
     _by_category: dict[str, dict[str, dict[str, OpenAPITool]]] = field(
         default_factory=lambda: defaultdict(lambda: defaultdict(dict))
     )
     _by_name: dict[str, OpenAPITool] = field(default_factory=dict)
+    _enabled_names: set[str] = field(default_factory=set)
+    _mcp: Any = field(default=None)
 
     def register_tool(
-        self, *, category: str, subcategory: str, tool_name: str, tool: OpenAPITool
+        self,
+        *,
+        category: str,
+        subcategory: str,
+        tool_name: str,
+        tool: OpenAPITool,
+        enabled: bool = True,
     ) -> None:
         """Register a tool in the registry."""
         self._by_category[category][subcategory][tool_name] = tool
         self._by_name[tool_name] = tool
+        if enabled:
+            self._enabled_names.add(tool_name)
+        else:
+            self._enabled_names.discard(tool_name)
+
+    def set_mcp(self, mcp: Any) -> None:
+        """Attach the FastMCP server instance for live enable/disable syncing."""
+        self._mcp = mcp
+
+    def initialize_enabled(self, enabled_names: set[str]) -> None:
+        """Overwrite the enabled set (called once after server creation)."""
+        self._enabled_names = set(enabled_names)
+
+    def is_enabled(self, tool_name: str) -> bool:
+        """Return True if the tool is currently enabled."""
+        return tool_name in self._enabled_names
 
     def get_categories(self) -> Mapping[str, Mapping[str, Mapping[str, OpenAPITool]]]:
         """Get immutable view of all categories and their tools."""
@@ -57,12 +89,22 @@ class ToolRegistry:
         successful, failed = [], []
 
         for name in tool_names:
-            tool = self._by_name.get(name)
-            if tool:
-                (tool.enable if enable else tool.disable)()
+            if name in self._by_name:
+                if enable:
+                    self._enabled_names.add(name)
+                else:
+                    self._enabled_names.discard(name)
                 successful.append(name)
             else:
                 failed.append(name)
+
+        # Sync with FastMCP v3 server-level visibility transforms
+        if self._mcp and successful:
+            names_set = set(successful)
+            if enable:
+                self._mcp.enable(names=names_set)
+            else:
+                self._mcp.disable(names=names_set)
 
         action = "activated" if enable else "deactivated"
         parts: list[str] = []

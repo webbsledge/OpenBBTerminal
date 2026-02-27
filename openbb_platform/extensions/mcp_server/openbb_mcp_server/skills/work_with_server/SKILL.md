@@ -1,3 +1,7 @@
+﻿---
+description: How to work with the OpenBB MCP Server
+---
+
 # Working With the OpenBB MCP Server
 
 This guide explains how to call tools, interpret responses, discover
@@ -389,7 +393,6 @@ Prompts with arguments substitute the provided values into the template.
 | `system` | System prompt file | Server-wide context and instructions |
 | `server` | Server prompts JSON | Reusable analysis frameworks |
 | `route-specific` | Inline on API routes | Endpoint usage guides |
-| `skill` | Bundled `.md` files | Comprehensive developer guides |
 
 ---
 
@@ -565,6 +568,43 @@ is always returned.
 
 ---
 
+## Working With Skills
+
+Skills are MCP resources exposed at `skill://<name>/SKILL.md` URIs. Discover
+and read them via the standard MCP resource methods.
+
+### Discover Available Skills
+
+Call `list_resources()` (no arguments):
+
+```json
+[
+    {"uri": "skill://develop_extension/SKILL.md", "name": "develop_extension"},
+    {"uri": "skill://build_workspace_app/SKILL.md", "name": "build_workspace_app"},
+    {"uri": "skill://configure_mcp_server/SKILL.md", "name": "configure_mcp_server"},
+    {"uri": "skill://work_with_server/SKILL.md", "name": "work_with_server"}
+]
+```
+
+### Read a Skill
+
+Call `read_resource()` with the skill URI:
+
+```json
+// Input
+{"uri": "skill://develop_extension/SKILL.md"}
+
+// Output — full Markdown content of the skill guide
+```
+
+### Supporting Files
+
+Skill directories can contain additional supporting files (e.g. templates,
+examples). Reference the skill manifest at `skill://<name>/_manifest` to
+discover any supporting files packaged alongside the main `SKILL.md`.
+
+---
+
 ## Quick Reference
 
 ### Admin Tools (Discovery)
@@ -575,13 +615,6 @@ is always returned.
 | `available_tools` | `category`, `subcategory?` | List of tools with active status and descriptions |
 | `activate_tools` | `tool_names: list` | Status message |
 | `deactivate_tools` | `tool_names: list` | Status message |
-
-### Prompt Tools
-
-| Tool | Input | Returns |
-|---|---|---|
-| `list_prompts` | *(none)* | List of prompts with tags and argument definitions |
-| `execute_prompt` | `prompt_name`, `arguments?` | Rendered prompt content |
 
 ### OBBject Response Structure
 
