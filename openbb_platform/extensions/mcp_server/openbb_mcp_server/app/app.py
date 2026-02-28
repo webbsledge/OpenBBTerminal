@@ -1,6 +1,6 @@
 """OpenBB MCP Server."""
 
-# pylint: disable=R0912, W0212
+# pylint: disable=C0302, R0912, W0212
 
 import asyncio
 import json
