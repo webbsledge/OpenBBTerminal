@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
-from fastmcp.server.openapi import OpenAPITool
+from fastmcp.server.providers.openapi import OpenAPITool
 from fastmcp.utilities.openapi import HTTPRoute
 from openbb_mcp_server.app.app import (
     _extract_brief_description,

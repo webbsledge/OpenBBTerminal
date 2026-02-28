@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
-from fastmcp.prompts.prompt import FunctionPrompt
+from fastmcp.prompts.function_prompt import FunctionPrompt
 from openbb_mcp_server.app.app import _VENDOR_SKILLS_PROVIDERS, create_mcp_server
 from openbb_mcp_server.models.settings import MCPSettings
 

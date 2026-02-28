@@ -138,6 +138,128 @@ from openbb_core.provider.abstract.query_params import QueryParams
 from pydantic import Field
 ```
 
+### HTTP Requests — Required Utilities
+
+**IMPORTANT:** All HTTP requests inside fetchers and utility helpers **must** use the built-in
+utilities from `openbb_core.provider.utils.helpers`. Do **not** create raw
+`requests`, `aiohttp`, or `httpx` clients from scratch. The built-in helpers
+apply the user's configured HTTP settings (proxy, timeout, user-agent, etc.)
+from `system_settings.json` automatically.
+
+#### Building Query Strings
+
+Convert a QueryParams model to a URL query string, optionally excluding
+parameters that should not appear in the URL:
+
+```python
+from openbb_core.provider.utils.helpers import get_querystring
+
+query_string = get_querystring(query.model_dump(), ["interval", "provider"])
+url = f"https://api.example.com/data?{query_string}"
+```
+
+`model_dump()` strips `None` values automatically. Pass parameter names to
+exclude in the second argument as a list (use `[]` if nothing to exclude).
+
+#### Synchronous Requests
+
+For use inside `extract_data` (sync fetchers):
+
+```python
+from openbb_core.provider.utils import make_request
+
+# Returns a requests.Response object
+response = make_request(url, headers={"Authorization": f"Bearer {api_key}"})
+data = response.json()
+```
+
+All `requests.get`/`requests.post` keyword arguments are passed through.
+
+If you need a session object for multiple requests:
+
+```python
+from openbb_core.provider.utils.helpers import get_requests_session
+
+session = get_requests_session()
+response = session.get(url)
+```
+
+#### Asynchronous Requests (Preferred)
+
+For use inside `aextract_data` (async fetchers). **Always prefer async.**
+
+**Single URL** — returns parsed JSON by default:
+
+```python
+from openbb_core.provider.utils.helpers import amake_request
+
+data = await amake_request(url)  # returns dict (parsed JSON)
+```
+
+**Multiple URLs** — downloads concurrently and returns a list:
+
+```python
+from openbb_core.provider.utils.helpers import amake_requests
+
+urls = [f"https://api.example.com/data/{s}" for s in symbols]
+all_data = await amake_requests(urls)  # returns list[dict]
+```
+
+**Custom response handling (e.g., CSV):** Both `amake_request` and
+`amake_requests` default to parsing JSON. For non-JSON content (CSV, text,
+binary), pass a `response_callback`:
+
+```python
+from io import StringIO
+from typing import Any
+from pandas import read_csv
+from openbb_core.provider.utils.helpers import amake_request
+
+results: list[dict] = []
+
+async def csv_callback(response, _: Any):
+    """Parse CSV response into list of dicts."""
+    text = await response.text()
+    df = read_csv(StringIO(text))
+    results.extend(df.to_dict("records"))
+
+await amake_request(url, response_callback=csv_callback)
+# results now contains the parsed rows
+```
+
+For CSV files with header rows to skip, pass `skiprows` to `read_csv`:
+
+```python
+async def csv_callback(response, _: Any):
+    text = await response.text()
+    df = read_csv(StringIO(text), skiprows=3)
+    results.extend(df.to_dict("records"))
+```
+
+**Async session object** — if you need a raw `aiohttp.ClientSession`:
+
+```python
+from openbb_core.provider.utils.helpers import get_async_requests_session
+
+async with await get_async_requests_session() as session:
+    async with session.get(url) as response:
+        if response.status != 200:
+            raise OpenBBError(f"Failed: {response.status} -> {response.reason}")
+        data = await response.json()
+```
+
+#### Summary: Which Helper to Use
+
+| Scenario | Function | Module |
+|---|---|---|
+| Build a query string | `get_querystring()` | `openbb_core.provider.utils.helpers` |
+| Sync single request | `make_request()` | `openbb_core.provider.utils` |
+| Sync session | `get_requests_session()` | `openbb_core.provider.utils.helpers` |
+| Async single request (JSON) | `amake_request()` | `openbb_core.provider.utils.helpers` |
+| Async multiple URLs (JSON) | `amake_requests()` | `openbb_core.provider.utils.helpers` |
+| Async single/multi (CSV/text) | `amake_request()` + `response_callback` | `openbb_core.provider.utils.helpers` |
+| Async raw session | `get_async_requests_session()` | `openbb_core.provider.utils.helpers` |
+
 ### Using Standard Models (Multi-Provider Endpoints)
 
 To plug into existing endpoints that other providers already serve (like `EquityHistorical`),
@@ -400,7 +522,7 @@ class MyTools:
 
 ---
 
-## Phase 8 — Install and Test
+## Phase 8 — Install, Build, and Test
 
 ### Install in Development Mode
 
@@ -411,6 +533,41 @@ pip install -e ".[dev]"
 ```
 
 This registers the entry points so OpenBB discovers your extension immediately.
+
+### Build Static Assets with `openbb-build`
+
+**CRITICAL:** After installing a new extension, or after making changes to any
+of the following, you **must** run `openbb-build` before using the Python
+interface (`obb.<router>.<command>(...)`):
+
+- **Model definitions** — `QueryParams` or `Data` classes (field names, types,
+  defaults, descriptions)
+- **Provider registration** — changes to `fetcher_dict` keys, adding/removing
+  fetchers
+- **Router commands** — adding, removing, or renaming `@router.command()`
+  endpoints
+- **Entry points** — changes to `pyproject.toml` plugin entries
+- **Any importable item in the registration chain** — the `Provider(...)`
+  instance, router module, or model module paths
+
+You do **not** need to re-run `openbb-build` when changing:
+
+- Logic inside `extract_data` / `aextract_data` / `transform_data` /
+  `transform_query` static methods (the Fetcher method bodies)
+- Utility/helper functions
+- Internal implementation details that don't affect the public schema
+
+```
+openbb-build
+```
+
+This regenerates the static assets (type stubs, package interface, provider
+maps) that the Python interface relies on. Without this step, new or modified
+commands will not appear on the `obb` object and calls will fail.
+
+**When running as an API server** (e.g., via `uvicorn` or the MCP server),
+static assets are **not used** — the API discovers extensions dynamically at
+startup. You do not need to run `openbb-build` for API-only usage.
 
 ### Verify Installation
 
@@ -454,4 +611,6 @@ When a user asks "Build me an application that does X":
 8. **Add dependencies** — Add any third-party packages to `[tool.poetry.dependencies]`
    in `pyproject.toml`.
 9. **Install** — Run `pip install -e ".[dev]"` from the project root.
-10. **Test** — Verify the commands work, then write tests.
+10. **Build** — Run `openbb-build` to regenerate static assets for the Python
+    interface. Skip this step if only using the API server.
+11. **Test** — Verify the commands work, then write tests.

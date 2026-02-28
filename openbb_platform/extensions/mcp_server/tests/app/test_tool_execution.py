@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
-from fastmcp.server.openapi import OpenAPITool
+from fastmcp.server.providers.openapi import OpenAPITool
 from fastmcp.utilities.openapi import HTTPRoute
 from mcp.types import TextContent
 from openbb_mcp_server.app.app import create_mcp_server

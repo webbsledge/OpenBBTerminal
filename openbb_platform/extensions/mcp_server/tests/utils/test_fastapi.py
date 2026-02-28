@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
-from fastmcp.server.openapi import MCPType
+from fastmcp.server.providers.openapi import MCPType
 from openbb_mcp_server.models.settings import MCPSettings
 from openbb_mcp_server.utils.fastapi import (
     _create_prompt_definitions_for_route,

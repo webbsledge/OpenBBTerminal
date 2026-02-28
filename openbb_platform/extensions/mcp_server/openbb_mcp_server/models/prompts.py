@@ -3,7 +3,7 @@
 from typing import Any
 
 from fastmcp.exceptions import PromptError
-from fastmcp.prompts.prompt import Prompt
+from fastmcp.prompts import Prompt
 from mcp.types import PromptMessage, TextContent
 
 

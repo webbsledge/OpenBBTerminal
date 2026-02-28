@@ -4,7 +4,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from fastmcp.server.openapi import OpenAPITool
+from fastmcp.server.providers.openapi import OpenAPITool
 from fastmcp.utilities.openapi import HTTPRoute
 from openbb_mcp_server.models.registry import ToolRegistry
 from openbb_mcp_server.models.tools import ToggleResult

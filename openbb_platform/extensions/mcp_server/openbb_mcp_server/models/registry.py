@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastmcp.server.openapi import OpenAPITool
+from fastmcp.server.providers.openapi import OpenAPITool
 
 from openbb_mcp_server.models.tools import ToggleResult
 
