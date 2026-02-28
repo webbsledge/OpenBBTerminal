@@ -655,11 +655,10 @@ def create_mcp_server(
     @mcp.tool(tags={"prompt"})
     async def list_prompts() -> list:
         """List all available prompts."""
-        prompts = await mcp.get_prompts()
+        prompts = await mcp.list_prompts()
 
         return [
-            {"name": p.name, "tags": p.tags, "arguments": p.arguments}
-            for p in prompts.values()
+            {"name": p.name, "tags": p.tags, "arguments": p.arguments} for p in prompts
         ]
 
     @mcp.tool(tags={"prompt"})
@@ -704,15 +703,52 @@ def create_mcp_server(
                 ):
                     processed_args[arg_name] = arg_def["default"]
 
-            return await mcp._prompt_manager.render_prompt(  # pylint: disable=protected-access
+            return await mcp.render_prompt(
                 name=prompt_name, arguments=processed_args
             )  # type: ignore
 
-        return (
-            await mcp._prompt_manager.render_prompt(  # pylint: disable=protected-access
-                name=prompt_name, arguments=arguments
-            )
+        return await mcp.render_prompt(
+            name=prompt_name, arguments=arguments
         )  # type: ignore
+
+    # Resource discovery tools
+    @mcp.tool(tags={"resource"})
+    async def list_resources() -> list:
+        """List all available MCP resources.
+
+        Returns a list of resource metadata including URIs, names,
+        descriptions, and MIME types. Use read_resource to fetch content.
+        """
+        resources = await mcp.list_resources()
+        return [
+            {
+                "uri": str(r.uri),
+                "name": r.name,
+                "description": r.description,
+                "mime_type": r.mime_type,
+            }
+            for r in resources
+        ]
+
+    @mcp.tool(tags={"resource"})
+    async def read_resource(
+        uri: Annotated[
+            str,
+            Field(
+                description="The URI of the resource to read (e.g. 'resource://system_prompt' or 'skill://develop_extension/SKILL.md')."
+            ),
+        ],
+    ) -> list:
+        """Read the content of a specific MCP resource by URI."""
+        result = await mcp.read_resource(uri)
+        return [
+            {
+                "uri": uri,
+                "mime_type": c.mime_type or "text/plain",
+                "text": c.content if isinstance(c.content, str) else None,
+            }
+            for c in result.contents
+        ]
 
     return mcp
 

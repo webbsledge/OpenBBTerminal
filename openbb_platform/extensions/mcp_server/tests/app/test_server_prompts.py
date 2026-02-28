@@ -192,9 +192,8 @@ async def test_execute_prompt_tool(
     mock_tool_registry.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
-    prompt_manager_mock = MagicMock()
-    prompt_manager_mock.render_prompt = AsyncMock()
-    mock_mcp_instance._prompt_manager = prompt_manager_mock
+    render_prompt_mock = AsyncMock()
+    mock_mcp_instance.render_prompt = render_prompt_mock
     mock_from_fastapi.return_value = mock_mcp_instance
 
     # We need to capture the function that gets decorated
@@ -221,7 +220,7 @@ async def test_execute_prompt_tool(
     await execute_prompt_func(
         prompt_name="test_prompt_with_args", arguments={"arg1": "world"}
     )
-    mock_mcp_instance._prompt_manager.render_prompt.assert_called_with(
+    mock_mcp_instance.render_prompt.assert_called_with(
         name="test_prompt_with_args",
         arguments={"arg1": "world", "arg2": "default_value"},
     )
@@ -231,7 +230,7 @@ async def test_execute_prompt_tool(
         prompt_name="test_prompt_with_args",
         arguments={"arg1": "world", "arg2": "new_value"},
     )
-    mock_mcp_instance._prompt_manager.render_prompt.assert_called_with(
+    mock_mcp_instance.render_prompt.assert_called_with(
         name="test_prompt_with_args",
         arguments={"arg1": "world", "arg2": "new_value"},
     )

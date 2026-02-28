@@ -79,8 +79,7 @@ def _build_server(
     mock_processed_data.prompt_definitions = prompts_json or []
 
     mock_mcp_instance = MagicMock()
-    mock_mcp_instance._prompt_manager = MagicMock()
-    mock_mcp_instance._prompt_manager.render_prompt = AsyncMock()
+    mock_mcp_instance.render_prompt = AsyncMock()
 
     decorated = _capture_decorated_tools(mock_mcp_instance)
 
@@ -288,12 +287,12 @@ class TestListPrompts:
         settings = MCPSettings()  # type: ignore
         mock_mcp, decorated, _ = _build_server(settings)
 
-        # Simulate mcp.get_prompts() returning a dict of prompt objects
+        # Simulate mcp.list_prompts() returning a list of prompt objects
         mock_prompt = MagicMock()
         mock_prompt.name = "test_prompt"
         mock_prompt.tags = {"server"}
         mock_prompt.arguments = [{"name": "arg1", "type": "str"}]
-        mock_mcp.get_prompts = AsyncMock(return_value={"test_prompt": mock_prompt})
+        mock_mcp.list_prompts = AsyncMock(return_value=[mock_prompt])
 
         result = await decorated["list_prompts"]()
         assert len(result) == 1
@@ -305,7 +304,7 @@ class TestListPrompts:
         """Return empty list when no prompts are registered."""
         settings = MCPSettings()  # type: ignore
         mock_mcp, decorated, _ = _build_server(settings)
-        mock_mcp.get_prompts = AsyncMock(return_value={})
+        mock_mcp.list_prompts = AsyncMock(return_value=[])
 
         result = await decorated["list_prompts"]()
         assert result == []
@@ -332,7 +331,7 @@ class TestExecutePrompt:
         await decorated["execute_prompt"](
             prompt_name="my_prompt", arguments={"name": "AAPL"}
         )
-        mock_mcp._prompt_manager.render_prompt.assert_called_with(
+        mock_mcp.render_prompt.assert_called_with(
             name="my_prompt",
             arguments={"name": "AAPL", "aspect": "fundamentals"},
         )
@@ -356,7 +355,7 @@ class TestExecutePrompt:
             prompt_name="my_prompt",
             arguments={"name": "AAPL", "aspect": "technicals"},
         )
-        mock_mcp._prompt_manager.render_prompt.assert_called_with(
+        mock_mcp.render_prompt.assert_called_with(
             name="my_prompt",
             arguments={"name": "AAPL", "aspect": "technicals"},
         )
@@ -368,9 +367,7 @@ class TestExecutePrompt:
         mock_mcp, decorated, _ = _build_server(settings)
 
         await decorated["execute_prompt"](prompt_name="unknown", arguments={"x": 1})
-        mock_mcp._prompt_manager.render_prompt.assert_called_with(
-            name="unknown", arguments={"x": 1}
-        )
+        mock_mcp.render_prompt.assert_called_with(name="unknown", arguments={"x": 1})
 
 
 # ===================================================================
