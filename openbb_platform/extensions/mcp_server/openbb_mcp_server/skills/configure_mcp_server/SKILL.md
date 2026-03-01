@@ -1,5 +1,6 @@
 ﻿---
-description: Configure and Build the OpenBB MCP Server
+name: configure_mcp_server
+description: This guide covers installation, configuration, authentication, tool discovery, prompt management, and client integration for `openbb-mcp-server`.
 ---
 
 # Configure and Build the OpenBB MCP Server

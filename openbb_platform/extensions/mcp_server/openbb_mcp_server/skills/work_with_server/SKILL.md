@@ -1,5 +1,6 @@
 ﻿---
-description: How to work with the OpenBB MCP Server
+name: work_with_server
+description: This guide explains how to call tools, interpret responses, discover capabilities, use prompts, and handle errors when interacting with an OpenBB MCP server.
 ---
 
 # Working With the OpenBB MCP Server

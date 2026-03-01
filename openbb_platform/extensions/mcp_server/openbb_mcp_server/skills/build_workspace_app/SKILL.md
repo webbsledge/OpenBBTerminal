@@ -1,5 +1,6 @@
 ﻿---
-description: Build and Run OpenBB Workspace Applications
+name: build_workspace_app
+description: This guide covers the full lifecycle of building, running, and serving a custom OpenBB Workspace application from an extension project scaffolded by `openbb-cookiecutter`. It assumes the project shell already exists (see the `develop_extension` skill for scaffolding instructions).
 ---
 
 # Build and Run OpenBB Workspace Applications

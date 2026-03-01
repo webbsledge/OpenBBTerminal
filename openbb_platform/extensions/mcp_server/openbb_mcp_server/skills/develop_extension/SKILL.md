@@ -1,5 +1,6 @@
 ﻿---
-description: Build an OpenBB Platform Extension from scratch
+name: develop_extension
+description: This is a complete guide for creating a new OpenBB Platform extension from scratch. Follow every phase in order. When the user says "build me an application that does X", use this guide to scaffold, implement, install, and verify the extension.
 ---
 
 # Build an OpenBB Platform Extension
