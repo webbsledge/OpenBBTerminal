@@ -25,13 +25,13 @@ def _add_provider_calls(mock_mcp):
     return mock_mcp.add_provider.call_args_list
 
 
-def _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes):
+def _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes):
     mock_processed_data = MagicMock()
     mock_processed_data.route_lookup = {}
     mock_processed_data.route_maps = []
     mock_processed_data.prompt_definitions = []
     mock_process_routes.return_value = mock_processed_data
-    mock_tool_registry.return_value = MagicMock()
+    mock_category_index.return_value = MagicMock()
     mock_mcp = MagicMock()
     mock_mcp.instructions = None
     mock_from_fastapi.return_value = mock_mcp
@@ -44,10 +44,10 @@ def _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes):
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_skills_directory_provider_called(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """When default_skills_dir is a valid directory, add_provider is called with SkillsDirectoryProvider."""
     from fastmcp.server.providers.skills import SkillsDirectoryProvider
@@ -56,7 +56,7 @@ def test_skills_directory_provider_called(
     skills_dir.mkdir()
 
     settings = MCPSettings(default_skills_dir=str(skills_dir))  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -67,10 +67,10 @@ def test_skills_directory_provider_called(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_skills_reload_passed_to_provider(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """skills_reload=True is forwarded to SkillsDirectoryProvider."""
     from fastmcp.server.providers.skills import SkillsDirectoryProvider
@@ -79,7 +79,7 @@ def test_skills_reload_passed_to_provider(
     skills_dir.mkdir()
 
     settings = MCPSettings(default_skills_dir=str(skills_dir), skills_reload=True)  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -90,14 +90,14 @@ def test_skills_reload_passed_to_provider(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_no_provider_when_skills_dir_is_none(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """No add_provider call is made when default_skills_dir is None."""
     settings = MCPSettings(default_skills_dir=None)  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -105,14 +105,14 @@ def test_no_provider_when_skills_dir_is_none(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_no_provider_when_skills_dir_missing(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """No add_provider call is made when the skills directory does not exist."""
     settings = MCPSettings(default_skills_dir=str(tmp_path / "nonexistent"))  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -140,16 +140,16 @@ def test_vendor_skills_provider_map_contains_expected_keys():
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_vendor_provider_added(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """When skills_providers is set, the corresponding vendor provider is registered."""
     from fastmcp.server.providers.skills import ClaudeSkillsProvider
 
     settings = MCPSettings(default_skills_dir=None, skills_providers=["claude"])  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -159,10 +159,10 @@ def test_vendor_provider_added(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_multiple_vendor_providers_added(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """Multiple vendor provider names result in multiple add_provider calls."""
     from fastmcp.server.providers.skills import (
@@ -171,7 +171,7 @@ def test_multiple_vendor_providers_added(
     )
 
     settings = MCPSettings(default_skills_dir=None, skills_providers=["claude", "cursor"])  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -184,14 +184,14 @@ def test_multiple_vendor_providers_added(
 
 @patch("openbb_mcp_server.app.app.logger")
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_unknown_vendor_provider_logs_warning(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, mock_logger
+    mock_from_fastapi, mock_category_index, mock_process_routes, mock_logger
 ):
     """Unknown provider names log a warning and do not crash."""
     settings = MCPSettings(default_skills_dir=None, skills_providers=["unknown_provider"])  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -203,16 +203,16 @@ def test_unknown_vendor_provider_logs_warning(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_skills_reload_passed_to_vendor_providers(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """skills_reload=True is forwarded to vendor providers."""
     from fastmcp.server.providers.skills import ClaudeSkillsProvider
 
     settings = MCPSettings(default_skills_dir=None, skills_providers=["claude"], skills_reload=True)  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -229,17 +229,17 @@ def test_skills_reload_passed_to_vendor_providers(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_default_system_prompt_added_when_bundled_skills_loaded(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """When bundled skills dir is valid, a default system prompt nudge is added."""
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
 
     settings = MCPSettings(default_skills_dir=str(skills_dir))  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -257,14 +257,14 @@ def test_default_system_prompt_added_when_bundled_skills_loaded(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_default_system_prompt_added_when_vendor_skills_loaded(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """When vendor skills providers are configured, a default system prompt nudge is added."""
     settings = MCPSettings(default_skills_dir=None, skills_providers=["claude"])  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -275,14 +275,14 @@ def test_default_system_prompt_added_when_vendor_skills_loaded(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_no_default_system_prompt_when_no_skills(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes
+    mock_from_fastapi, mock_category_index, mock_process_routes
 ):
     """When no skills are loaded, no default system prompt nudge is added."""
     settings = MCPSettings(default_skills_dir=None)  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -291,10 +291,10 @@ def test_no_default_system_prompt_when_no_skills(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_no_default_system_prompt_when_custom_set(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """When a custom system_prompt_file is set, no default nudge prompt is added for skills."""
     skills_dir = tmp_path / "skills"
@@ -307,7 +307,7 @@ def test_no_default_system_prompt_when_custom_set(
         default_skills_dir=str(skills_dir),
         system_prompt_file=str(prompt_file),
     )  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
 
@@ -321,10 +321,10 @@ def test_no_default_system_prompt_when_custom_set(
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_explicit_instructions_not_overridden(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """When instructions is explicitly set in settings, it is not overwritten."""
     skills_dir = tmp_path / "skills"
@@ -334,7 +334,7 @@ def test_explicit_instructions_not_overridden(
         default_skills_dir=str(skills_dir),
         instructions="My explicit instructions.",
     )  # type: ignore
-    mock_mcp = _make_mocks(mock_from_fastapi, mock_tool_registry, mock_process_routes)
+    mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
     mock_mcp.instructions = "My explicit instructions."
 
     create_mcp_server(settings, FastAPI())

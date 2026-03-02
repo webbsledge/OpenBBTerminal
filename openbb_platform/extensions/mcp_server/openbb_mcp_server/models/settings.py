@@ -68,6 +68,14 @@ the exact same operations available to REST clients.""",
         alias="OPENBB_MCP_ENABLE_TOOL_DISCOVERY",
     )
 
+    # Pagination configuration
+    list_page_size: int | None = Field(
+        default=None,
+        description="Maximum number of tools/resources/prompts returned per page in list responses. "
+        "None disables pagination (all items returned in one response).",
+        alias="OPENBB_MCP_LIST_PAGE_SIZE",
+    )
+
     # Response configuration
     describe_responses: bool = Field(
         default=False,
@@ -256,6 +264,7 @@ the exact same operations available to REST clients.""",
             "resource_prefix_format": self.resource_prefix_format,
             "mask_error_details": self.mask_error_details,
             "dependencies": self.dependencies,
+            "list_page_size": self.list_page_size,
         }
 
         # Only include non-None values

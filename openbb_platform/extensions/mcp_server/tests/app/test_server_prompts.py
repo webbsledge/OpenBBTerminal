@@ -12,10 +12,10 @@ from openbb_mcp_server.models.settings import MCPSettings
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_load_prompts_from_json(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """Test that prompts are loaded correctly from a JSON file."""
     prompts_data = [
@@ -47,7 +47,7 @@ def test_load_prompts_from_json(
     mock_process_routes.return_value = mock_processed_data
 
     mock_registry_instance = MagicMock()
-    mock_tool_registry.return_value = mock_registry_instance
+    mock_category_index.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
     mock_from_fastapi.return_value = mock_mcp_instance
@@ -65,11 +65,11 @@ def test_load_prompts_from_json(
 
 @patch("openbb_mcp_server.app.app.logger")
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_skip_invalid_prompts(
     mock_from_fastapi,
-    mock_tool_registry,
+    mock_category_index,
     mock_process_routes,
     mock_logger,
     tmp_path,
@@ -94,7 +94,7 @@ def test_skip_invalid_prompts(
     mock_process_routes.return_value = mock_processed_data
 
     mock_registry_instance = MagicMock()
-    mock_tool_registry.return_value = mock_registry_instance
+    mock_category_index.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
     mock_from_fastapi.return_value = mock_mcp_instance
@@ -107,11 +107,11 @@ def test_skip_invalid_prompts(
 
 @patch("openbb_mcp_server.app.app.logger")
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 def test_skip_invalid_arguments_in_prompts(
     mock_from_fastapi,
-    mock_tool_registry,
+    mock_category_index,
     mock_process_routes,
     mock_logger,
     tmp_path,
@@ -138,7 +138,7 @@ def test_skip_invalid_arguments_in_prompts(
     mock_process_routes.return_value = mock_processed_data
 
     mock_registry_instance = MagicMock()
-    mock_tool_registry.return_value = mock_registry_instance
+    mock_category_index.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
     mock_from_fastapi.return_value = mock_mcp_instance
@@ -154,10 +154,10 @@ def test_skip_invalid_arguments_in_prompts(
 
 @pytest.mark.asyncio
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
-@patch("openbb_mcp_server.app.app.ToolRegistry")
+@patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
 async def test_prompts_as_tools_transform_and_defaults(
-    mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
+    mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
     """Test that PromptsAsTools transform is added and argument_defaults are stored on StaticPrompt."""
     prompts_data = [
@@ -189,7 +189,7 @@ async def test_prompts_as_tools_transform_and_defaults(
     mock_process_routes.return_value = mock_processed_data
 
     mock_registry_instance = MagicMock()
-    mock_tool_registry.return_value = mock_registry_instance
+    mock_category_index.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
     mock_from_fastapi.return_value = mock_mcp_instance

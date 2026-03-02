@@ -16,6 +16,7 @@ from fastapi.routing import APIRoute
 from fastmcp import FastMCP
 from fastmcp.prompts import PromptArgument
 from fastmcp.prompts.function_prompt import FunctionPrompt
+from fastmcp.server.context import Context
 from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 from fastmcp.server.providers.openapi import (
     OpenAPIResource,
@@ -49,7 +50,7 @@ from openbb_mcp_server.models.mcp_config import (
     is_valid_mcp_config,
 )
 from openbb_mcp_server.models.prompts import StaticPrompt
-from openbb_mcp_server.models.registry import ToolRegistry
+from openbb_mcp_server.models.category_index import CategoryIndex
 from openbb_mcp_server.models.settings import MCPSettings
 from openbb_mcp_server.models.tools import CategoryInfo, SubcategoryInfo, ToolInfo
 from openbb_mcp_server.service.mcp_service import MCPService
@@ -374,7 +375,7 @@ def create_mcp_server(
 
         auth_provider = get_auth_provider(settings)
 
-    tool_registry = ToolRegistry()
+    category_index = CategoryIndex()
 
     # Single-pass processing: filter routes, build route maps, and create lookup dictionary
     processed_data = process_fastapi_routes_for_mcp(fastapi_app, settings)
@@ -503,14 +504,13 @@ def create_mcp_server(
             if isinstance(mime_type, str) and mime_type:
                 component.mime_type = mime_type
 
-        # Register tools for discovery/toggling
+        # Register tool in the category index for discovery browsing
         if isinstance(component, OpenAPITool):
-            tool_registry.register_tool(
+            category_index.register(
                 category=category,
                 subcategory=subcategory,
                 tool_name=component.name,
-                tool=component,
-                enabled=should_enable,
+                description=component.description or "",
             )
 
     # Extract httpx_client_kwargs from settings/kwargs if available
@@ -529,12 +529,23 @@ def create_mcp_server(
         **fastmcp_kwargs,
     )
 
-    # Sync initial enabled/disabled state to FastMCP v3 server-level visibility transforms
-    all_registered = set(tool_registry._by_name.keys())  # noqa: SLF001
-    initially_disabled = all_registered - tool_registry._enabled_names  # noqa: SLF001
-    if initially_disabled:
-        mcp.disable(names=initially_disabled)
-    tool_registry.set_mcp(mcp)
+    # Disable ALL non-admin tools at server level.
+    # Sessions start lean; agents progressively activate what they need
+    # via activate_tools / activate_category (per-session visibility).
+    if settings.enable_tool_discovery:
+        all_registered = category_index.all_tool_names()
+        if all_registered:
+            mcp.disable(names=all_registered)
+    else:
+        # Fixed-toolset mode: honour default_tool_categories at server level
+        all_registered = category_index.all_tool_names()
+        if "all" not in settings.default_tool_categories:
+            # Disable everything, then re-enable tags that match
+            if all_registered:
+                mcp.disable(names=all_registered)
+            enabled_tags = set(settings.default_tool_categories)
+            if enabled_tags:
+                mcp.enable(tags=enabled_tags)
 
     # Add system prompt if configured
     if settings.system_prompt_file:
@@ -587,88 +598,139 @@ def create_mcp_server(
         @mcp.tool(tags={"admin"})
         def available_categories() -> list[CategoryInfo]:
             """List available tool categories and subcategories with tool counts."""
-            categories = tool_registry.get_categories()
+            categories = category_index.get_categories()
             return [
                 CategoryInfo(
                     name=category_name,
                     subcategories=[
-                        SubcategoryInfo(name=subcat_name, tool_count=len(tools))
-                        for subcat_name, tools in sorted(subcategories.items())
+                        SubcategoryInfo(name=subcat_name, tool_count=len(tool_names))
+                        for subcat_name, tool_names in sorted(subcategories.items())
                     ],
-                    total_tools=sum(len(tools) for tools in subcategories.values()),
+                    total_tools=sum(
+                        len(tool_names) for tool_names in subcategories.values()
+                    ),
                 )
                 for category_name, subcategories in sorted(categories.items())
             ]
 
         @mcp.tool(tags={"admin"})
-        def available_tools(
+        async def available_tools(
             category: Annotated[
                 str, Field(description="The category of tools to list")
             ],
             subcategory: Annotated[
                 str | None,
                 Field(
-                    description="Optional subcategory to filter by. Use 'general' for tools directly under the category."
+                    description="Optional subcategory to filter by. "
+                    "Use 'general' for tools directly under the category."
                 ),
             ] = None,
         ) -> list[ToolInfo]:
             """List tools in a specific category and subcategory."""
-            category_data = tool_registry.get_category_subcategories(category)
+            cat_data = category_index.get_subcategories(category)
 
-            if not category_data:
-                available_categories_names = list(tool_registry.get_categories().keys())
-                categories_str = ", ".join(sorted(available_categories_names))
+            if cat_data is None:
+                available = list(category_index.get_categories().keys())
                 raise ValueError(
-                    f"Category '{category}' not found. Available categories: {categories_str}"
+                    f"Category '{category}' not found. "
+                    f"Available categories: {', '.join(sorted(available))}"
                 )
 
             if subcategory:
-                tools_dict = tool_registry.get_category_tools(category, subcategory)
-                if not tools_dict:
-                    available_subcategories = list(category_data.keys())
-                    subcategories_str = ", ".join(sorted(available_subcategories))
+                names = category_index.get_subcategory_names(category, subcategory)
+                if not names:
                     raise ValueError(
                         f"Subcategory '{subcategory}' not found in category '{category}'. "
-                        f"Available subcategories: {subcategories_str}"
+                        f"Available subcategories: {', '.join(sorted(cat_data.keys()))}"
                     )
+            else:
+                names = category_index.get_category_names(category)
 
-                return [
-                    ToolInfo(
-                        name=name,
-                        active=tool_registry.is_enabled(name),
-                        description=_extract_brief_description(tool.description or ""),
-                    )
-                    for name, tool in sorted(tools_dict.items())
-                ]
+            # Resolve active state from FastMCP's live tool list
+            active_tools = await mcp.list_tools()
+            active_names = {t.name for t in active_tools}
 
-            tools_dict = tool_registry.get_category_tools(category)
-
-            return [
-                ToolInfo(
-                    name=name,
-                    active=tool_registry.is_enabled(name),
-                    description=_extract_brief_description(tool.description or ""),
+            # Build descriptions — use live tool object when available,
+            # fall back to cached short description from the index.
+            tool_map = {t.name: t for t in active_tools}
+            results: list[ToolInfo] = []
+            for name in sorted(names):
+                if name in tool_map:
+                    desc = _extract_brief_description(tool_map[name].description or "")
+                else:
+                    desc = category_index.get_description(name)
+                results.append(
+                    ToolInfo(name=name, active=name in active_names, description=desc)
                 )
-                for name, tool in sorted(tools_dict.items())
-            ]
+            return results
 
         @mcp.tool(tags={"admin"})
-        def activate_tools(
+        async def activate_tools(
             tool_names: Annotated[
                 list[str], Field(description="Names of tools to activate")
             ],
+            ctx: Context,
         ) -> str:
-            """Activate a tool for use."""
-            return tool_registry.toggle_tools(tool_names, enable=True).message
+            """Activate one or more tools for this session."""
+            valid = [n for n in tool_names if category_index.has_tool(n)]
+            invalid = [n for n in tool_names if not category_index.has_tool(n)]
+            if valid:
+                await ctx.enable_components(names=set(valid))
+            parts: list[str] = []
+            if valid:
+                parts.append(f"Activated: {', '.join(valid)}")
+            if invalid:
+                parts.append(f"Not found: {', '.join(invalid)}")
+            return " ".join(parts) or "No tools processed."
 
         @mcp.tool(tags={"admin"})
-        def deactivate_tools(
+        async def deactivate_tools(
             tool_names: Annotated[
                 list[str], Field(description="Names of tools to deactivate")
             ],
+            ctx: Context,
         ) -> str:
-            """Deactivate a tool for use."""
-            return tool_registry.toggle_tools(tool_names, enable=False).message
+            """Deactivate one or more tools for this session."""
+            valid = [n for n in tool_names if category_index.has_tool(n)]
+            invalid = [n for n in tool_names if not category_index.has_tool(n)]
+            if valid:
+                await ctx.disable_components(names=set(valid))
+            parts: list[str] = []
+            if valid:
+                parts.append(f"Deactivated: {', '.join(valid)}")
+            if invalid:
+                parts.append(f"Not found: {', '.join(invalid)}")
+            return " ".join(parts) or "No tools processed."
+
+        @mcp.tool(tags={"admin"})
+        async def activate_category(
+            category: Annotated[
+                str, Field(description="Category name to activate all tools for")
+            ],
+            ctx: Context,
+            subcategory: Annotated[
+                str | None,
+                Field(description="Optional subcategory to narrow activation"),
+            ] = None,
+        ) -> str:
+            """Activate all tools in a category (or subcategory) for this session."""
+            if subcategory:
+                names = category_index.get_subcategory_names(category, subcategory)
+            else:
+                names = category_index.get_category_names(category)
+            if not names:
+                available = list(category_index.get_categories().keys())
+                raise ValueError(
+                    f"No tools found in '{category}'"
+                    + (f"/'{subcategory}'" if subcategory else "")
+                    + f". Available categories: {', '.join(sorted(available))}"
+                )
+            await ctx.enable_components(names=names)
+            scope = f"'{category}'" + (f"/'{subcategory}'" if subcategory else "")
+            return (
+                f"Activated {len(names)} tools in {scope}"
+                f": {', '.join(sorted(names))}"
+            )
 
     # Expose prompts and resources as tools via transforms so that
     # tool-only clients can list/render prompts and list/read resources.
