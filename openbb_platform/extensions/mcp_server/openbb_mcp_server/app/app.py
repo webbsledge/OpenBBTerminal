@@ -31,6 +31,7 @@ from fastmcp.server.providers.skills import (
     OpenCodeSkillsProvider,
     SkillProvider,
     SkillsDirectoryProvider,
+    VSCodeSkillsProvider,
 )
 from fastmcp.utilities.json_schema import compress_schema
 from fastmcp.utilities.logging import get_logger
@@ -62,7 +63,7 @@ logger = get_logger(__name__)
 _VENDOR_SKILLS_PROVIDERS = {
     "claude": ClaudeSkillsProvider,
     "cursor": CursorSkillsProvider,
-    "vscode": CopilotSkillsProvider,
+    "vscode": VSCodeSkillsProvider,
     "copilot": CopilotSkillsProvider,
     "codex": CodexSkillsProvider,
     "gemini": GeminiSkillsProvider,
