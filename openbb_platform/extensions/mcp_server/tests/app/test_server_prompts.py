@@ -202,12 +202,13 @@ async def test_prompts_as_tools_transform_and_defaults(
     assert added_prompt.name == "test_prompt_with_args"
     assert added_prompt.argument_defaults == {"arg2": "default_value"}
 
-    # Verify PromptsAsTools transform was added
-    mock_mcp_instance.add_transform.assert_called_once()
-    transform = mock_mcp_instance.add_transform.call_args[0][0]
-    from fastmcp.server.transforms import PromptsAsTools
+    # Verify PromptsAsTools and ResourcesAsTools transforms were added
+    assert mock_mcp_instance.add_transform.call_count == 2
+    from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 
-    assert isinstance(transform, PromptsAsTools)
+    transforms = [call[0][0] for call in mock_mcp_instance.add_transform.call_args_list]
+    assert isinstance(transforms[0], PromptsAsTools)
+    assert isinstance(transforms[1], ResourcesAsTools)
 
 
 @pytest.mark.asyncio

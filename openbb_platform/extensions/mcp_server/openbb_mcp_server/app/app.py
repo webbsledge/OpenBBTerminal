@@ -16,7 +16,7 @@ from fastapi.routing import APIRoute
 from fastmcp import FastMCP
 from fastmcp.prompts import PromptArgument
 from fastmcp.prompts.function_prompt import FunctionPrompt
-from fastmcp.server.transforms import PromptsAsTools
+from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 from fastmcp.server.providers.openapi import (
     OpenAPIResource,
     OpenAPIResourceTemplate,
@@ -670,48 +670,10 @@ def create_mcp_server(
             """Deactivate a tool for use."""
             return tool_registry.toggle_tools(tool_names, enable=False).message
 
-    # Expose prompts as tools via PromptsAsTools transform so that
-    # tool-only clients can list and render prompts.
+    # Expose prompts and resources as tools via transforms so that
+    # tool-only clients can list/render prompts and list/read resources.
     mcp.add_transform(PromptsAsTools(mcp))
-
-    # Resource discovery tools
-    @mcp.tool(tags={"resource"})
-    async def list_resources() -> list:
-        """List all available MCP resources.
-
-        Returns a list of resource metadata including URIs, names,
-        descriptions, and MIME types. Use read_resource to fetch content.
-        """
-        resources = await mcp.list_resources()
-        return [
-            {
-                "uri": str(r.uri),
-                "name": r.name,
-                "description": r.description,
-                "mime_type": r.mime_type,
-            }
-            for r in resources
-        ]
-
-    @mcp.tool(tags={"resource"})
-    async def read_resource(
-        uri: Annotated[
-            str,
-            Field(
-                description="The URI of the resource to read (e.g. 'resource://system_prompt' or 'skill://develop_extension/SKILL.md')."
-            ),
-        ],
-    ) -> list:
-        """Read the content of a specific MCP resource by URI."""
-        result = await mcp.read_resource(uri)
-        return [
-            {
-                "uri": uri,
-                "mime_type": c.mime_type or "text/plain",
-                "text": c.content if isinstance(c.content, str) else None,
-            }
-            for c in result.contents
-        ]
+    mcp.add_transform(ResourcesAsTools(mcp))
 
     @mcp.tool(tags={"resource", "admin"})
     async def install_skill(

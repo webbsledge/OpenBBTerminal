@@ -283,27 +283,30 @@ class TestToggleTools:
 # ===================================================================
 
 
-class TestPromptsAsToolsTransform:
-    """Tests verifying that PromptsAsTools transform replaces hand-rolled prompt tools."""
+class TestTransformsAdded:
+    """Tests verifying that PromptsAsTools and ResourcesAsTools transforms are registered."""
 
-    def test_transform_is_added(self):
-        """PromptsAsTools transform is registered on the mcp instance."""
-        from fastmcp.server.transforms import PromptsAsTools
+    def test_transforms_are_added(self):
+        """Both PromptsAsTools and ResourcesAsTools transforms are registered."""
+        from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 
         settings = MCPSettings()  # type: ignore
         mock_mcp, _, _ = _build_server(settings)
 
-        mock_mcp.add_transform.assert_called_once()
-        transform = mock_mcp.add_transform.call_args[0][0]
-        assert isinstance(transform, PromptsAsTools)
+        assert mock_mcp.add_transform.call_count == 2
+        transforms = [call[0][0] for call in mock_mcp.add_transform.call_args_list]
+        assert isinstance(transforms[0], PromptsAsTools)
+        assert isinstance(transforms[1], ResourcesAsTools)
 
-    def test_no_hand_rolled_prompt_tools(self):
-        """The old list_prompts / execute_prompt closures are no longer registered."""
+    def test_no_hand_rolled_prompt_or_resource_tools(self):
+        """The old list_prompts / execute_prompt / list_resources / read_resource closures are no longer registered."""
         settings = MCPSettings()  # type: ignore
         _, decorated, _ = _build_server(settings)
 
         assert "list_prompts" not in decorated
         assert "execute_prompt" not in decorated
+        assert "list_resources" not in decorated
+        assert "read_resource" not in decorated
 
     def test_inline_prompt_stores_argument_defaults(self):
         """Inline prompt definitions store defaults on StaticPrompt.argument_defaults."""
