@@ -3,7 +3,7 @@
 # pylint: disable=protected-access,unused-argument
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -156,15 +156,15 @@ def test_skip_invalid_arguments_in_prompts(
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
 @patch("openbb_mcp_server.app.app.ToolRegistry")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
-async def test_execute_prompt_tool(
+async def test_prompts_as_tools_transform_and_defaults(
     mock_from_fastapi, mock_tool_registry, mock_process_routes, tmp_path
 ):
-    """Test the execute_prompt tool."""
+    """Test that PromptsAsTools transform is added and argument_defaults are stored on StaticPrompt."""
     prompts_data = [
         {
             "name": "test_prompt_with_args",
             "description": "A test prompt with arguments.",
-            "content": "Hello, {{ arg1 }} and {{ arg2 }}!",
+            "content": "Hello, {arg1} and {arg2}!",
             "arguments": [
                 {"name": "arg1", "type": "str", "description": "Argument 1"},
                 {
@@ -192,45 +192,44 @@ async def test_execute_prompt_tool(
     mock_tool_registry.return_value = mock_registry_instance
 
     mock_mcp_instance = MagicMock()
-    render_prompt_mock = AsyncMock()
-    mock_mcp_instance.render_prompt = render_prompt_mock
     mock_from_fastapi.return_value = mock_mcp_instance
-
-    # We need to capture the function that gets decorated
-    decorated_functions = {}
-
-    def tool_decorator_factory(*args, **kwargs):
-        """Create a decorator that records decorated tool functions."""
-
-        def decorator(func):
-            decorated_functions[func.__name__] = func
-            # Return a mock to simulate the decorator's behavior if needed
-            return MagicMock()
-
-        return decorator
-
-    mock_mcp_instance.tool = MagicMock(side_effect=tool_decorator_factory)
 
     create_mcp_server(settings, fastapi_app)
 
-    execute_prompt_func = decorated_functions.get("execute_prompt")
-    assert execute_prompt_func is not None
+    # Verify add_prompt was called with a StaticPrompt that has argument_defaults
+    mock_mcp_instance.add_prompt.assert_called()
+    added_prompt = mock_mcp_instance.add_prompt.call_args[0][0]
+    assert added_prompt.name == "test_prompt_with_args"
+    assert added_prompt.argument_defaults == {"arg2": "default_value"}
 
-    # Test with required argument and default for optional
-    await execute_prompt_func(
-        prompt_name="test_prompt_with_args", arguments={"arg1": "world"}
-    )
-    mock_mcp_instance.render_prompt.assert_called_with(
-        name="test_prompt_with_args",
-        arguments={"arg1": "world", "arg2": "default_value"},
+    # Verify PromptsAsTools transform was added
+    mock_mcp_instance.add_transform.assert_called_once()
+    transform = mock_mcp_instance.add_transform.call_args[0][0]
+    from fastmcp.server.transforms import PromptsAsTools
+
+    assert isinstance(transform, PromptsAsTools)
+
+
+@pytest.mark.asyncio
+async def test_static_prompt_render_applies_defaults():
+    """Test that StaticPrompt.render() applies argument_defaults when caller omits them."""
+    from fastmcp.prompts import PromptArgument
+    from openbb_mcp_server.models.prompts import StaticPrompt
+
+    prompt = StaticPrompt(
+        name="greeting",
+        content="Hello, {name}! Welcome to {place}.",
+        arguments=[
+            PromptArgument(name="name", required=True),
+            PromptArgument(name="place", required=False),
+        ],
+        argument_defaults={"place": "OpenBB"},
     )
 
-    # Test overriding default argument
-    await execute_prompt_func(
-        prompt_name="test_prompt_with_args",
-        arguments={"arg1": "world", "arg2": "new_value"},
-    )
-    mock_mcp_instance.render_prompt.assert_called_with(
-        name="test_prompt_with_args",
-        arguments={"arg1": "world", "arg2": "new_value"},
-    )
+    # Only provide 'name'; 'place' should come from defaults
+    rendered = await prompt.render(arguments={"name": "World"})
+    assert rendered[0].content.text == "Hello, World! Welcome to OpenBB."
+
+    # Caller-supplied value overrides default
+    rendered = await prompt.render(arguments={"name": "World", "place": "NYC"})
+    assert rendered[0].content.text == "Hello, World! Welcome to NYC."

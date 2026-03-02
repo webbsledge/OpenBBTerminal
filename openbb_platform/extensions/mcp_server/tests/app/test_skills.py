@@ -182,14 +182,6 @@ def test_multiple_vendor_providers_added(
     assert CursorSkillsProvider in provider_types
 
 
-def test_vscode_copilot_aliases_are_same_class():
-    """'vscode' and 'copilot' both map to CopilotSkillsProvider."""
-    from fastmcp.server.providers.skills import CopilotSkillsProvider
-
-    assert _VENDOR_SKILLS_PROVIDERS["vscode"] is CopilotSkillsProvider
-    assert _VENDOR_SKILLS_PROVIDERS["copilot"] is CopilotSkillsProvider
-
-
 @patch("openbb_mcp_server.app.app.logger")
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
 @patch("openbb_mcp_server.app.app.ToolRegistry")

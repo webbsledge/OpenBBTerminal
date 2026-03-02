@@ -11,13 +11,15 @@ class StaticPrompt(Prompt):
     """A prompt that is a static string template."""
 
     content: str
+    argument_defaults: dict[str, Any] = {}
 
     async def render(
         self,
         arguments: dict[str, Any] | None = None,
     ) -> list[PromptMessage]:
         """Render the prompt with arguments."""
-        args = arguments or {}
+        # Start with stored defaults, then overlay caller-supplied values
+        args = {**self.argument_defaults, **(arguments or {})}
 
         # Validate required arguments
         if self.arguments:

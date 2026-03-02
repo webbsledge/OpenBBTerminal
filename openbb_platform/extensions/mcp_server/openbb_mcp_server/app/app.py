@@ -14,8 +14,9 @@ from typing import Annotated, Any
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastmcp import FastMCP
-from fastmcp.prompts import PromptArgument, PromptResult
+from fastmcp.prompts import PromptArgument
 from fastmcp.prompts.function_prompt import FunctionPrompt
+from fastmcp.server.transforms import PromptsAsTools
 from fastmcp.server.providers.openapi import (
     OpenAPIResource,
     OpenAPIResourceTemplate,
@@ -167,17 +168,17 @@ def _setup_file_system_prompt(mcp: FastMCP, settings: MCPSettings) -> None:
         return system_prompt_func()
 
 
-def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> list:
-    """Load prompts from server_prompts_file, register them with mcp, and return the raw list."""
+def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> None:
+    """Load prompts from server_prompts_file and register them with mcp."""
     if not settings.server_prompts_file:
-        return []
+        return
 
     try:
         with open(settings.server_prompts_file, encoding="utf-8") as f:
             prompts_json: list = json.load(f) or []
     except Exception as e:  # pylint: disable=broad-except
         logger.error("Failed to load prompts from JSON file: %s", e)
-        return []
+        return
 
     prompts_added: list = []
     for prompt_def in prompts_json:
@@ -211,6 +212,8 @@ def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> list:
         prompt_arguments_def = prompt_def.get("arguments", [])
         arguments: list = []
 
+        argument_defaults: dict = {}
+
         if prompt_arguments_def:
             for arg in prompt_arguments_def:
                 try:
@@ -224,6 +227,10 @@ def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> list:
                             required="default" not in validated_arg,
                         )
                     )
+                    if "default" in validated_arg:
+                        argument_defaults[validated_arg["name"]] = validated_arg[
+                            "default"
+                        ]
                 except Exception as e:  # pylint: disable=broad-except
                     logger.error(
                         "Skipping argument definition in server prompt, %s, due to error: %s\nDefinition: %s",
@@ -242,14 +249,13 @@ def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> list:
                 description=prompt_description,
                 content=prompt_content,
                 arguments=arguments if arguments else None,
+                argument_defaults=argument_defaults,
                 tags=tags,
             )
         )
         prompts_added.append(prompt_name)
 
     logger.info("Successfully added %d server prompts.", len(prompts_added))
-
-    return prompts_json
 
 
 def _add_inline_prompts(mcp: FastMCP, prompt_definitions: list) -> None:
@@ -268,20 +274,25 @@ def _add_inline_prompts(mcp: FastMCP, prompt_definitions: list) -> None:
             tags.add("route-specific")
             tags.add(tool)
 
-            arguments = [
-                PromptArgument(
-                    name=arg["name"],
-                    description=arg.get("description"),
-                    required="default" not in arg,
+            arguments = []
+            argument_defaults: dict = {}
+            for arg in prompt_arguments_def:
+                arguments.append(
+                    PromptArgument(
+                        name=arg["name"],
+                        description=arg.get("description"),
+                        required="default" not in arg,
+                    )
                 )
-                for arg in prompt_arguments_def
-            ]
+                if "default" in arg:
+                    argument_defaults[arg["name"]] = arg["default"]
 
             mcp.add_prompt(
                 StaticPrompt(
                     name=prompt_name,
                     description=prompt_description,
                     arguments=arguments,
+                    argument_defaults=argument_defaults,
                     tags=tags,
                     content=prompt_content,
                 )
@@ -530,7 +541,7 @@ def create_mcp_server(
         _setup_file_system_prompt(mcp, settings)
 
     # Load the prompts json file, if added to the settings configuration.
-    prompts_json = _add_prompts_from_json(mcp, settings)
+    _add_prompts_from_json(mcp, settings)
 
     # Add inline prompts from route configurations
     _add_inline_prompts(mcp, processed_data.prompt_definitions)
@@ -659,66 +670,9 @@ def create_mcp_server(
             """Deactivate a tool for use."""
             return tool_registry.toggle_tools(tool_names, enable=False).message
 
-    # Add tools for prompt execution
-
-    @mcp.tool(tags={"prompt"})
-    async def list_prompts() -> list:
-        """List all available prompts."""
-        prompts = await mcp.list_prompts()
-
-        return [
-            {"name": p.name, "tags": p.tags, "arguments": p.arguments} for p in prompts
-        ]
-
-    @mcp.tool(tags={"prompt"})
-    async def execute_prompt(
-        prompt_name: Annotated[
-            str, Field(description="The name of the prompt to execute.")
-        ],
-        arguments: Annotated[
-            dict,
-            Field(description="The arguments for the prompt.", default_factory=dict),
-        ],
-    ) -> PromptResult:
-        """Execute a prompt by name."""
-        # Find the prompt definition to access default values for arguments
-        prompt_def = next(
-            (p for p in prompts_json if p.get("name") == prompt_name),
-            None,
-        )
-
-        if not prompt_def:
-            prompt_def = next(
-                (
-                    p
-                    for p in processed_data.prompt_definitions
-                    if p.get("name") == prompt_name
-                ),
-                None,
-            )
-
-        # If we found the definition, process arguments to include defaults
-        if prompt_def:
-            processed_args = arguments.copy()
-            prompt_arguments_def = prompt_def.get("arguments", [])
-            provided_arg_names = set(processed_args.keys())
-
-            for arg_def in prompt_arguments_def:
-                arg_name = arg_def.get("name")
-                if (
-                    "default" in arg_def
-                    and arg_name
-                    and arg_name not in provided_arg_names
-                ):
-                    processed_args[arg_name] = arg_def["default"]
-
-            return await mcp.render_prompt(
-                name=prompt_name, arguments=processed_args
-            )  # type: ignore
-
-        return await mcp.render_prompt(
-            name=prompt_name, arguments=arguments
-        )  # type: ignore
+    # Expose prompts as tools via PromptsAsTools transform so that
+    # tool-only clients can list and render prompts.
+    mcp.add_transform(PromptsAsTools(mcp))
 
     # Resource discovery tools
     @mcp.tool(tags={"resource"})

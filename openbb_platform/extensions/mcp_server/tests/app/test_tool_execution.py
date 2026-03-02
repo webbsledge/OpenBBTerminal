@@ -278,96 +278,98 @@ class TestToggleTools:
 # ===================================================================
 
 
-class TestListPrompts:
-    """Tests for the ``list_prompts`` tool."""
+# ===================================================================
+# PromptsAsTools transform tests
+# ===================================================================
 
-    @pytest.mark.asyncio
-    async def test_list_prompts_returns_prompt_data(self):
-        """Return prompt metadata for all registered prompts."""
+
+class TestPromptsAsToolsTransform:
+    """Tests verifying that PromptsAsTools transform replaces hand-rolled prompt tools."""
+
+    def test_transform_is_added(self):
+        """PromptsAsTools transform is registered on the mcp instance."""
+        from fastmcp.server.transforms import PromptsAsTools
+
         settings = MCPSettings()  # type: ignore
-        mock_mcp, decorated, _ = _build_server(settings)
+        mock_mcp, _, _ = _build_server(settings)
 
-        # Simulate mcp.list_prompts() returning a list of prompt objects
-        mock_prompt = MagicMock()
-        mock_prompt.name = "test_prompt"
-        mock_prompt.tags = {"server"}
-        mock_prompt.arguments = [{"name": "arg1", "type": "str"}]
-        mock_mcp.list_prompts = AsyncMock(return_value=[mock_prompt])
+        mock_mcp.add_transform.assert_called_once()
+        transform = mock_mcp.add_transform.call_args[0][0]
+        assert isinstance(transform, PromptsAsTools)
 
-        result = await decorated["list_prompts"]()
-        assert len(result) == 1
-        assert result[0]["name"] == "test_prompt"
-        assert "server" in result[0]["tags"]
-
-    @pytest.mark.asyncio
-    async def test_list_prompts_empty(self):
-        """Return empty list when no prompts are registered."""
+    def test_no_hand_rolled_prompt_tools(self):
+        """The old list_prompts / execute_prompt closures are no longer registered."""
         settings = MCPSettings()  # type: ignore
-        mock_mcp, decorated, _ = _build_server(settings)
-        mock_mcp.list_prompts = AsyncMock(return_value=[])
+        _, decorated, _ = _build_server(settings)
 
-        result = await decorated["list_prompts"]()
-        assert result == []
+        assert "list_prompts" not in decorated
+        assert "execute_prompt" not in decorated
 
-
-class TestExecutePrompt:
-    """Tests for the ``execute_prompt`` tool."""
-
-    @pytest.mark.asyncio
-    async def test_execute_with_default_args_filled(self):
-        """Default argument values from the prompt definition are merged in."""
+    def test_inline_prompt_stores_argument_defaults(self):
+        """Inline prompt definitions store defaults on StaticPrompt.argument_defaults."""
         prompt_def = {
             "name": "my_prompt",
             "description": "Test",
             "content": "Hello {name}, focus on {aspect}",
             "arguments": [
-                {"name": "name", "type": "str"},
-                {"name": "aspect", "type": "str", "default": "fundamentals"},
+                {"name": "name", "type": "str", "description": "Name"},
+                {
+                    "name": "aspect",
+                    "type": "str",
+                    "description": "Aspect",
+                    "default": "fundamentals",
+                },
             ],
         }
         settings = MCPSettings()  # type: ignore
-        mock_mcp, decorated, _ = _build_server(settings, prompts_json=[prompt_def])
+        mock_mcp, _, _ = _build_server(settings, prompts_json=[prompt_def])
 
-        await decorated["execute_prompt"](
-            prompt_name="my_prompt", arguments={"name": "AAPL"}
-        )
-        mock_mcp.render_prompt.assert_called_with(
-            name="my_prompt",
-            arguments={"name": "AAPL", "aspect": "fundamentals"},
-        )
+        # Find the StaticPrompt among add_prompt calls
+        added_prompts = [
+            call[0][0]
+            for call in mock_mcp.add_prompt.call_args_list
+            if isinstance(call[0][0], StaticPrompt)
+        ]
+        assert len(added_prompts) == 1
+        assert added_prompts[0].argument_defaults == {"aspect": "fundamentals"}
 
     @pytest.mark.asyncio
-    async def test_execute_override_default_arg(self):
-        """Explicitly passed args override defaults."""
-        prompt_def = {
-            "name": "my_prompt",
-            "description": "Test",
-            "content": "Hello {name} {aspect}",
-            "arguments": [
-                {"name": "name", "type": "str"},
-                {"name": "aspect", "type": "str", "default": "fundamentals"},
+    async def test_static_prompt_renders_with_defaults(self):
+        """StaticPrompt.render() applies argument_defaults when caller omits them."""
+        from fastmcp.prompts import PromptArgument
+
+        prompt = StaticPrompt(
+            name="greeting",
+            content="Hello {name}, focus on {aspect}",
+            arguments=[
+                PromptArgument(name="name", required=True),
+                PromptArgument(name="aspect", required=False),
             ],
-        }
-        settings = MCPSettings()  # type: ignore
-        mock_mcp, decorated, _ = _build_server(settings, prompts_json=[prompt_def])
+            argument_defaults={"aspect": "fundamentals"},
+        )
 
-        await decorated["execute_prompt"](
-            prompt_name="my_prompt",
-            arguments={"name": "AAPL", "aspect": "technicals"},
-        )
-        mock_mcp.render_prompt.assert_called_with(
-            name="my_prompt",
-            arguments={"name": "AAPL", "aspect": "technicals"},
-        )
+        rendered = await prompt.render(arguments={"name": "AAPL"})
+        assert rendered[0].content.text == "Hello AAPL, focus on fundamentals"
 
     @pytest.mark.asyncio
-    async def test_execute_unknown_prompt_falls_through(self):
-        """An unknown prompt name still calls render_prompt (may raise later)."""
-        settings = MCPSettings()  # type: ignore
-        mock_mcp, decorated, _ = _build_server(settings)
+    async def test_static_prompt_caller_overrides_defaults(self):
+        """Caller-supplied values override argument_defaults."""
+        from fastmcp.prompts import PromptArgument
 
-        await decorated["execute_prompt"](prompt_name="unknown", arguments={"x": 1})
-        mock_mcp.render_prompt.assert_called_with(name="unknown", arguments={"x": 1})
+        prompt = StaticPrompt(
+            name="greeting",
+            content="Hello {name}, focus on {aspect}",
+            arguments=[
+                PromptArgument(name="name", required=True),
+                PromptArgument(name="aspect", required=False),
+            ],
+            argument_defaults={"aspect": "fundamentals"},
+        )
+
+        rendered = await prompt.render(
+            arguments={"name": "AAPL", "aspect": "technicals"}
+        )
+        assert rendered[0].content.text == "Hello AAPL, focus on technicals"
 
 
 # ===================================================================
