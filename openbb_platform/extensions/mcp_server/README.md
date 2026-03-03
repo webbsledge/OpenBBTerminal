@@ -2,14 +2,11 @@
 
 This extension enables LLM agents to interact with OpenBB Platform's REST API endpoints through the MCP protocol.
 
-The server provides discovery tools that allow agents to explore different options and dynamically adjust their active toolset.
-This prevents agents from being overwhelmed with too many tools while allowing them to discover and activate only the tools they need for specific tasks.
+The server provides discovery tools that allow agents to explore available categories and dynamically activate only the tools they need.
+This keeps the initial tool list small — preventing token bloat — while still giving agents access to the full platform on demand.
 
-Using dynamic tool discovery has one major drawback, it makes the server a single-user server.
-The tool updates are global, so if one user updates a tool, it will be updated for all users.
-
-If you plan to serve multiple users, you should disable tool discovery,
-and instead use the `allowed_tool_categories` and `default_tool_categories` settings to control the tools that are available to the users.
+Tool visibility changes are **per-session**: each connected client has its own active toolset.
+Multiple agents can connect simultaneously and independently activate different tools without interfering with each other.
 
 ## Installation & Usage
 
@@ -90,7 +87,7 @@ The server can be configured through multiple methods, with settings applied in 
 1.  **Command Line Arguments**: Highest priority, overriding all other methods.
 2.  **Environment Variables**: Each setting can be controlled by an environment variable, which will override the configuration file.
 3.  **Configuration File**: A JSON file at `~/.openbb_platform/mcp_settings.json` provides the base configuration.
-  - If the cnofiguration file does not exist, one will be populated with the defaults.
+  - If the configuration file does not exist, one will be populated with the defaults.
 
 > **Note:** For some data providers you need to set your API key in the `~/.openbb_platform/user_settings.json` file.
 
@@ -224,7 +221,8 @@ All settings in the `MCPSettings` model can be configured via the `mcp_settings.
 | `instructions` | `OPENBB_MCP_INSTRUCTIONS` | string | `None` | Server instructions sent during the MCP `initialize` handshake. Auto-populated from system prompt if not set. |
 | `default_tool_categories` | `OPENBB_MCP_DEFAULT_TOOL_CATEGORIES` | list[string] | `["all"]` | Default active tool categories on startup. |
 | `allowed_tool_categories` | `OPENBB_MCP_ALLOWED_TOOL_CATEGORIES` | list[string] | `None` | Restricts available tool categories to this list. |
-| `enable_tool_discovery` | `OPENBB_MCP_ENABLE_TOOL_DISCOVERY` | boolean | `True` | Enable tool discovery. |
+| `enable_tool_discovery` | `OPENBB_MCP_ENABLE_TOOL_DISCOVERY` | boolean | `True` | Enable per-session tool discovery (admin tools for browse/activate/deactivate). |
+| `list_page_size` | `OPENBB_MCP_LIST_PAGE_SIZE` | integer | `None` | Max items per page in MCP list responses. `None` disables pagination. |
 | `describe_responses` | `OPENBB_MCP_DESCRIBE_RESPONSES` | boolean | `False` | Include response types in tool descriptions. |
 | `system_prompt_file` | `OPENBB_MCP_SYSTEM_PROMPT_FILE` | string | `None` | Path to a text file for the system prompt. |
 | `server_prompts_file` | `OPENBB_MCP_SERVER_PROMPTS_FILE` | string | `None` | Path to a JSON file with a list of server prompt definitions. |
@@ -271,36 +269,43 @@ Each category contains subcategories that group related functionality (e.g., `eq
 
 An additional set of tools are tagged as "admin", or "prompt".
 
-- available_categories
+- **available_categories**: List all tool categories with subcategory names and tool counts.
 
-- available_tools: List all tools by category.
-  - `category`: Category of tool to list.
-  - `subcategory`: Optional subcategory. Use 'general' for tools directly under the category.
+- **available_tools**: List tools in a specific category (and optional subcategory).
+  - `category`: Category of tools to list.
+  - `subcategory`: Optional subcategory. Use `general` for tools directly under the category.
+  - Inactive tools still show a short description so they remain discoverable.
 
-- activate_tools: Activate a tool for use.
-  - `tool_names`: Names of tools to activate. Comma-separated string for multiple.
+- **activate_tools**: Activate one or more tools by name for this session.
+  - `tool_names`: List of tool names to activate.
 
-- deactivate_tools: Deactivate a tool after use.
-  - `tool_names`: Names of tools to deactivate. Comma-separated string for multiple.
+- **deactivate_tools**: Deactivate one or more tools by name for this session.
+  - `tool_names`: List of tool names to deactivate.
 
-- list_prompts: Lists all available prompts in the server.
+- **activate_category**: Activate all tools in a category (or subcategory) at once.
+  - `category`: Category name.
+  - `subcategory`: Optional subcategory to narrow the activation.
 
-- execute_prompt: Execute a prompt with arguments, if any.
+- **list_prompts**: Lists all available prompts in the server.
+
+- **execute_prompt**: Execute a prompt with arguments, if any.
   - `prompt_name`: Name of the prompt to execute.
   - `arguments`: Dictionary of argument:value for the prompt.
 
 ## Tool Discovery
 
-When `enable_tool_discovery` is enabled (default), the server provides discovery tools that allow agents to:
+When `enable_tool_discovery` is enabled (default), the server registers a small set of admin tools that let agents progressively discover and activate what they need:
 
-- Discover available tool categories and subcategories
-- See tool counts and descriptions before activating
-- Enable/disable specific tools dynamically during a session
-- Start with minimal tools and progressively add more as needed
+1. **Browse** — `available_categories` returns the category tree with tool counts.
+2. **Inspect** — `available_tools` lists every tool in a category with its active/inactive state and a short description.
+3. **Activate** — `activate_tools` or `activate_category` enables specific tools (or an entire category) for the current session.
+4. **Deactivate** — `deactivate_tools` removes tools when they are no longer needed.
 
-To take full advantage of minimal startup tools, you should set the `--default-categories` argument to `admin`. This will enable only the discovery tools at startup.
+All visibility changes are **per-session** — each client maintains its own active toolset, so the server is safe for multi-user deployments.
 
-For multi-client deployments or scenarios where you want a fixed toolset, disable tool discovery with `--no-tool-discovery`.
+To take full advantage of minimal startup tools, set `--default-categories admin` so only the discovery tools are active on connect.
+
+For scenarios where you want a completely fixed toolset (no discovery overhead), disable it with `--no-tool-discovery` and control the available tools via `allowed_tool_categories` and `default_tool_categories`.
 
 ## System Prompt
 

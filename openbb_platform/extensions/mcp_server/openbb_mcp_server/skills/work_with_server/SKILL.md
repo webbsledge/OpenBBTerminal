@@ -16,6 +16,9 @@ MCP server.
 When first connecting, the server exposes a small set of **admin** tools for
 discovering and activating the full catalog. Not all tools are active by default.
 
+All visibility changes are **per-session** — each connected client maintains its
+own active toolset, so multiple agents can operate independently.
+
 ### Step 1 — List Categories
 
 Call `available_categories` (no arguments) to see what is installed:
@@ -58,7 +61,8 @@ Call `available_tools` with a category name:
 ```
 
 The `active` field shows whether the tool is currently enabled. Inactive tools
-cannot be called until activated.
+cannot be called until activated, but they still show a short cached description
+so they remain discoverable.
 
 The `subcategory` argument is optional. Omit it to see all tools in the
 category.
@@ -82,7 +86,24 @@ in the response:
 "Activated: equity_price_quote  Not found: nonexistent_tool"
 ```
 
-### Step 4 — Deactivate Tools
+### Step 4 — Activate an Entire Category
+
+Call `activate_category` to bulk-activate all tools in a category (or subcategory):
+
+```json
+// Activate everything in equity
+{"category": "equity"}
+
+// Activate only equity/price tools
+{"category": "equity", "subcategory": "price"}
+
+// Output
+"Activated 5 tools in 'equity'/'price': equity_price_historical, equity_price_quote, ..."
+```
+
+This is faster than listing tool names individually when you need a whole category.
+
+### Step 5 — Deactivate Tools
 
 Call `deactivate_tools` to disable tools no longer needed:
 
@@ -616,6 +637,7 @@ discover any supporting files packaged alongside the main `SKILL.md`.
 | `available_tools` | `category`, `subcategory?` | List of tools with active status and descriptions |
 | `activate_tools` | `tool_names: list` | Status message |
 | `deactivate_tools` | `tool_names: list` | Status message |
+| `activate_category` | `category`, `subcategory?` | Status message with count and tool names |
 
 ### OBBject Response Structure
 

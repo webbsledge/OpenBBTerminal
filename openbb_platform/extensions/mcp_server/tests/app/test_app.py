@@ -143,11 +143,11 @@ def test_create_mcp_server_disables_all_tools_when_discovery_enabled(
 def test_create_mcp_server_fixed_toolset_mode(
     mock_from_fastapi, mock_category_index, mock_process_routes
 ):
-    """When discovery disabled, only default_tool_categories are enabled at server level."""
+    """When discovery disabled, disable all first then re-enable flagged tools."""
     settings = MCPSettings(
-        enable_tool_discovery=False,
-        default_tool_categories=["equity"],
-    )  # type: ignore
+        enable_tool_discovery=False,  # type: ignore
+        default_tool_categories=["equity"],  # type: ignore
+    )
     fastapi_app = FastAPI()
 
     mock_processed_data = MagicMock()
@@ -165,6 +165,8 @@ def test_create_mcp_server_fixed_toolset_mode(
 
     create_mcp_server(settings, fastapi_app)
 
-    # First disable all, then enable the equity tag
+    # All tools disabled first
     mock_mcp_instance.disable.assert_called_once_with(names={"eq_tool", "crypto_tool"})
-    mock_mcp_instance.enable.assert_called_once_with(tags={"equity"})
+    # No components were processed (mocked), so _enabled_tools is empty —
+    # enable is not called. In real usage it would re-enable matched tools.
+    mock_mcp_instance.enable.assert_not_called()

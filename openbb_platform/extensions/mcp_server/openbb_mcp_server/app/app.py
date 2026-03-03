@@ -17,7 +17,6 @@ from fastmcp import FastMCP
 from fastmcp.prompts import PromptArgument
 from fastmcp.prompts.function_prompt import FunctionPrompt
 from fastmcp.server.context import Context
-from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 from fastmcp.server.providers.openapi import (
     OpenAPIResource,
     OpenAPIResourceTemplate,
@@ -35,6 +34,7 @@ from fastmcp.server.providers.skills import (
     SkillsDirectoryProvider,
     VSCodeSkillsProvider,
 )
+from fastmcp.server.transforms import PromptsAsTools, ResourcesAsTools
 from fastmcp.utilities.json_schema import compress_schema
 from fastmcp.utilities.logging import get_logger
 from fastmcp.utilities.openapi import HTTPRoute
@@ -45,12 +45,12 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from openbb_mcp_server.models.category_index import CategoryIndex
 from openbb_mcp_server.models.mcp_config import (
     ArgumentDefinitionModel,
     is_valid_mcp_config,
 )
 from openbb_mcp_server.models.prompts import StaticPrompt
-from openbb_mcp_server.models.category_index import CategoryIndex
 from openbb_mcp_server.models.settings import MCPSettings
 from openbb_mcp_server.models.tools import CategoryInfo, SubcategoryInfo, ToolInfo
 from openbb_mcp_server.service.mcp_service import MCPService
@@ -376,6 +376,7 @@ def create_mcp_server(
         auth_provider = get_auth_provider(settings)
 
     category_index = CategoryIndex()
+    _enabled_tools: set[str] = set()
 
     # Single-pass processing: filter routes, build route maps, and create lookup dictionary
     processed_data = process_fastapi_routes_for_mcp(fastapi_app, settings)
@@ -498,6 +499,9 @@ def create_mcp_server(
         else:
             should_enable = False
 
+        if should_enable and isinstance(component, OpenAPITool):
+            _enabled_tools.add(component.name)
+
         # Resource-specific mime type
         if isinstance(component, OpenAPIResource):
             mime_type = mcp_cfg.get("mime_type")
@@ -529,23 +533,20 @@ def create_mcp_server(
         **fastmcp_kwargs,
     )
 
-    # Disable ALL non-admin tools at server level.
-    # Sessions start lean; agents progressively activate what they need
-    # via activate_tools / activate_category (per-session visibility).
+    # Disable ALL non-admin tools first, then selectively re-enable.
+    all_registered = category_index.all_tool_names()
+    if all_registered:
+        mcp.disable(names=all_registered)
+
     if settings.enable_tool_discovery:
-        all_registered = category_index.all_tool_names()
-        if all_registered:
-            mcp.disable(names=all_registered)
-    else:
-        # Fixed-toolset mode: honour default_tool_categories at server level
-        all_registered = category_index.all_tool_names()
-        if "all" not in settings.default_tool_categories:
-            # Disable everything, then re-enable tags that match
-            if all_registered:
-                mcp.disable(names=all_registered)
-            enabled_tags = set(settings.default_tool_categories)
-            if enabled_tags:
-                mcp.enable(tags=enabled_tags)
+        # Discovery mode: everything stays disabled.
+        # Agents progressively activate what they need per-session
+        # via activate_tools / activate_category.
+        pass
+    elif _enabled_tools:
+        # Fixed-toolset mode: re-enable tools that matched
+        # per-route overrides or default_tool_categories.
+        mcp.enable(names=_enabled_tools)
 
     # Add system prompt if configured
     if settings.system_prompt_file:

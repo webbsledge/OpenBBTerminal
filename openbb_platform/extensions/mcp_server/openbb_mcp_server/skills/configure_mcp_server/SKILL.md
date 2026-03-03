@@ -142,6 +142,7 @@ OPENBB_MCP_SERVER_PROMPTS_FILE="/path/to/prompts.json"
 | `default_tool_categories` | `OPENBB_MCP_DEFAULT_TOOL_CATEGORIES` | `list[str]` | `["all"]` |
 | `allowed_tool_categories` | `OPENBB_MCP_ALLOWED_TOOL_CATEGORIES` | `list[str] \| None` | `None` |
 | `enable_tool_discovery` | `OPENBB_MCP_ENABLE_TOOL_DISCOVERY` | `bool` | `true` |
+| `list_page_size` | `OPENBB_MCP_LIST_PAGE_SIZE` | `int \| None` | `None` |
 | `describe_responses` | `OPENBB_MCP_DESCRIBE_RESPONSES` | `bool` | `false` |
 | `api_prefix` | `OPENBB_MCP_API_PREFIX` | `str \| None` | `None` |
 
@@ -240,15 +241,19 @@ mcp = create_mcp_server(settings, my_fastapi_app, auth=my_auth_provider)
 
 ## Tool Discovery
 
-When `enable_tool_discovery` is `true` (the default), four admin tools are
+When `enable_tool_discovery` is `true` (the default), five admin tools are
 available to the agent:
 
 | Tool | Description |
 |---|---|
 | `available_categories` | Lists all tool categories with tool counts |
-| `available_tools` | Lists tools in a specific category |
-| `activate_tools` | Enables tools by name |
-| `deactivate_tools` | Disables tools by name |
+| `available_tools` | Lists tools in a specific category with active state and short descriptions |
+| `activate_tools` | Enables tools by name for this session |
+| `deactivate_tools` | Disables tools by name for this session |
+| `activate_category` | Bulk-activates all tools in a category (or subcategory) for this session |
+
+All visibility changes are **per-session** — each connected client maintains its
+own active toolset, so the server is safe for multi-user deployments.
 
 ### Controlling Active Tools on Startup
 
@@ -262,8 +267,9 @@ openbb-mcp --default-categories equity,economy
 openbb-mcp --default-categories admin
 ```
 
-The agent can then use `available_categories` and `activate_tools` to
-dynamically enable additional tools as needed.
+The agent can then use `available_categories` and `activate_tools` (or
+`activate_category` for bulk activation) to dynamically enable additional
+tools as needed.
 
 ### Restricting Available Categories
 
@@ -656,5 +662,5 @@ To configure and deploy an OpenBB MCP server:
 3. **Add prompts**: Write a system prompt file and/or server prompts JSON.
 4. **Start**: Run `openbb-mcp` with appropriate CLI flags.
 5. **Connect**: Configure your MCP client (Claude Desktop, Cursor, VS Code) with the server URL or stdio command.
-6. **Discover**: Use `available_categories` and `activate_tools` to find and enable tools.
+6. **Discover**: Use `available_categories`, `activate_tools`, and `activate_category` to find and enable tools.
 7. **Iterate**: Adjust settings, add inline `mcp_config` to routes, add skill files.
