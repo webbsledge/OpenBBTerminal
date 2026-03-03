@@ -37,7 +37,7 @@ def _first_sentence(text: str) -> str:
 
 @dataclass
 class CategoryIndex:
-    """Maps tools to their category/subcategory for discovery browsing.
+    r"""Maps tools to their category/subcategory for discovery browsing.
 
     This is a **read-only index** populated once at startup.  It carries no
     enable/disable state — that responsibility belongs to FastMCP's
