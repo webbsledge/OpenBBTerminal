@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 def _first_sentence(text: str) -> str:
     """Extract the first sentence from *text* for use as a short summary.
 
-    Strips everything after API documentation headers (``**Query Parameters``,
-    ``**Responses``), then returns the first sentence (delimited by ``.\n``,
-    ``.  ``, or end-of-string).  Falls back to the first line if no period
+    Strips everything after API documentation headers (**Query Parameters,
+    **Responses), then returns the first sentence (delimited by newline,
+    period, or end-of-string).  Falls back to the first line if no period
     is found.
     """
     if not text:
@@ -37,12 +37,12 @@ def _first_sentence(text: str) -> str:
 
 @dataclass
 class CategoryIndex:
-    r"""Maps tools to their category/subcategory for discovery browsing.
+    """Maps tools to their category/subcategory for discovery browsing.
 
     This is a **read-only index** populated once at startup.  It carries no
     enable/disable state — that responsibility belongs to FastMCP's
-    ``mcp.enable()`` / ``mcp.disable()`` and per-session
-    ``ctx.enable_components()`` / ``ctx.disable_components()``.
+    mcp.enable() / mcp.disable() and per-session
+    ctx.enable_components() / ctx.disable_components().
     """
 
     _by_category: dict[str, dict[str, set[str]]] = field(
