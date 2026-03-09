@@ -4,7 +4,6 @@
         "description": "Get Senior Loan Officers Opinion Survey.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_survey_sloos_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -185,7 +184,6 @@
         "description": "Get University of Michigan Consumer Sentiment and Inflation Expectations Surveys.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_survey_university_of_michigan_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -349,7 +347,6 @@
         "description": "Get The Survey Of Economic Conditions For The Chicago Region.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_survey_economic_conditions_chicago_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -561,7 +558,6 @@
         "description": "Get The Manufacturing Outlook Survey For The Texas Region.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_survey_manufacturing_outlook_texas_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -816,7 +812,6 @@
         "description": "Get Nonfarm Payrolls Survey.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_survey_nonfarm_payrolls_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -1009,7 +1004,6 @@
         "description": "Get Consumer Price Index (CPI).\n\nReturns either the rescaled index value, or a rate of change (inflation).",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_cpi_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -1350,7 +1344,6 @@
         "description": "Balance of Payments Reports.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_balance_of_payments_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -1761,7 +1754,6 @@
         "description": "Search for FRED series or economic releases by ID or string.\n\nThis does not return the observation values, only the metadata.\nUse this function to find series IDs for `fred_series()`.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_fred_search_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -2045,7 +2037,6 @@
         "description": "Get data by series ID from FRED.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_fred_series_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -2265,7 +2256,6 @@
         "description": "Get data by series ID from FRED.",
         "category": "Economy",
         "type": "chart",
-        "searchCategory": "chart",
         "widgetId": "economy_fred_series_fred_obb_chart",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -2495,7 +2485,6 @@
         "description": "Get economic release data by ID and/or element from FRED.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_fred_release_table_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -2641,7 +2630,6 @@
         "description": "Query the Geo Fred API for regional economic data by series group.\n\nThe series group ID is found by using `fred_search` and the `series_id` parameter.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_fred_regional_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -2944,7 +2932,7 @@
                         "field": "value",
                         "formatterFn": null,
                         "headerName": "Value",
-                        "headerTooltip": "The obersvation value. The units are defined in the search results by series ID.",
+                        "headerTooltip": "The observation value. The units are defined in the search results by series ID.",
                         "cellDataType": "number"
                     },
                     {
@@ -2968,7 +2956,6 @@
         "description": "Get retail prices for common items.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_retail_prices_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3177,7 +3164,6 @@
         "description": "Get Personal Consumption Expenditures (PCE) reports.",
         "category": "Economy",
         "type": "table",
-        "searchCategory": "Economy",
         "widgetId": "economy_pce_fred_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3341,7 +3327,6 @@
         "description": "Map a ticker symbol to a CIK number.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_cik_map_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3405,7 +3390,6 @@
         "description": "Search SEC-regulated institutions by name and return a list of results with CIK numbers.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_institutions_search_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3472,10 +3456,9 @@
     },
     "regulators_sec_schema_files_sec_obb": {
         "name": "Schema Files",
-        "description": "Use tool for navigating the directory of SEC XML schema files by year.",
+        "description": "Explore SEC and FASB XBRL taxonomy schemas, labels, and presentation structures.\n\n- No parameters: list all available taxonomy families.\n- taxonomy only: get all parsed structures for the most recent year.\n- taxonomy + year: get all parsed structures for a specific year.\n- taxonomy + component: get one component's structure using the most recent year.\n- taxonomy + year + component: get one component's parsed structure.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_schema_files_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3483,31 +3466,164 @@
         },
         "params": [
             {
-                "label": "Query",
-                "description": "Search query.",
-                "optional": true,
-                "type": "text",
-                "value": "",
-                "show": true,
-                "paramName": "query"
-            },
-            {
-                "label": "Use Cache",
-                "description": "Whether or not to use cache.",
-                "optional": true,
-                "type": "boolean",
-                "value": true,
-                "show": true,
-                "paramName": "use_cache"
-            },
-            {
-                "label": "URL",
-                "description": "Enter an optional URL path to fetch the next level.",
+                "label": "Taxonomy",
+                "description": "Taxonomy family to explore. Omit to list all available taxonomies and their descriptions.",
                 "optional": true,
                 "type": "text",
                 "value": null,
                 "show": true,
-                "paramName": "url"
+                "options": [
+                    {
+                        "label": "us-gaap",
+                        "value": "us-gaap"
+                    },
+                    {
+                        "label": "srt",
+                        "value": "srt"
+                    },
+                    {
+                        "label": "dei",
+                        "value": "dei"
+                    },
+                    {
+                        "label": "ecd",
+                        "value": "ecd"
+                    },
+                    {
+                        "label": "cyd",
+                        "value": "cyd"
+                    },
+                    {
+                        "label": "ffd",
+                        "value": "ffd"
+                    },
+                    {
+                        "label": "ifrs",
+                        "value": "ifrs"
+                    },
+                    {
+                        "label": "hmrc-dpl",
+                        "value": "hmrc-dpl"
+                    },
+                    {
+                        "label": "rxp",
+                        "value": "rxp"
+                    },
+                    {
+                        "label": "spac",
+                        "value": "spac"
+                    },
+                    {
+                        "label": "cef",
+                        "value": "cef"
+                    },
+                    {
+                        "label": "oef",
+                        "value": "oef"
+                    },
+                    {
+                        "label": "vip",
+                        "value": "vip"
+                    },
+                    {
+                        "label": "fnd",
+                        "value": "fnd"
+                    },
+                    {
+                        "label": "sro",
+                        "value": "sro"
+                    },
+                    {
+                        "label": "sbs",
+                        "value": "sbs"
+                    },
+                    {
+                        "label": "rocr",
+                        "value": "rocr"
+                    },
+                    {
+                        "label": "country",
+                        "value": "country"
+                    },
+                    {
+                        "label": "currency",
+                        "value": "currency"
+                    },
+                    {
+                        "label": "exch",
+                        "value": "exch"
+                    },
+                    {
+                        "label": "naics",
+                        "value": "naics"
+                    },
+                    {
+                        "label": "sic",
+                        "value": "sic"
+                    },
+                    {
+                        "label": "stpr",
+                        "value": "stpr"
+                    },
+                    {
+                        "label": "snj",
+                        "value": "snj"
+                    }
+                ],
+                "paramName": "taxonomy"
+            },
+            {
+                "label": "Year",
+                "description": "Taxonomy year (2009-2026 for us-gaap, varies by taxonomy). Defaults to the most recent year when omitted.",
+                "optional": true,
+                "type": "text",
+                "value": null,
+                "show": true,
+                "paramName": "year"
+            },
+            {
+                "label": "Component",
+                "description": "Presentation component to retrieve. Values are taxonomy-specific. Omit to return all components for the taxonomy.",
+                "optional": true,
+                "type": "text",
+                "value": null,
+                "show": true,
+                "paramName": "component"
+            },
+            {
+                "label": "Category",
+                "description": "Filter taxonomies by SEC filer category.",
+                "optional": true,
+                "type": "text",
+                "value": null,
+                "show": true,
+                "options": [
+                    {
+                        "label": "operating_company",
+                        "value": "operating_company"
+                    },
+                    {
+                        "label": "investment_company",
+                        "value": "investment_company"
+                    },
+                    {
+                        "label": "self_regulatory_org",
+                        "value": "self_regulatory_org"
+                    },
+                    {
+                        "label": "sbs_repository",
+                        "value": "sbs_repository"
+                    },
+                    {
+                        "label": "nrsro",
+                        "value": "nrsro"
+                    },
+                    {
+                        "label": "common_reference",
+                        "value": "common_reference"
+                    }
+                ],
+                "paramName": "category"
             },
             {
                 "paramName": "provider",
@@ -3527,10 +3643,123 @@
                 "showAll": true,
                 "columnsDefs": [
                     {
-                        "field": "files",
+                        "field": "name",
                         "formatterFn": null,
-                        "headerName": "Files",
-                        "headerTooltip": "Dictionary of URLs to SEC Schema Files",
+                        "headerName": "Name",
+                        "headerTooltip": "Identifier: taxonomy key, year, component name, or XBRL element ID depending on the query mode.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "label",
+                        "formatterFn": null,
+                        "headerName": "Label",
+                        "headerTooltip": "Human-readable label.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "description",
+                        "formatterFn": null,
+                        "headerName": "Description",
+                        "headerTooltip": "Description or long name.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "category",
+                        "formatterFn": null,
+                        "headerName": "Category",
+                        "headerTooltip": "Taxonomy category (e.g., operating_company).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "style",
+                        "formatterFn": null,
+                        "headerName": "Style",
+                        "headerTooltip": "Taxonomy style (e.g., FASB_STANDARD, SEC_EMBEDDED).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "has_label_linkbase",
+                        "formatterFn": null,
+                        "headerName": "Has Label Linkbase",
+                        "headerTooltip": "Whether the taxonomy has a parseable label linkbase.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "url",
+                        "formatterFn": null,
+                        "headerName": "URL",
+                        "headerTooltip": "URL to the taxonomy resource or SEC reference page.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "level",
+                        "formatterFn": null,
+                        "headerName": "Level",
+                        "headerTooltip": "Hierarchy depth in presentation structure (0 = root).",
+                        "cellDataType": "number"
+                    },
+                    {
+                        "field": "order",
+                        "formatterFn": null,
+                        "headerName": "Order",
+                        "headerTooltip": "Sort order within parent in presentation structure.",
+                        "cellDataType": "number"
+                    },
+                    {
+                        "field": "parent_id",
+                        "formatterFn": "none",
+                        "headerName": "Parent ID",
+                        "headerTooltip": "Parent XBRL element ID in presentation structure.",
+                        "cellDataType": "text",
+                        "renderFn": null
+                    },
+                    {
+                        "field": "preferred_label",
+                        "formatterFn": null,
+                        "headerName": "Preferred Label",
+                        "headerTooltip": "Preferred label role URI for presentation rendering.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "xbrl_type",
+                        "formatterFn": null,
+                        "headerName": "Xbrl Type",
+                        "headerTooltip": "XBRL data type (e.g., monetaryItemType, textBlockItemType, stringItemType, sharesItemType, perShareItemType, domainItemType).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "period_type",
+                        "formatterFn": null,
+                        "headerName": "Period Type",
+                        "headerTooltip": "Period type: 'instant' (point-in-time) or 'duration' (over a period).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "balance_type",
+                        "formatterFn": null,
+                        "headerName": "Balance Type",
+                        "headerTooltip": "Balance type for monetary items: 'credit' or 'debit'.",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "abstract",
+                        "formatterFn": null,
+                        "headerName": "Abstract",
+                        "headerTooltip": "Whether the element is abstract (grouping/heading only, not taggable).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "substitution_group",
+                        "formatterFn": null,
+                        "headerName": "Substitution Group",
+                        "headerTooltip": "XBRL substitution group: 'item' (line item), 'dimensionItem' (axis), 'hypercubeItem' (table).",
+                        "cellDataType": "text"
+                    },
+                    {
+                        "field": "nillable",
+                        "formatterFn": null,
+                        "headerName": "Nillable",
+                        "headerTooltip": "Whether the element value can be nil.",
                         "cellDataType": "text"
                     }
                 ],
@@ -3547,7 +3776,6 @@
         "description": "Map a CIK number to a ticker symbol, leading 0s can be omitted or included.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_symbol_map_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3612,7 +3840,6 @@
         "description": "Get the RSS feed that provides links to litigation releases concerning civil lawsuits brought by the Commission in federal court.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_rss_litigation_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3686,7 +3913,6 @@
         "description": "Search for Industry Titles, Reporting Office, and SIC Codes. An empty query string returns all results.",
         "category": "Regulators",
         "type": "table",
-        "searchCategory": "Regulators",
         "widgetId": "regulators_sec_sic_search_sec_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",
@@ -3763,7 +3989,6 @@
         "description": "",
         "category": "Form Widget",
         "type": "table",
-        "searchCategory": "Form Widget",
         "widgetId": "form_widget_custom_obb",
         "mcp_tool": {
             "mcp_server": "Open Data Platform",

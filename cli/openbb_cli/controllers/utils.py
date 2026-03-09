@@ -1,6 +1,7 @@
 """Utils."""
 
 import argparse
+import ast
 import os
 import random
 import re
@@ -379,7 +380,7 @@ def print_rich_table(  # noqa: PLR0912
                     )
 
         if columns_to_auto_color is None and rows_to_auto_color is None:
-            df = df.applymap(lambda x: return_colored_value(str(x)))  # type: ignore
+            df = df.map(lambda x: return_colored_value(str(x)))  # type: ignore
 
     exceeds_allowed_columns = len(df.columns) > MAX_COLS
     exceeds_allowed_rows = len(df) > MAX_ROWS
@@ -920,13 +921,11 @@ def parse_unknown_args_to_dict(unknown_args: list[str] | None) -> dict[str, str]
             if arg.startswith("--"):
                 if idx + 1 < len(unknown_args):
                     try:
-                        unknown_args_dict[arg.replace("--", "")] = (
-                            eval(  # noqa: S307, E501 pylint: disable=eval-used
-                                unknown_args[idx + 1]
-                            )
+                        unknown_args_dict[arg.replace("--", "")] = ast.literal_eval(
+                            unknown_args[idx + 1]
                         )
-                    except Exception:
-                        unknown_args_dict[arg] = unknown_args[idx + 1]
+                    except (ValueError, SyntaxError):
+                        unknown_args_dict[arg.replace("--", "")] = unknown_args[idx + 1]
                 else:
                     session.console.print(
                         f"Missing value for argument {arg}. Skipping this argument."

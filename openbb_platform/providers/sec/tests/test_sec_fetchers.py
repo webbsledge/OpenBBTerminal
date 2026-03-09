@@ -51,7 +51,7 @@ def test_sec_symbol_map_fetcher(credentials=test_credentials):
 @pytest.mark.record_http
 def test_sec_schema_files_fetcher(credentials=test_credentials):
     """Test the SEC Schema Files fetcher."""
-    params = {"query": "2022"}
+    params = {}  # Lists all taxonomy families from the in-memory registry
 
     fetcher = SecSchemaFilesFetcher()
     result = fetcher.test(params, credentials)
@@ -200,8 +200,7 @@ def test_sec_management_discussion_analysis_fetcher(credentials=test_credentials
         "symbol": "AAPL",
         "calendar_year": 2024,
         "calendar_period": "Q2",
-        "wrap_length": 120,
-        "include_tables": False,
+        "include_tables": True,
         "use_cache": False,
         "raw_html": False,
     }

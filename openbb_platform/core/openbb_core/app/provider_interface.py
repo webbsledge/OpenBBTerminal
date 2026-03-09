@@ -285,6 +285,27 @@ class ProviderInterface(metaclass=SingletonMeta):
                         + ", ".join(providers)  # type: ignore[arg-type]
                         + "."
                     )
+
+        # Auto-derive choices from Literal annotation for provider-specific fields
+        # when no explicit choices are already declared for this provider.
+        # This makes Literal annotations equivalent to manually declared choices,
+        # so providers only need to declare the type annotation.
+        if provider_name and provider_name not in choices:
+            _ann = annotation
+            _origin = get_origin(_ann)
+            # Unwrap Optional[Literal[...]] = Union[Literal[...], None]
+            if _origin is Union:
+                _inner = [a for a in get_args(_ann) if a is not type(None)]
+                if len(_inner) == 1:
+                    _ann = _inner[0]
+                    _origin = get_origin(_ann)
+            if _origin is Literal:
+                _literal_args = list(get_args(_ann))
+                if _literal_args:
+                    choices[provider_name] = {
+                        "choices": _literal_args,
+                    }
+
         provider_field = (
             f"(provider: {provider_name})" if provider_name != "openbb" else ""
         )
@@ -529,7 +550,7 @@ class ProviderInterface(metaclass=SingletonMeta):
         -------
         @dataclass
         class CompanyNews(ProviderChoices):
-            provider: Literal["benzinga", "polygon"]
+            provider: Literal["provider_a", "provider_b"]
         """
         result: dict = {}
 
@@ -551,6 +572,24 @@ class ProviderInterface(metaclass=SingletonMeta):
             )
 
         return result
+
+    @staticmethod
+    def _fields_to_pydantic(
+        fields: list[TupleFieldType],
+    ) -> dict[str, tuple[type | None, Any]]:
+        """Convert dataclass fields to pydantic fields.
+
+        Parameters
+        ----------
+        fields : list[TupleFieldType]
+            List of (name, annotation, default) tuples.
+
+        Returns
+        -------
+        dict[str, tuple[type | None, Any]]
+            Dictionary mapping field names to (annotation, default) tuples.
+        """
+        return {name: (annotation, default) for name, annotation, default in fields}
 
     def _generate_data_dc(
         self, map_: MapType
@@ -577,15 +616,15 @@ class ProviderInterface(metaclass=SingletonMeta):
             extra: dict
             standard, extra = self._extract_data(providers)
             result[model_name] = {
-                "standard": make_dataclass(
-                    cls_name=model_name,
-                    fields=list(standard.values()),  # type: ignore[arg-type]
-                    bases=(StandardData,),
+                "standard": create_model(  # type: ignore
+                    model_name,
+                    __base__=StandardData,
+                    **self._fields_to_pydantic(list(standard.values())),  # type: ignore
                 ),
-                "extra": make_dataclass(
-                    cls_name=model_name,
-                    fields=list(extra.values()),  # type: ignore[arg-type]
-                    bases=(ExtraData,),
+                "extra": create_model(
+                    model_name,
+                    __base__=ExtraData,
+                    **self._fields_to_pydantic(list(extra.values())),  # type: ignore
                 ),
             }
 
@@ -601,8 +640,9 @@ class ProviderInterface(metaclass=SingletonMeta):
             standard = dataclasses["standard"]
             extra = dataclasses["extra"]
 
-            fields = standard.model_fields.copy()
-            fields.update(extra.model_fields)
+            fields = getattr(standard, "model_fields", {}).copy()
+            extra_fields = getattr(extra, "model_fields", {}).copy()
+            fields.update(extra_fields)
 
             fields_dict: dict[str, tuple[Any, Any]] = {}
 
