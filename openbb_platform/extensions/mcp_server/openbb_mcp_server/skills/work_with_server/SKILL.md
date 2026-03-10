@@ -527,7 +527,7 @@ authentication error.
 
 ### Default Provider
 
-Set a default provider per endpoint so it is pre-selected:
+Set a default provider per endpoint so it is preselected:
 
 ```json
 {
