@@ -17,7 +17,7 @@ CLI_LOCK = CLI_PATH / "poetry.lock"
 
 LOCAL_DEPS = """
 [tool.poetry.dependencies]
-python = ">=3.10,<3.14"
+python = ">=3.10,<4"
 openbb-devtools = { path = "./extensions/devtools", develop = true, markers = "python_version >= '3.10'" }
 openbb-core = { path = "./core", develop = true }
 openbb-platform-api = { path = "./extensions/platform_api", develop = true }
@@ -34,7 +34,6 @@ openbb-government-us = { path = "./providers/government_us", develop = true }
 openbb-imf = { path = "./providers/imf", develop = true }
 openbb-intrinio = { path = "./providers/intrinio", develop = true }
 openbb-oecd = { path = "./providers/oecd", develop = true }
-openbb-polygon = { path = "./providers/polygon", develop = true }
 openbb-sec = { path = "./providers/sec", develop = true }
 openbb-tiingo = { path = "./providers/tiingo", develop = true }
 openbb-tradingeconomics = { path = "./providers/tradingeconomics", develop = true }

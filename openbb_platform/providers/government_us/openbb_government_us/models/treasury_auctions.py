@@ -28,7 +28,7 @@ class GovernmentUSTreasuryAuctionsQueryParams(USTreasuryAuctionsQueryParams):
     }
 
 
-class GovernementUSTreasuryAuctionsData(USTreasuryAuctionsData):
+class GovernmentUSTreasuryAuctionsData(USTreasuryAuctionsData):
     """US Government Treasury Auctions Data."""
 
     __alias_dict__ = {
@@ -167,7 +167,7 @@ class GovernementUSTreasuryAuctionsData(USTreasuryAuctionsData):
 class GovernmentUSTreasuryAuctionsFetcher(
     Fetcher[
         GovernmentUSTreasuryAuctionsQueryParams,
-        list[GovernementUSTreasuryAuctionsData],
+        list[GovernmentUSTreasuryAuctionsData],
     ]
 ):
     """Transform the query, extract and transform the data from the us treasury endpoints."""
@@ -230,6 +230,18 @@ class GovernmentUSTreasuryAuctionsFetcher(
         query: GovernmentUSTreasuryAuctionsQueryParams,
         data: list[dict],
         **kwargs: Any,
-    ) -> list[GovernementUSTreasuryAuctionsData]:
+    ) -> list[GovernmentUSTreasuryAuctionsData]:
         """Transform the data."""
-        return [GovernementUSTreasuryAuctionsData.model_validate(d) for d in data]
+        # pylint: disable=import-outside-toplevel
+        from math import isnan
+
+        def clean_nan(d: dict) -> dict:
+            """Replace nan values with None for Pydantic validation."""
+            return {
+                k: None if isinstance(v, float) and isnan(v) else v
+                for k, v in d.items()
+            }
+
+        return [
+            GovernmentUSTreasuryAuctionsData.model_validate(clean_nan(d)) for d in data
+        ]

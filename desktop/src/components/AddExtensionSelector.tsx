@@ -63,7 +63,7 @@ export const PythonVersionSelector = ({
   return (
 		<div className="w-full" data-testid="python-version-selector">
 			<div className="flex flex-row gap-8 pr-20">
-        {["3.10", "3.11", "3.12", "3.13"].map((version) => (
+        {["3.10", "3.11", "3.12", "3.13", "3.14"].map((version) => (
           <label
             key={version}
             className="flex items-center gap-2 cursor-pointer body-xs-regular text-theme-primary"
@@ -424,9 +424,9 @@ export const AddExtensionSelector = ({
 		const totalCount = categoryExtensions.length;
 		const selectedCount = countSelectedInCategory(categoryId);
 
-		if (selectedCount === 0) return 'checked';
-		if (selectedCount === totalCount) return 'indeterminate';
-		return 'indeterminate';
+    if (selectedCount === 0) return 'unchecked';
+    if (selectedCount === totalCount) return 'checked';
+    return 'indeterminate';
 	};
 
   // Update the useEffect to use the new hasMatchingExtensions
@@ -808,8 +808,7 @@ export const AddExtensionSelector = ({
                                             className="my-2 text-theme-secondary"
                                           />
                                         ),
-                                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                                        code: ({ inline, ...props }) => (
+                                        code: ({ ...props }) => (
                                           <code
                                             {...props}
                                             className="bg-theme-tertiary px-1 py-0.5 rounded text-theme-primary"

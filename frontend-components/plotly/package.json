@@ -14,7 +14,7 @@
     "dom-to-image": "^2.6.0",
     "esbuild": ">=0.25.0",
     "glob": ">=10.5.0",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
     "plotly.js-dist-min": "^3.1.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@types/dom-to-image": "^2.6.4",
-    "@types/lodash": "^4.14.195",
+    "@types/lodash": "^4.17.23",
     "@types/node": "^24.5.0",
     "@types/plotly.js-dist-min": "^2.3.4",
     "@types/react": "^18.0.27",
@@ -40,5 +40,8 @@
     "typescript": "^4.9.3",
     "vite": ">=7.1.11",
     "vite-plugin-singlefile": "^0.13.3"
+  },
+  "overrides": {
+    "minimatch": ">10.2.1"
   }
 }

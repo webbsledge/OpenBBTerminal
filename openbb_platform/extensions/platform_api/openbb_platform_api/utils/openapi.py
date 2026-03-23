@@ -355,6 +355,12 @@ def _extract_provider_description(full_description: str, provider: str) -> str:
         if is_matching_provider and i > 0:
             # The description is the part before this marker
             desc = parts[i - 1].strip()
+            # When a preceding text contains multiple sections separated by
+            # ";\n    " (e.g. "general desc ...;\n    provider-specific desc"),
+            # extract the last section which belongs to this provider marker.
+            sections = re.split(r";\s*\n\s*", desc)
+            if len(sections) > 1:
+                desc = sections[-1].strip()
             # Remove leading semicolons and whitespace from continuation sections
             desc = re.sub(r"^;\s*", "", desc).strip()
             # Remove "Multiple comma separated items allowed" suffix
@@ -541,11 +547,20 @@ def process_parameter(
         ]
 
         if valid_provider_list:
-            p["available_providers"] = valid_provider_list
-            # Check if any of our current providers match the validated available providers list
+            # If set_parameter_options already determined a broader
+            # available_providers list (by inspecting actual schema entries),
+            # prefer that over the narrower title/description-based list.
+            existing_providers = p.get("available_providers")
+            if not existing_providers or len(valid_provider_list) > len(
+                existing_providers
+            ):
+                p["available_providers"] = valid_provider_list
+
+            effective_providers = p["available_providers"]
+            # Check if any of our current providers match the available providers list
             valid_for_current_providers = any(
                 current_provider.lower()
-                in [valid_p.lower() for valid_p in valid_provider_list]
+                in [valid_p.lower() for valid_p in effective_providers]
                 for current_provider in providers
             )
 
@@ -662,7 +677,8 @@ def get_data_schema_for_widget(openapi_json, operation_id, route: str | None = N
     return None
 
 
-def data_schema_to_columns_defs(  # noqa: PLR0912  # pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-statements
+def data_schema_to_columns_defs(  # noqa: PLR0912
     openapi_json,
     operation_id,
     provider,
@@ -718,16 +734,29 @@ def data_schema_to_columns_defs(  # noqa: PLR0912  # pylint: disable=too-many-br
         target_schema = schemas[0]
     else:
         for schema in schemas:
-            if (
-                schema.get("description", "")
-                .lower()
-                .startswith(provider.lower().replace("tradingeconomics", "te"))
-            ) or (
-                schema.get("description", "").lower().startswith("us government")
-                or (schema.get("description", "").lower().startswith(provider))
+            schema_desc = schema.get("description", "").lower()
+            provider_lower = provider.lower().replace("tradingeconomics", "te")
+            # Check if description starts with provider name (with or without underscores/spaces)
+            provider_variants = [
+                provider_lower,
+                provider_lower.replace("_", " "),
+                provider_lower.replace("_", ""),
+            ]
+            if any(schema_desc.startswith(v) for v in provider_variants) or (
+                schema_desc.startswith("us government")
             ):
                 target_schema = schema
                 break
+        # Fallback: if no description match, try matching by schema title/name
+        if not target_schema:
+            for schema in schemas:
+                schema_title = schema.get("title", "").lower()
+                if provider.lower().replace("_", "") in schema_title.replace("_", ""):
+                    target_schema = schema
+                    break
+        # Final fallback: use the first schema if still no match
+        if not target_schema and schemas:
+            target_schema = schemas[0]
 
     if get_widget_config:
         return target_schema.get("x-widget_config", {})
