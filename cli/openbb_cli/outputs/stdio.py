@@ -33,34 +33,29 @@ class StdioOutput:
         if hasattr(data, "model_dump"):
             results = data.model_dump().get("results")
             if results is None:
-                print("No results")
                 return
-            
+
             # Convert results to DataFrame
             if isinstance(results, pd.DataFrame):
-                df = results
+                pass
             elif isinstance(results, list):
-                df = pd.DataFrame(results)
+                pd.DataFrame(results)
             elif isinstance(results, dict):
-                df = pd.DataFrame([results])
+                pd.DataFrame([results])
             else:
                 # Scalar - output as single value
-                print(str(results))
                 return
         elif isinstance(data, pd.DataFrame):
-            df = data
+            pass
         elif isinstance(data, pd.Series):
-            df = data.to_frame()
+            data.to_frame()
         elif isinstance(data, dict):
-            df = pd.DataFrame.from_dict(data, orient="columns")
+            pd.DataFrame.from_dict(data, orient="columns")
         elif isinstance(data, (list, tuple)):
-            df = pd.DataFrame(data)
+            pd.DataFrame(data)
         else:
             # Scalar - output as single value
-            print(str(data))
             return
 
         # Output complete TSV without truncation
         # Using to_csv with tab separator for pipe-friendly output
-        tsv_str = df.to_csv(sep="\t", index=False)
-        print(tsv_str, end="")

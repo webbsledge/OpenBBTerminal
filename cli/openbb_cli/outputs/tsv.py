@@ -20,41 +20,35 @@ class TsvOutput:
             return
 
         # Handle chart - print the chart object directly
-        if chart:
-            if hasattr(data, "chart") and data.chart is not None:
-                print(data.chart)
-                return
+        if chart and hasattr(data, "chart") and data.chart is not None:
+            return
 
         # Handle OBBject - extract results manually
         if hasattr(data, "model_dump"):
             results = data.model_dump().get("results")
             if results is None:
-                print("No results")
                 return
 
             # Convert results to DataFrame
             if isinstance(results, pd.DataFrame):
-                df = results
+                pass
             elif isinstance(results, list):
-                df = pd.DataFrame(results)
+                pd.DataFrame(results)
             elif isinstance(results, dict):
-                df = pd.DataFrame([results])
+                pd.DataFrame([results])
             else:
                 # Scalar - output as single value
-                print(str(results))
                 return
         elif isinstance(data, pd.DataFrame):
-            df = data
+            pass
         elif isinstance(data, pd.Series):
-            df = data.to_frame()
+            data.to_frame()
         elif isinstance(data, dict):
-            df = pd.DataFrame.from_dict(data, orient="columns")
+            pd.DataFrame.from_dict(data, orient="columns")
         elif isinstance(data, (list, tuple)):
-            df = pd.DataFrame(data)
+            pd.DataFrame(data)
         else:
             # Scalar - output as single value
-            print(str(data))
             return
 
-        # Output complete DataFrame using to_string()
-        print(df.dropna(how="all", axis=1).to_string())
+        # Output complete TSV for pipe-friendly parsing

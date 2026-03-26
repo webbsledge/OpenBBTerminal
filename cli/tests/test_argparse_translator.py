@@ -41,7 +41,7 @@ def bool_function(
     adjusted: bool = False,
     extended_hours: bool | None = None,
 ) -> dict:
-    """Function with boolean parameters."""
+    """Return dict with boolean parameters."""
     return {"symbol": symbol, "adjusted": adjusted, "extended_hours": extended_hours}
 
 
@@ -49,7 +49,7 @@ def union_function(
     param1: str | int = "default",
     param2: str | int | None = None,
 ) -> dict:
-    """Function with union types."""
+    """Return dict with union type parameters."""
     return {"param1": param1, "param2": param2}
 
 
@@ -57,7 +57,7 @@ def list_function(
     symbols: list[str],
     values: list[int] | None = None,
 ) -> dict:
-    """Function with list parameters."""
+    """Return dict with list parameters."""
     return {"symbols": symbols, "values": values}
 
 
@@ -69,7 +69,7 @@ class CustomData(BaseModel):
 
 
 def custom_type_function(data: CustomData) -> dict:
-    """Function with custom type parameter."""
+    """Return dict with custom type parameter."""
     return {"data": data}
 
 

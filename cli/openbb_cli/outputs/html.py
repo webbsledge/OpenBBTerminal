@@ -38,7 +38,7 @@ class HtmlOutput:
                         f"[yellow]Interactive table not available: {e}[/yellow]"
                     )
                     # Fall through to browser HTML
-            
+
             # Handle chart display if requested
             if chart:
                 try:
@@ -55,7 +55,7 @@ class HtmlOutput:
             if results is None:
                 session.console.print("[yellow]No results to display[/yellow]")
                 return
-            
+
             # Convert results to DataFrame
             if isinstance(results, pd.DataFrame):
                 df = results
@@ -71,12 +71,13 @@ class HtmlOutput:
             # Check if we should use interactive window for plain DataFrames
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
-                    # Wrap DataFrame in OBBject for charting
-                    from openbb import obb
-                    temp_obbject = obb.OBBject(results=df)
-                    temp_obbject.charting.table()
+                    session.backend.send_table(
+                        df_table=df,
+                        title=title,
+                        theme=session.user.preferences.table_style,
+                    )
                     return
-                except Exception:
+                except Exception:  # noqa: S110
                     # Fall through to browser HTML if PyWry fails
                     pass
         elif isinstance(data, pd.Series):
@@ -135,15 +136,6 @@ class HtmlOutput:
 </body>
 </html>
 """
-
-        # Try to use PyWry if available, otherwise create temp file
-        if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
-            try:
-                session.backend.send_html(html_content)
-                return
-            except Exception:
-                # Fall through to browser if PyWry fails
-                pass
 
         # Create temporary HTML file
         with tempfile.NamedTemporaryFile(

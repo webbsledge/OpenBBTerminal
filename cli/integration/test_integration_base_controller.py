@@ -52,7 +52,8 @@ def test_check_path_invalid(base_controller):
 def test_parse_input(base_controller):
     """Test the parse_input method."""
     input_str = "/equity/price/help"
-    expected_output = ["equity", "price", "help"]
+    # Leading '/' prepends "home" to navigate to root first
+    expected_output = ["home", "equity", "price", "help"]
     assert (
         base_controller.parse_input(input_str) == expected_output
     ), "Input parsing failed"

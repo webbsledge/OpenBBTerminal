@@ -74,8 +74,10 @@ class Settings(BaseModel):
     OUTPUT_MODE: Literal["rich", "json", "tsv", "html"] = Field(
         default="rich",
         description="output display mode (rich=terminal table, json=JSON, tsv=DataFrame string, html=browser)",
-        command="output",
-        group=SettingGroups.preferences,
+        json_schema_extra={
+            "command": "output",
+            "group": SettingGroups.preferences.value,
+        },
     )
     USE_CLEAR_AFTER_CMD: bool = Field(
         default=False,

@@ -32,7 +32,7 @@ class JsonOutput:
 
         # Extract raw results and output directly as JSON
         results = None
-        
+
         if hasattr(data, "model_dump"):
             # OBBject - get results from model_dump
             results = data.model_dump().get("results")
@@ -45,12 +45,10 @@ class JsonOutput:
         else:
             # Everything else - use as-is
             results = data
-        
-        # Output as compact JSON
+
+        # Output as JSON
         try:
-            json_str = json.dumps(results, separators=(",", ":"), default=str)
-            print(json_str)
+            output = json.dumps(results, indent=2, default=str)
+            session.console.print(output)
         except Exception as e:
-            # Fallback: convert to string
             session.console.print(f"[red]JSON serialization error: {e}[/red]")
-            print(str(results))

@@ -13,7 +13,7 @@ session = Session()
 class RichTableOutput:
     """Rich table output adapter with truncation for terminal display."""
 
-    def display(
+    def display(  # noqa: PLR0911
         self,
         data: Any,
         title: str = "",
@@ -48,11 +48,11 @@ class RichTableOutput:
 
             # Extract results from OBBject
             results = data.model_dump().get("results")
-            
+
             if results is None:
                 session.console.print("[yellow]No results to display[/yellow]")
                 return
-            
+
             # Try to convert to DataFrame for display
             try:
                 if isinstance(results, pd.DataFrame):
@@ -66,40 +66,25 @@ class RichTableOutput:
                 elif isinstance(results, dict):
                     df = pd.DataFrame([results])
                 else:
-                    # Non-tabular data - use PyWry if available, else print
-                    if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
-                        try:
-                            html_content = f"<pre>{results}</pre>"
-                            session.backend.send_html(html_content)
-                            return
-                        except Exception:
-                            pass
                     session.console.print(results)
                     return
             except Exception as e:
-                # DataFrame conversion failed - use PyWry if available, else show as plain text
-                if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
-                    try:
-                        html_content = f"<pre>{results}</pre>"
-                        session.backend.send_html(html_content)
-                        return
-                    except Exception:
-                        pass
                 session.console.print(f"[yellow]Cannot display as table: {e}[/yellow]")
                 session.console.print(results)
                 return
-                
+
         elif isinstance(data, pd.DataFrame):
             df = data
             # Check if we should use interactive window for plain DataFrames
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
-                    # Wrap DataFrame in OBBject for charting
-                    from openbb import obb
-                    temp_obbject = obb.OBBject(results=df)
-                    temp_obbject.charting.table()
+                    session.backend.send_table(
+                        df_table=df,
+                        title=title,
+                        theme=session.user.preferences.table_style,
+                    )
                     return
-                except Exception:
+                except Exception:  # noqa: S110
                     # Fall through to rich table if PyWry fails
                     pass
             if df.empty:
@@ -111,15 +96,6 @@ class RichTableOutput:
             try:
                 df = pd.DataFrame.from_dict(data, orient="columns")
             except Exception:
-                # Can't convert to DataFrame - use PyWry if available, else show as text
-                if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
-                    try:
-                        import json
-                        html_content = f"<pre>{json.dumps(data, indent=2, default=str)}</pre>"
-                        session.backend.send_html(html_content)
-                        return
-                    except Exception:
-                        pass
                 session.console.print(data)
                 return
         elif isinstance(data, (list, tuple)):
@@ -129,15 +105,6 @@ class RichTableOutput:
             try:
                 df = pd.DataFrame(data)
             except Exception:
-                # Can't convert to DataFrame - use PyWry if available, else show as text
-                if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
-                    try:
-                        import json
-                        html_content = f"<pre>{json.dumps(data, indent=2, default=str)}</pre>"
-                        session.backend.send_html(html_content)
-                        return
-                    except Exception:
-                        pass
                 session.console.print(data)
                 return
         else:

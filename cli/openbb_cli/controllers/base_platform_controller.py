@@ -239,7 +239,9 @@ class PlatformController(BaseController):
                                         chart=chart,
                                     )
                                 except Exception as e:
-                                    session.console.print(f"[red]Display error: {e}[/red]")
+                                    session.console.print(
+                                        f"[red]Display error: {e}[/red]"
+                                    )
                                     # Fallback: try to show raw results
                                     if hasattr(obbject, "model_dump"):
                                         results = obbject.model_dump().get("results")

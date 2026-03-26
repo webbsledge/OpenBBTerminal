@@ -32,13 +32,13 @@ if TYPE_CHECKING:
 
 class SQLiteTable:
     """Lazy-loading wrapper for SQLite tables.
-    
+
     Stores connection info and loads data only when accessed.
     """
-    
+
     def __init__(self, db_path: str, table_name: str, row_count: int = 0):
         """Initialize SQLite table wrapper.
-        
+
         Args:
             db_path: Path to SQLite database file
             table_name: Name of the table
@@ -48,58 +48,66 @@ class SQLiteTable:
         self.table_name = table_name
         self.row_count = row_count
         self._cached_df: pd.DataFrame | None = None
-    
+
+    @property
+    def _quoted_name(self) -> str:
+        """Return the table name quoted for safe SQL interpolation."""
+        # Double any embedded quotes and wrap in double-quotes
+        return '"' + self.table_name.replace('"', '""') + '"'
+
     def to_dataframe(self, use_cache: bool = True) -> pd.DataFrame:
         """Load table data from SQLite database.
-        
+
         Args:
             use_cache: If True, return cached DataFrame if available
-            
+
         Returns:
             DataFrame containing table data
         """
         if use_cache and self._cached_df is not None:
             return self._cached_df
-        
+
         conn = sqlite3.connect(self.db_path)
         try:
-            df = pd.read_sql_query(f"SELECT * FROM {self.table_name}", conn)
+            df = pd.read_sql_query(
+                f"SELECT * FROM {self._quoted_name}", conn  # noqa: S608
+            )
             if use_cache:
                 self._cached_df = df
             return df
         finally:
             conn.close()
-    
+
     def get_schema(self) -> list[tuple]:
         """Get table schema (column names and types).
-        
+
         Returns:
             List of (column_name, type, notnull, default, pk) tuples
         """
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute(f"PRAGMA table_info({self.table_name})")
+            cursor.execute(f"PRAGMA table_info({self._quoted_name})")
             return cursor.fetchall()
         finally:
             conn.close()
-    
+
     def query(self, where: str = "", limit: int | None = None) -> pd.DataFrame:
         """Execute SQL query with optional filters.
-        
+
         Args:
             where: SQL WHERE clause (without WHERE keyword)
             limit: Maximum number of rows to return
-            
+
         Returns:
             DataFrame with query results
         """
-        sql = f"SELECT * FROM {self.table_name}"
+        sql = f"SELECT * FROM {self._quoted_name}"  # noqa: S608
         if where:
             sql += f" WHERE {where}"
         if limit:
             sql += f" LIMIT {limit}"
-        
+
         conn = sqlite3.connect(self.db_path)
         try:
             return pd.read_sql_query(sql, conn)
@@ -109,22 +117,22 @@ class SQLiteTable:
 
 def extract_dataframe(obbject) -> pd.DataFrame:
     """Extract DataFrame from OBBject without using to_dataframe().
-    
+
     This function manually extracts results from OBBject to have full control
     over the conversion process and avoid built-in assumptions.
-    
+
     Args:
         obbject: OBBject instance or other data
-        
+
     Returns:
         DataFrame extracted from results
     """
-    if hasattr(obbject, "model_dump"):
-        results = obbject.model_dump().get("results")
-    else:
-        # Fallback for non-OBBject
-        results = obbject
-    
+    results = (
+        obbject.model_dump().get("results")
+        if hasattr(obbject, "model_dump")
+        else obbject
+    )
+
     if results is None:
         return pd.DataFrame()
     elif isinstance(results, SQLiteTable):
@@ -300,7 +308,9 @@ def parse_and_split_input(an_input: str, custom_filters: list) -> list[str]:
     # everything from ` -f ` to the next known extension (and any following arguments)
     file_flag = r"(\ -f |\ --file )"
     up_to = r".*?"
-    known_extensions = r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb|db|sqlite|sqlite3))"
+    known_extensions = (
+        r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb|db|sqlite|sqlite3))"
+    )
     # Capture everything from -f/--file through the extension and any arguments after
     # This includes --register_key, --sheet-name, etc. until we hit a / or end
     # Match space followed by anything that's not a forward slash
@@ -477,7 +487,7 @@ def print_rich_table(  # noqa: PLR0912
                 theme=session.user.preferences.table_style,
             )
             return
-        except Exception:
+        except Exception:  # noqa: S110
             # Fall through to rich table if backend fails
             pass
 
@@ -579,7 +589,7 @@ def get_user_data_directory() -> Path:
 
 def get_data_files_for_completion() -> list[str]:
     """Get list of data files in OpenBBUserData for tab completion.
-    
+
     Returns list of file paths relative to OpenBBUserData directory.
     Includes CSV, JSON, and Excel files.
     """
@@ -587,7 +597,7 @@ def get_data_files_for_completion() -> list[str]:
         user_data_dir = get_user_data_directory()
         if not user_data_dir.exists():
             return []
-        
+
         files = []
         # Walk through the directory and subdirectories
         for file_path in user_data_dir.rglob("*"):
@@ -604,7 +614,7 @@ def get_data_files_for_completion() -> list[str]:
                 rel_path = file_path.relative_to(user_data_dir)
                 # Convert to string with forward slashes for consistency
                 files.append(str(rel_path).replace("\\", "/"))
-        
+
         return sorted(files)
     except Exception:
         return []
@@ -881,7 +891,7 @@ def save_to_excel(df, saved_path, sheet_name, start_row=0, index=True, header=Tr
 
 # This is a false positive on pylint and being tracked in pylint #3060
 # pylint: disable=abstract-class-instantiated,too-many-positional-arguments
-def export_data(
+def export_data(  # noqa: PLR0912
     export_type: str,
     dir_path: str,
     func_name: str,
@@ -982,7 +992,7 @@ def export_data(
                     # Check if table already exists
                     cursor.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                        (table_name,)
+                        (table_name,),
                     )
                     table_exists = cursor.fetchone() is not None
 
@@ -992,7 +1002,9 @@ def export_data(
                             f"\nTable '{table_name}' exists. Overwrite/Append/New? [o/a/n]: "
                         ).lower()
                         if choice == "o":
-                            df.to_sql(table_name, conn, if_exists="replace", index=False)
+                            df.to_sql(
+                                table_name, conn, if_exists="replace", index=False
+                            )
                         elif choice == "a":
                             df.to_sql(table_name, conn, if_exists="append", index=False)
                         elif choice == "n":
@@ -1002,7 +1014,7 @@ def export_data(
                             while True:
                                 cursor.execute(
                                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                                    (new_name,)
+                                    (new_name,),
                                 )
                                 if cursor.fetchone() is None:
                                     break
@@ -1111,6 +1123,13 @@ def handle_obbject_display(
     """Handle the display of an OBBject."""
     df: pd.DataFrame = pd.DataFrame()
     fig: OpenBBFigure | None = None
+
+    # If results are a SQLiteTable, materialize into a DataFrame so that
+    # charting / interactive-table paths (which call obbject.to_dataframe())
+    # don't crash on the unknown type.
+    if isinstance(getattr(obbject, "results", None), SQLiteTable):
+        obbject.results = obbject.results.to_dataframe()
+
     if chart:
         try:
             if obbject.chart:

@@ -67,10 +67,13 @@ class CLIController(BaseController):
     CHOICES_COMMANDS = ["record", "stop", "exe", "results"]
     CHOICES_MENUS = [
         "settings",
+        "user",
         "feature",
     ]
 
     for router, value in PLATFORM_ROUTERS.items():
+        if router == "user":
+            continue
         if value == "menu":
             CHOICES_MENUS.append(router)
         else:
@@ -119,6 +122,8 @@ class CLIController(BaseController):
             return print_rich_table(df, show_index=True)
 
         for router, value in PLATFORM_ROUTERS.items():
+            if router == "user":
+                continue
             target = getattr(obb, router)
 
             if value == "menu":
@@ -202,16 +207,16 @@ class CLIController(BaseController):
                 "-h": "--help",
             }
             choices["stop"] = {"--help": None, "-h": "--help"}
-            
+
             # Get dynamic index and key completions from registry
             registry_all = session.obbject_registry.all
-            index_completions = {str(idx): None for idx in registry_all.keys()}
+            index_completions = {str(idx): None for idx in registry_all}
             key_completions = {
-                data.get("key"): None 
-                for data in registry_all.values() 
+                data.get("key"): None
+                for data in registry_all.values()
                 if data.get("key")
             }
-            
+
             choices["results"] = {
                 "--index": index_completions if index_completions else None,
                 "-i": "--index",
@@ -219,7 +224,19 @@ class CLIController(BaseController):
                 "-k": "--key",
                 "--chart": None,
                 "-c": "--chart",
-                "--export": {c: None for c in ["csv", "json", "xlsx", "png", "jpg", "db", "sqlite", "sqlite3"]},
+                "--export": {
+                    c: None
+                    for c in [
+                        "csv",
+                        "json",
+                        "xlsx",
+                        "png",
+                        "jpg",
+                        "db",
+                        "sqlite",
+                        "sqlite3",
+                    ]
+                },
                 "-e": "--export",
                 "--sheet-name": None,
                 "--help": None,
@@ -243,6 +260,10 @@ class CLIController(BaseController):
         mt.add_menu(
             "settings",
             description="enable and disable feature flags, preferences and settings",
+        )
+        mt.add_menu(
+            "user",
+            description="view and set platform user preferences for the session",
         )
         mt.add_raw("\n")
         mt.add_info("Record and execute your own .openbb routine scripts")
@@ -313,6 +334,12 @@ class CLIController(BaseController):
         )
 
         self.queue = self.load_class(SettingsController, self.queue)
+
+    def call_user(self, _):
+        """Process user command."""
+        from openbb_cli.controllers.user_controller import UserController
+
+        self.queue = self.load_class(UserController, self.queue)
 
     def call_feature(self, _):
         """Process feature engineering command."""

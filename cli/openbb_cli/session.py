@@ -83,6 +83,20 @@ class Session(metaclass=SingletonMeta):
         """Get prompt session."""
         return self._prompt_session
 
+    @property
+    def backend(self):
+        """Get charting backend."""
+        return self._backend
+
+    @property
+    def output_adapter(self):
+        """Get output adapter."""
+        from openbb_cli.outputs.rich import RichTableOutput
+
+        if not hasattr(self, "_output_adapter"):
+            self._output_adapter = RichTableOutput()
+        return self._output_adapter
+
     def _get_prompt_session(self) -> PromptSession | None:
         """Initialize prompt session."""
         try:
