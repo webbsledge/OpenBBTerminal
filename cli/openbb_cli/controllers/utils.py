@@ -1128,7 +1128,8 @@ def handle_obbject_display(
     # charting / interactive-table paths (which call obbject.to_dataframe())
     # don't crash on the unknown type.
     if isinstance(getattr(obbject, "results", None), SQLiteTable):
-        obbject.results = obbject.results.to_dataframe()
+        sqlite_tbl: SQLiteTable = obbject.results  # type: ignore[assignment]
+        obbject.results = sqlite_tbl.to_dataframe()
 
     if chart:
         try:

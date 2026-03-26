@@ -487,6 +487,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             session.console.print(f"\n[bold]Table: {self.current_table}[/bold]")
@@ -543,6 +545,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             if ns_parser.head:
@@ -589,6 +593,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
 
             # Check if this is a SQLite-backed table
             from openbb_cli.controllers.utils import SQLiteTable
@@ -607,6 +613,7 @@ class FeatureController(BaseController):
 
             # Try SQL query optimization for SQLite tables
             if is_sqlite:
+                assert isinstance(data_obj, SQLiteTable)
                 # Simple query patterns that can be pushed to SQL
                 sql_query = None
 
@@ -772,6 +779,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             col_data = []
@@ -831,6 +840,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             try:
@@ -887,6 +898,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = result.to_dataframe()
 
             expr_str = " ".join(ns_parser.expression)
@@ -926,6 +939,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             try:
@@ -966,6 +981,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             try:
@@ -1007,6 +1024,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             expr_str = " ".join(ns_parser.expression)
@@ -1106,6 +1125,8 @@ class FeatureController(BaseController):
 
             result_left = session.obbject_registry.get(self.current_table)
             result_right = session.obbject_registry.get(table_idx)
+            if result_left is None or result_right is None:
+                return
             df_left = extract_dataframe(result_left)
             df_right = extract_dataframe(result_right)
 
@@ -1177,6 +1198,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             # Create a new OBBject with copied data
@@ -1252,6 +1275,8 @@ class FeatureController(BaseController):
                 return
 
             result = session.obbject_registry.get(self.current_table)
+            if result is None:
+                return
             df = extract_dataframe(result)
 
             # Construct full path

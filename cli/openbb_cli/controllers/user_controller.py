@@ -115,7 +115,7 @@ class UserController(BaseController):
             command = field["command"]
 
             # Determine the type and choices for argparse
-            type_ = str
+            type_: type = str
             choices = None
             if get_origin(annotation) is Literal:
                 choices = list(get_args(annotation))
