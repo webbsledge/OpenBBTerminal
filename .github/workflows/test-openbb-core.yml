@@ -76,7 +76,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          pytest tests --cov=openbb_core --cov-report=term-missing --cov-report=xml -m "not integration"
+          pytest tests --cov=openbb_core --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage artifact
         if: always()
