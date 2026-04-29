@@ -1,18 +1,17 @@
 """Test the standard models."""
 
-# pylint: disable=W0401
-
 import inspect
 from importlib import import_module
 from pathlib import Path
 
 import pytest
+from pydantic.fields import FieldInfo
+
 from openbb_core.provider.abstract.fetcher import Data, QueryParams
 from openbb_core.provider.utils.descriptions import (
     DATA_DESCRIPTIONS,
     QUERY_DESCRIPTIONS,
 )
-from pydantic.fields import FieldInfo
 
 models_path = (
     Path(__file__).parent.parent.parent.parent
@@ -49,9 +48,9 @@ def test_standard_models(standard_model):
     fields = standard_model.model_fields
 
     for name, field in fields.items():
-        assert isinstance(
-            field, FieldInfo
-        ), f"Field {name} should be a ModelField instance"
+        assert isinstance(field, FieldInfo), (
+            f"Field {name} should be a ModelField instance"
+        )
         if "QueryParams" in standard_model.__name__:
             if name in QUERY_DESCRIPTIONS:
                 assert QUERY_DESCRIPTIONS[name] in getattr(field, "description"), (
