@@ -21,6 +21,15 @@ class OutputMode(str, Enum):
     html = "html"  # HTML table in browser
 
 
+class OutputMode(str, Enum):
+    """Output mode for displaying results."""
+
+    rich = "rich"  # Rich table in terminal with truncation
+    json = "json"  # Full JSON output
+    tsv = "tsv"  # DataFrame to_string() output for pipes
+    html = "html"  # HTML table in browser
+
+
 class SettingGroups(Enum):
     """Setting types."""
 
@@ -187,6 +196,7 @@ class Settings(BaseModel):
     )
     ALLOWED_NUMBER_OF_COLUMNS: int = Field(
         default=5,
+        description="number of columns to show in rich table mode (does not apply to json/stdio/html modes)",
         description="number of columns to show in rich table mode (does not apply to json/stdio/html modes)",
         json_schema_extra={
             "command": "n_cols",

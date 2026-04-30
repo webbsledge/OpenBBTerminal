@@ -166,7 +166,7 @@ class OBBject(Tagged, Generic[T]):
                 isinstance(item, BaseModel) for item in items
             )
 
-        if self.results is None or not self.results:
+        if self.results is None:
             raise OpenBBError("Results not found.")
 
         if isinstance(self.results, DataFrame):
