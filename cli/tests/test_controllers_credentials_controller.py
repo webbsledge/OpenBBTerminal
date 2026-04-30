@@ -1,0 +1,166 @@
+"""Test the CredentialsController class."""
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+from pydantic import SecretStr
+
+# pylint: disable=redefined-outer-name, unused-argument
+
+
+MODULE = "openbb_cli.controllers.credentials_controller"
+
+
+class TestCredentialStatus:
+    """Test the _credential_status helper function."""
+
+    def test_secret_str_with_value(self):
+        from openbb_cli.controllers.credentials_controller import _credential_status
+
+        result = _credential_status(SecretStr("abcdef12345"))
+        assert "Set" in result
+        assert "abcd" in result
+        assert "green" in result
+
+    def test_secret_str_empty(self):
+        from openbb_cli.controllers.credentials_controller import _credential_status
+
+        result = _credential_status(SecretStr(""))
+        assert "Not set" in result
+        assert "red" in result
+
+    def test_non_secret_str(self):
+        from openbb_cli.controllers.credentials_controller import _credential_status
+
+        result = _credential_status(None)
+        assert "Not set" in result
+        assert "red" in result
+
+    def test_plain_string(self):
+        from openbb_cli.controllers.credentials_controller import _credential_status
+
+        result = _credential_status("some_string")
+        assert "Not set" in result
+
+
+@pytest.fixture
+def mock_cred_session():
+    """Create a mock session for CredentialsController."""
+    with patch(f"{MODULE}.session") as sess:
+        sess.console = MagicMock()
+        yield sess
+
+
+@pytest.fixture
+def mock_obb():
+    """Mock the obb object with credentials."""
+    with patch(f"{MODULE}.obb") as obb_mock:
+        obb_mock.user.credentials = MagicMock()
+        # Set up a credential field
+        obb_mock.user.credentials.__class__.model_fields = {
+            "test_api_key": MagicMock(description="test provider"),
+        }
+        obb_mock.user.credentials.test_api_key = SecretStr("mykey1234")
+        yield obb_mock
+
+
+class TestCredentialsController:
+    def test_init_generates_commands(self, mock_cred_session, mock_obb):
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        ctrl = CredentialsController.__new__(CredentialsController)
+        ctrl.queue = []
+        ctrl.update_completer = MagicMock()
+
+        # Generate command for test_api_key
+        ctrl._CRED_COMMANDS = {
+            "test_api_key": {
+                "command": "test_api_key",
+                "field_name": "test_api_key",
+                "provider": "test provider",
+            }
+        }
+        ctrl.CHOICES_COMMANDS = list(ctrl._CRED_COMMANDS.keys())
+        ctrl.parse_simple_args = MagicMock()
+
+        for cmd, field in ctrl._CRED_COMMANDS.items():
+            ctrl._generate_credential_command(cmd, field)
+
+        assert hasattr(ctrl, "call_test_api_key")
+
+    def test_print_help(self, mock_cred_session, mock_obb):
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        ctrl = CredentialsController.__new__(CredentialsController)
+        ctrl.queue = []
+        ctrl.update_completer = MagicMock()
+        ctrl._CRED_COMMANDS = {
+            "test_api_key": {
+                "command": "test_api_key",
+                "field_name": "test_api_key",
+                "provider": "test provider",
+            }
+        }
+        ctrl.print_help()
+        mock_cred_session.console.print.assert_called_once()
+        call_kwargs = mock_cred_session.console.print.call_args[1]
+        assert "Credentials" in call_kwargs.get("menu", "")
+
+    def test_set_credential_via_value(self, mock_cred_session, mock_obb):
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        ctrl = CredentialsController.__new__(CredentialsController)
+        ctrl.queue = []
+        ctrl.update_completer = MagicMock()
+        ctrl._CRED_COMMANDS = {
+            "test_api_key": {
+                "command": "test_api_key",
+                "field_name": "test_api_key",
+                "provider": "test provider",
+            }
+        }
+
+        # Create a namespace that parse_simple_args would return
+        ns = MagicMock()
+        ns.value = "new_secret"
+        ctrl.parse_simple_args = MagicMock(return_value=(ns, []))
+
+        for cmd, field in ctrl._CRED_COMMANDS.items():
+            ctrl._generate_credential_command(cmd, field)
+
+        ctrl.call_test_api_key(["-v", "new_secret"])
+        mock_cred_session.console.print.assert_called()
+        args = mock_cred_session.console.print.call_args[0][0]
+        assert "Set" in args
+
+    def test_view_credential_no_args(self, mock_cred_session, mock_obb):
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        ctrl = CredentialsController.__new__(CredentialsController)
+        ctrl.queue = []
+        ctrl.update_completer = MagicMock()
+        ctrl._CRED_COMMANDS = {
+            "test_api_key": {
+                "command": "test_api_key",
+                "field_name": "test_api_key",
+                "provider": "test provider",
+            }
+        }
+
+        ns = MagicMock()
+        ns.value = None
+        ctrl.parse_simple_args = MagicMock(return_value=(ns, []))
+
+        for cmd, field in ctrl._CRED_COMMANDS.items():
+            ctrl._generate_credential_command(cmd, field)
+
+        ctrl.call_test_api_key([])
+        mock_cred_session.console.print.assert_called()

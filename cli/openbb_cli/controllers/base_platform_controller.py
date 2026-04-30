@@ -6,7 +6,6 @@ from types import MethodType
 
 import pandas as pd
 from openbb import obb
-from openbb_charting.core.openbb_figure import OpenBBFigure
 from openbb_cli.argparse_translator.argparse_class_processor import (
     ArgparseClassProcessor,
 )
@@ -170,7 +169,6 @@ class PlatformController(BaseController):
 
                     obbject = translator.execute_func(parsed_args=ns_parser)
                     df: pd.DataFrame = pd.DataFrame()
-                    fig: OpenBBFigure | None = None
                     title = f"{self.PATH}{translator.func.__name__}"
 
                     if obbject:
@@ -228,22 +226,26 @@ class PlatformController(BaseController):
                                         "Added `OBBject` to cached results."
                                     )
 
-                            # making the dataframe available either for printing or exporting
-                            df = obbject.to_dataframe()
+                            # Get chart flag
+                            chart = hasattr(ns_parser, "chart") and ns_parser.chart
 
-                            if hasattr(ns_parser, "chart") and ns_parser.chart:
-                                fig = obbject.chart.fig if obbject.chart else None
-                                if not export:
-                                    obbject.show()
-                            elif session.settings.USE_INTERACTIVE_DF and not export:
-                                obbject.charting.table()  # type: ignore[attr-defined]
-                            else:
-                                if isinstance(df.columns, pd.RangeIndex):
-                                    df.columns = [str(i) for i in df.columns]
-
-                                print_rich_table(
-                                    df=df, show_index=True, title=title, export=export
-                                )
+                            # Use output adapter for display
+                            if not export:
+                                try:
+                                    session.output_adapter.display(
+                                        data=obbject,
+                                        title=title,
+                                        export=export,
+                                        chart=chart,
+                                    )
+                                except Exception as e:
+                                    session.console.print(
+                                        f"[red]Display error: {e}[/red]"
+                                    )
+                                    # Fallback: try to show raw results
+                                    if hasattr(obbject, "model_dump"):
+                                        results = obbject.model_dump().get("results")
+                                        session.console.print(results)
 
                         elif isinstance(obbject, dict):
                             df = pd.DataFrame.from_dict(obbject, orient="columns")
@@ -258,6 +260,14 @@ class PlatformController(BaseController):
                         sheet_name = getattr(ns_parser, "sheet_name", None)
                         if sheet_name and isinstance(sheet_name, list):
                             sheet_name = sheet_name[0]
+
+                        # Get figure if chart was requested
+                        fig = None
+                        if hasattr(ns_parser, "chart") and ns_parser.chart:
+                            from contextlib import suppress
+
+                            with suppress(Exception):
+                                fig = obbject.chart.fig if obbject.chart else None
 
                         export_data(
                             export_type=",".join(ns_parser.export),

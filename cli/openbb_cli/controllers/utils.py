@@ -6,6 +6,7 @@ import os
 import random
 import re
 import shutil
+import sqlite3
 import sys
 from contextlib import contextmanager
 from datetime import (
@@ -27,6 +28,124 @@ if TYPE_CHECKING:
     from openbb_charting.core.openbb_figure import OpenBBFigure
 
 # pylint: disable=R1702,R0912
+
+
+class SQLiteTable:
+    """Lazy-loading wrapper for SQLite tables.
+
+    Stores connection info and loads data only when accessed.
+    """
+
+    def __init__(self, db_path: str, table_name: str, row_count: int = 0):
+        """Initialize SQLite table wrapper.
+
+        Args:
+            db_path: Path to SQLite database file
+            table_name: Name of the table
+            row_count: Number of rows (from metadata)
+        """
+        self.db_path = db_path
+        self.table_name = table_name
+        self.row_count = row_count
+        self._cached_df: pd.DataFrame | None = None
+
+    @property
+    def _quoted_name(self) -> str:
+        """Return the table name quoted for safe SQL interpolation."""
+        # Double any embedded quotes and wrap in double-quotes
+        return '"' + self.table_name.replace('"', '""') + '"'
+
+    def to_dataframe(self, use_cache: bool = True) -> pd.DataFrame:
+        """Load table data from SQLite database.
+
+        Args:
+            use_cache: If True, return cached DataFrame if available
+
+        Returns:
+            DataFrame containing table data
+        """
+        if use_cache and self._cached_df is not None:
+            return self._cached_df
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            df = pd.read_sql_query(
+                f"SELECT * FROM {self._quoted_name}", conn  # noqa: S608
+            )
+            if use_cache:
+                self._cached_df = df
+            return df
+        finally:
+            conn.close()
+
+    def get_schema(self) -> list[tuple]:
+        """Get table schema (column names and types).
+
+        Returns:
+            List of (column_name, type, notnull, default, pk) tuples
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({self._quoted_name})")
+            return cursor.fetchall()
+        finally:
+            conn.close()
+
+    def query(self, where: str = "", limit: int | None = None) -> pd.DataFrame:
+        """Execute SQL query with optional filters.
+
+        Args:
+            where: SQL WHERE clause (without WHERE keyword)
+            limit: Maximum number of rows to return
+
+        Returns:
+            DataFrame with query results
+        """
+        sql = f"SELECT * FROM {self._quoted_name}"  # noqa: S608
+        if where:
+            sql += f" WHERE {where}"
+        if limit:
+            sql += f" LIMIT {limit}"
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            return pd.read_sql_query(sql, conn)
+        finally:
+            conn.close()
+
+
+def extract_dataframe(obbject) -> pd.DataFrame:
+    """Extract DataFrame from OBBject without using to_dataframe().
+
+    This function manually extracts results from OBBject to have full control
+    over the conversion process and avoid built-in assumptions.
+
+    Args:
+        obbject: OBBject instance or other data
+
+    Returns:
+        DataFrame extracted from results
+    """
+    results = (
+        obbject.model_dump().get("results")
+        if hasattr(obbject, "model_dump")
+        else obbject
+    )
+
+    if results is None:
+        return pd.DataFrame()
+    elif isinstance(results, SQLiteTable):
+        # Lazy-load from SQLite database
+        return results.to_dataframe()
+    elif isinstance(results, pd.DataFrame):
+        return results
+    elif isinstance(results, list):
+        return pd.DataFrame(results)
+    elif isinstance(results, dict):
+        return pd.DataFrame([results])
+    else:
+        return pd.DataFrame({"value": [results]})
 
 
 # pylint: disable=too-many-statements,no-member,too-many-branches,C0302
@@ -186,11 +305,17 @@ def parse_and_split_input(an_input: str, custom_filters: list) -> list[str]:
     if an_input and an_input == "/":
         an_input = "home"
 
-    # everything from ` -f ` to the next known extension
+    # everything from ` -f ` to the next known extension (and any following arguments)
     file_flag = r"(\ -f |\ --file )"
     up_to = r".*?"
-    known_extensions = r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb))"
-    unix_path_arg_exp = f"({file_flag}{up_to}{known_extensions})"
+    known_extensions = (
+        r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb|db|sqlite|sqlite3))"
+    )
+    # Capture everything from -f/--file through the extension and any arguments after
+    # This includes --register_key, --sheet-name, etc. until we hit a / or end
+    # Match space followed by anything that's not a forward slash
+    optional_args = r"(?:\ [^/]+)*?"
+    unix_path_arg_exp = f"({file_flag}{up_to}{known_extensions}{optional_args})"
 
     # Add custom expressions to handle edge cases of individual controllers
     custom_filter = ""
@@ -225,7 +350,8 @@ def parse_and_split_input(an_input: str, custom_filters: list) -> list[str]:
         if len(matching_placeholders) > 0:
             for tag in matching_placeholders:
                 commands[command_num] = command.replace(tag, placeholders[tag])
-    return commands
+    # Filter out empty strings (e.g., from leading "/" in paths like "/feature")
+    return list(filter(None, commands))
 
 
 def return_colored_value(value: str):
@@ -311,9 +437,6 @@ def print_rich_table(  # noqa: PLR0912
     if export:
         return
 
-    MAX_COLS = session.settings.ALLOWED_NUMBER_OF_COLUMNS
-    MAX_ROWS = session.settings.ALLOWED_NUMBER_OF_ROWS
-
     # Make a copy of the dataframe to avoid SettingWithCopyWarning
     df = df.copy()
 
@@ -341,7 +464,7 @@ def print_rich_table(  # noqa: PLR0912
             raise ValueError("Length of headers does not match length of DataFrame.")
         return output  # type: ignore
 
-    if session.settings.USE_INTERACTIVE_DF:
+    if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
         df_outgoing = df.copy()
         # If headers are provided, use them
         if headers is not None:
@@ -357,12 +480,16 @@ def print_rich_table(  # noqa: PLR0912
             if col == "":
                 df_outgoing = df_outgoing.rename(columns={col: "  "})
 
-        session._backend.send_table(  # type: ignore  # pylint: disable=protected-access
-            df_table=df_outgoing,
-            title=title,
-            theme=session.user.preferences.table_style,
-        )
-        return
+        try:
+            session.backend.send_table(  # type: ignore
+                df_table=df_outgoing,
+                title=title,
+                theme=session.user.preferences.table_style,
+            )
+            return
+        except Exception:  # noqa: S110
+            # Fall through to rich table if backend fails
+            pass
 
     df = df.copy() if not limit else df.copy().iloc[:limit]
     if automatic_coloring:
@@ -381,23 +508,6 @@ def print_rich_table(  # noqa: PLR0912
 
         if columns_to_auto_color is None and rows_to_auto_color is None:
             df = df.map(lambda x: return_colored_value(str(x)))  # type: ignore
-
-    exceeds_allowed_columns = len(df.columns) > MAX_COLS
-    exceeds_allowed_rows = len(df) > MAX_ROWS
-
-    if exceeds_allowed_columns:
-        original_columns = df.columns.tolist()
-        trimmed_columns = df.columns.tolist()[:MAX_COLS]
-        df = df[trimmed_columns]
-        trimmed_columns = [
-            col for col in original_columns if col not in trimmed_columns
-        ]
-
-    if exceeds_allowed_rows:
-        n_rows = len(df.index)
-        max_rows = MAX_ROWS
-        df = df[:max_rows]
-        trimmed_rows_count = n_rows - max_rows
 
     if use_tabulate_df:
         table = Table(title=title, show_lines=True, show_header=show_header)
@@ -446,23 +556,6 @@ def print_rich_table(  # noqa: PLR0912
     else:
         session.console.print(df.to_string(col_space=0))
 
-    if exceeds_allowed_columns:
-        session.console.print(
-            f"[yellow]\nAllowed number of columns exceeded ({session.settings.ALLOWED_NUMBER_OF_COLUMNS}).\n"
-            f"The following columns were removed from the output: {', '.join(trimmed_columns)}.\n[/yellow]"
-        )
-
-    if exceeds_allowed_rows:
-        session.console.print(
-            f"[yellow]\nAllowed number of rows exceeded ({session.settings.ALLOWED_NUMBER_OF_ROWS}).\n"
-            f"{trimmed_rows_count} rows were removed from the output.\n[/yellow]"
-        )
-
-    if exceeds_allowed_columns or exceeds_allowed_rows:
-        session.console.print(
-            "Use the `--export` flag to analyse the full output on a file."
-        )
-
 
 def check_non_negative(value) -> int:
     """Argparse type to check non negative int."""
@@ -487,6 +580,44 @@ def validate_register_key(value: str) -> str:
             "The register key cannot contain the reserved word 'OBB'."
         )
     return str(value)
+
+
+def get_user_data_directory() -> Path:
+    """Get the OpenBBUserData directory path."""
+    return Path(session.user.preferences.data_directory)
+
+
+def get_data_files_for_completion() -> list[str]:
+    """Get list of data files in OpenBBUserData for tab completion.
+
+    Returns list of file paths relative to OpenBBUserData directory.
+    Includes CSV, JSON, and Excel files.
+    """
+    try:
+        user_data_dir = get_user_data_directory()
+        if not user_data_dir.exists():
+            return []
+
+        files = []
+        # Walk through the directory and subdirectories
+        for file_path in user_data_dir.rglob("*"):
+            if file_path.is_file() and file_path.suffix.lower() in [
+                ".csv",
+                ".json",
+                ".xlsx",
+                ".xls",
+                ".db",
+                ".sqlite",
+                ".sqlite3",
+            ]:
+                # Get relative path from user_data_dir
+                rel_path = file_path.relative_to(user_data_dir)
+                # Convert to string with forward slashes for consistency
+                files.append(str(rel_path).replace("\\", "/"))
+
+        return sorted(files)
+    except Exception:
+        return []
 
 
 def get_user_agent() -> str:
@@ -760,7 +891,7 @@ def save_to_excel(df, saved_path, sheet_name, start_row=0, index=True, header=Tr
 
 # This is a false positive on pylint and being tracked in pylint #3060
 # pylint: disable=abstract-class-instantiated,too-many-positional-arguments
-def export_data(
+def export_data(  # noqa: PLR0912
     export_type: str,
     dir_path: str,
     func_name: str,
@@ -849,6 +980,55 @@ def export_data(
                     session.console.print("No plot to export.")
                     continue
                 figure.show(export_image=saved_path, margin=margin)
+            elif saved_path.suffix in [".db", ".sqlite", ".sqlite3"]:
+                # SQLite export
+                import sqlite3
+
+                table_name = sheet_name if sheet_name else "data"
+
+                conn = sqlite3.connect(saved_path)
+                try:
+                    cursor = conn.cursor()
+                    # Check if table already exists
+                    cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                        (table_name,),
+                    )
+                    table_exists = cursor.fetchone() is not None
+
+                    if table_exists:
+                        # Prompt for overwrite/append
+                        choice = input(
+                            f"\nTable '{table_name}' exists. Overwrite/Append/New? [o/a/n]: "
+                        ).lower()
+                        if choice == "o":
+                            df.to_sql(
+                                table_name, conn, if_exists="replace", index=False
+                            )
+                        elif choice == "a":
+                            df.to_sql(table_name, conn, if_exists="append", index=False)
+                        elif choice == "n":
+                            # Find a new unique name
+                            i = 1
+                            new_name = f"{table_name}_{i}"
+                            while True:
+                                cursor.execute(
+                                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                                    (new_name,),
+                                )
+                                if cursor.fetchone() is None:
+                                    break
+                                i += 1
+                                new_name = f"{table_name}_{i}"
+                            df.to_sql(new_name, conn, if_exists="fail", index=False)
+                            table_name = new_name
+                        else:
+                            session.console.print("Invalid choice. Skipping.")
+                            continue
+                    else:
+                        df.to_sql(table_name, conn, if_exists="fail", index=False)
+                finally:
+                    conn.close()
             else:
                 session.console.print("Wrong export file specified.")
                 continue
@@ -943,6 +1123,14 @@ def handle_obbject_display(
     """Handle the display of an OBBject."""
     df: pd.DataFrame = pd.DataFrame()
     fig: OpenBBFigure | None = None
+
+    # If results are a SQLiteTable, materialize into a DataFrame so that
+    # charting / interactive-table paths (which call obbject.to_dataframe())
+    # don't crash on the unknown type.
+    if isinstance(getattr(obbject, "results", None), SQLiteTable):
+        sqlite_tbl: SQLiteTable = obbject.results  # type: ignore[assignment]
+        obbject.results = sqlite_tbl.to_dataframe()
+
     if chart:
         try:
             if obbject.chart:
@@ -951,18 +1139,19 @@ def handle_obbject_display(
                 obbject.charting.to_chart(**kwargs)  # type: ignore
             if export:
                 fig = obbject.chart.fig  # type: ignore
-                df = obbject.to_dataframe()
+                df = extract_dataframe(obbject)
         except Exception as e:
             session.console.print(f"Failed to display chart: {e}")
     elif session.settings.USE_INTERACTIVE_DF:
         obbject.charting.table()  # type: ignore
     else:
-        df = obbject.to_dataframe()
-        print_rich_table(
-            df=df,
-            show_index=True,
+        df = extract_dataframe(obbject)
+        # Use output adapter for consistent output mode handling
+        session.output_adapter.display(
+            data=df,
             title=obbject.extra.get("command", ""),
             export=bool(export),
+            chart=False,
         )
     if export and not df.empty:
         if sheet_name and isinstance(sheet_name, list):

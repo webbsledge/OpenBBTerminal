@@ -67,3 +67,42 @@ def test_set_item(mock_file, mock_set_key):
     settings = Settings()
     settings.set_item("TEST_MODE", True)
     assert settings.TEST_MODE is True
+
+
+# ── Tests for OutputMode enum ───────────────────────────────────────
+
+
+from openbb_cli.models.settings import OutputMode
+
+
+def test_output_mode_values():
+    """Test OutputMode enum contains all expected values."""
+    assert OutputMode.rich == "rich"
+    assert OutputMode.json == "json"
+    assert OutputMode.tsv == "tsv"
+    assert OutputMode.html == "html"
+
+
+def test_output_mode_is_string():
+    """Test OutputMode members are also strings."""
+    assert isinstance(OutputMode.rich, str)
+
+
+# ── Tests for OUTPUT_MODE field ─────────────────────────────────────
+
+
+def test_output_mode_default():
+    """Test OUTPUT_MODE field default is 'rich'."""
+    assert Settings.model_fields["OUTPUT_MODE"].default == "rich"
+
+
+def test_allowed_number_of_rows_default():
+    """Test ALLOWED_NUMBER_OF_ROWS default."""
+    settings = Settings()
+    assert settings.ALLOWED_NUMBER_OF_ROWS == 20
+
+
+def test_allowed_number_of_columns_default():
+    """Test ALLOWED_NUMBER_OF_COLUMNS default."""
+    settings = Settings()
+    assert settings.ALLOWED_NUMBER_OF_COLUMNS == 5

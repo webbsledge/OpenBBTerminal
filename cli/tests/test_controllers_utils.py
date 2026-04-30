@@ -238,3 +238,84 @@ def test_check_file_type_saved_no_valid_types(mock_session):
     """Test that None valid_types returns empty string."""
     checker = check_file_type_saved(valid_types=None)
     assert checker("anything.csv") == ""
+
+
+# ── Tests for return_colored_value ──────────────────────────────────
+
+
+from openbb_cli.controllers.utils import return_colored_value, suppress_stdout
+
+
+@pytest.mark.parametrize(
+    "value, expected_color",
+    [
+        ("10.5", "green"),
+        ("-3.2", "red"),
+        ("0", "yellow"),
+        ("0.0", "yellow"),
+        ("no numbers here", ""),
+        ("abc 1 def 2", ""),  # two numbers → no color
+    ],
+)
+def test_return_colored_value(value, expected_color):
+    """Test return_colored_value applies correct color."""
+    result = return_colored_value(value)
+    if expected_color:
+        assert f"[{expected_color}]" in result
+    else:
+        # No color wrapper when 0 or multiple numbers
+        assert "[green]" not in result
+        assert "[red]" not in result
+
+
+# ── Tests for suppress_stdout ───────────────────────────────────────
+
+
+import sys
+
+
+def test_suppress_stdout():
+    """Test that suppress_stdout redirects stdout and stderr."""
+    original_out = sys.stdout
+    original_err = sys.stderr
+    with suppress_stdout():
+        assert sys.stdout is not original_out
+        assert sys.stderr is not original_err
+    assert sys.stdout is original_out
+    assert sys.stderr is original_err
+
+
+# ── Tests for bootup ───────────────────────────────────────────────
+
+
+from openbb_cli.controllers.utils import bootup
+
+
+def test_bootup_runs_without_error(mock_session):
+    """Test that bootup completes without raising."""
+    bootup()
+
+
+# ── Tests for first_time_user ──────────────────────────────────────
+
+
+from openbb_cli.controllers.utils import first_time_user
+
+
+def test_first_time_user_empty_env(mock_session, tmp_path):
+    """Test first_time_user returns True for empty env file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+    with patch("openbb_cli.controllers.utils.ENV_FILE_SETTINGS", env_file):
+        result = first_time_user()
+    assert result is True
+    mock_session.settings.set_item.assert_called_once_with("PREVIOUS_USE", True)
+
+
+def test_first_time_user_non_empty_env(mock_session, tmp_path):
+    """Test first_time_user returns False for non-empty env file."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("KEY=VALUE\n")
+    with patch("openbb_cli.controllers.utils.ENV_FILE_SETTINGS", env_file):
+        result = first_time_user()
+    assert result is False

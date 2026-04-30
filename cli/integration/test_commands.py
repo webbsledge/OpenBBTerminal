@@ -1,3 +1,5 @@
+"""Integration tests for CLI commands."""
+
 import io
 
 import pytest

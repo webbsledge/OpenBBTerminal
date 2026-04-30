@@ -22,7 +22,7 @@ class Registry:
         if (
             isinstance(obbject, OBBject)
             and not self._contains_obbject(obbject.id, self._obbjects)
-            and obbject.results
+            and obbject.results is not None
         ):
             self._obbjects.append(obbject)
             return True
@@ -85,11 +85,11 @@ class Registry:
         def _handle_data_repr(obbject: OBBject) -> str:
             """Handle data representation for obbjects."""
             data_repr = ""
-            if hasattr(obbject, "results") and obbject.results:
+            if hasattr(obbject, "results") and obbject.results is not None:
                 data_schema = (
                     obbject.results[0].model_json_schema()
-                    if obbject.results
-                    and isinstance(obbject.results, list)
+                    if isinstance(obbject.results, list)
+                    and len(obbject.results) > 0
                     and hasattr(obbject.results[0], "model_json_schema")
                     else ""
                 )

@@ -60,30 +60,7 @@ class MenuText:
         return []
 
     def _format_cmd_name(self, name: str) -> str:
-        """Truncate command name length if it is too long."""
-        if len(name) > self.CMD_NAME_LENGTH:
-            new_name = name[: self.CMD_NAME_LENGTH]
-
-            if "_" in name:
-                name_split = name.split("_")
-
-                new_name = (
-                    "_".join(name_split[:2]) if len(name_split) > 2 else name_split[0]
-                )
-
-                if len(new_name) > self.CMD_NAME_LENGTH:
-                    new_name = new_name[: self.CMD_NAME_LENGTH]
-
-            if new_name != name:
-                self.warnings.append(
-                    {
-                        "warning": "Command name too long",
-                        "actual command": f"`{name}`",
-                        "displayed command": f"`{new_name}`",
-                    }
-                )
-                name = new_name
-
+        """Return command name as-is without truncation."""
         return name
 
     def _format_cmd_description(

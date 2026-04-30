@@ -10,6 +10,7 @@ from openbb_cli.controllers.settings_controller import SettingsController
 
 @pytest.fixture
 def mock_session():
+    """Create a mock session fixture."""
     with patch("openbb_cli.controllers.settings_controller.session") as mock:
         mock.settings.USE_INTERACTIVE_DF = False
         mock.settings.ALLOWED_NUMBER_OF_ROWS = 20
@@ -21,6 +22,7 @@ def mock_session():
 
 
 def test_call_interactive(mock_session):
+    """Test toggling interactive mode."""
     controller = SettingsController()
     controller.call_interactive(None)
     mock_session.settings.set_item.assert_called_once_with("USE_INTERACTIVE_DF", True)
@@ -34,6 +36,7 @@ def test_call_interactive(mock_session):
     ],
 )
 def test_call_n_rows(input_rows, expected, mock_session):
+    """Test setting number of rows."""
     controller = SettingsController()
     args = ["--value", str(input_rows)]
     controller.call_n_rows(args)
@@ -43,6 +46,7 @@ def test_call_n_rows(input_rows, expected, mock_session):
 
 
 def test_call_n_rows_no_args_provided(mock_session):
+    """Test n_rows with no arguments shows current value."""
     controller = SettingsController()
     controller.call_n_rows([])
     mock_session.console.print.assert_called_with("[info]Current value:[/info] 20")
@@ -56,6 +60,7 @@ def test_call_n_rows_no_args_provided(mock_session):
     ],
 )
 def test_call_timezone(timezone, valid, mock_session):
+    """Test setting timezone."""
     controller = SettingsController()
     args = ["--value", timezone]
     controller.call_timezone(args)
@@ -66,6 +71,7 @@ def test_call_timezone(timezone, valid, mock_session):
 
 
 def test_call_console_style(mock_session):
+    """Test setting console style."""
     controller = SettingsController()
     args = ["--value", "dark"]
     controller.call_console_style(args)
@@ -73,6 +79,7 @@ def test_call_console_style(mock_session):
 
 
 def test_call_console_style_no_args(mock_session):
+    """Test console style with no args shows current value."""
     mock_session.settings.RICH_STYLE = "default"
     controller = SettingsController()
     controller.call_console_style([])
@@ -80,12 +87,14 @@ def test_call_console_style_no_args(mock_session):
 
 
 def test_call_flair(mock_session):
+    """Test setting flair."""
     controller = SettingsController()
     args = ["--value", "rocket"]
     controller.call_flair(args)
 
 
 def test_call_flair_no_args(mock_session):
+    """Test flair with no args shows current value."""
     mock_session.settings.FLAIR = "bug"
     controller = SettingsController()
     controller.call_flair([])
@@ -93,6 +102,7 @@ def test_call_flair_no_args(mock_session):
 
 
 def test_call_obbject_display(mock_session):
+    """Test setting obbject display count."""
     controller = SettingsController()
     args = ["--value", "5"]
     controller.call_obbject_display(args)
@@ -102,6 +112,7 @@ def test_call_obbject_display(mock_session):
 
 
 def test_call_obbject_display_no_args(mock_session):
+    """Test obbject display with no args shows current value."""
     mock_session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY = 10
     controller = SettingsController()
     controller.call_obbject_display([])
@@ -117,6 +128,7 @@ def test_call_obbject_display_no_args(mock_session):
     ],
 )
 def test_call_n_rows_v2(args, expected, mock_session):
+    """Test n_rows with parametrized args."""
     mock_session.settings.ALLOWED_NUMBER_OF_ROWS = 20
     controller = SettingsController()
     controller.call_n_rows(args)
