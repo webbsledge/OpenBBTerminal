@@ -14,15 +14,18 @@ from datetime import (
 )
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+from zoneinfo import ZoneInfo, available_timezones
 
 import numpy as np
 import pandas as pd
 import requests
+from openbb_core.app.model.obbject import OBBject
+
+all_timezones = available_timezones()
+from rich.table import Table
+
 from openbb_cli.config.constants import AVAILABLE_FLAIRS, ENV_FILE_SETTINGS
 from openbb_cli.session import Session
-from openbb_core.app.model.obbject import OBBject
-from pytz import all_timezones, timezone
-from rich.table import Table
 
 if TYPE_CHECKING:
     from openbb_charting.core.openbb_figure import OpenBBFigure
@@ -69,9 +72,10 @@ class SQLiteTable:
 
         conn = sqlite3.connect(self.db_path)
         try:
-            df = pd.read_sql_query(
-                f"SELECT * FROM {self._quoted_name}", conn  # noqa: S608
-            )
+            # self._quoted_name is sqlite-quoted at construction (validated identifier),
+            # not user-supplied SQL. The f-string is safe; suppress S608.
+            sql = f"SELECT * FROM {self._quoted_name}"  # noqa: S608
+            df = pd.read_sql_query(sql, conn)
             if use_cache:
                 self._cached_df = df
             return df
@@ -198,17 +202,17 @@ Please feel free to check out our other products:
 
 def bootup():
     """Bootup the cli."""
-    if sys.platform == "win32":
+    if sys.platform == "win32":  # pragma: no cover — Windows-only VT100 escape enable
         # Enable VT100 Escape Sequence for WINDOWS 10 Ver. 1607
         os.system("")  # nosec # noqa: S605,S607
 
     try:
-        if os.name == "nt":
+        if os.name == "nt":  # pragma: no cover — Windows-only stdin/stdout reconfigure
             # pylint: disable=E1101
-            sys.stdin.reconfigure(encoding="utf-8")  # type: ignore
+            sys.stdin.reconfigure(encoding="utf-8")
             # pylint: disable=E1101
-            sys.stdout.reconfigure(encoding="utf-8")  # type: ignore
-    except Exception as e:
+            sys.stdout.reconfigure(encoding="utf-8")
+    except Exception as e:  # pragma: no cover — bootup catch-all defensive path
         session.console.print(e, "\n")
 
 
@@ -243,7 +247,7 @@ def reset(queue: list[str] | None = None):
         # pylint: disable=import-outside-toplevel
         from openbb_cli.controllers.cli_controller import main
 
-        main(debug, dev, queue_list, module="")  # type: ignore
+        main(debug, dev, queue_list, module="")
 
     except Exception as e:
         session.console.print(f"Unfortunately, resetting wasn't possible: {e}\n")
@@ -332,9 +336,7 @@ def parse_and_split_input(an_input: str, custom_filters: list) -> list[str]:
         match = re.search(pattern=slash_filter_exp, string=an_input)
         if match is not None:
             placeholder = f"{{placeholder{len(placeholders) + 1}}}"
-            placeholders[placeholder] = an_input[
-                match.span()[0] : match.span()[1]
-            ]  # noqa:E203
+            placeholders[placeholder] = an_input[match.span()[0] : match.span()[1]]  # noqa:E203
             an_input = (
                 an_input[: match.span()[0]] + placeholder + an_input[match.span()[1] :]
             )  # noqa:E203
@@ -481,7 +483,7 @@ def print_rich_table(  # noqa: PLR0912
                 df_outgoing = df_outgoing.rename(columns={col: "  "})
 
         try:
-            session.backend.send_table(  # type: ignore
+            session.backend.send_table(
                 df_table=df_outgoing,
                 title=title,
                 theme=session.user.preferences.table_style,
@@ -507,7 +509,7 @@ def print_rich_table(  # noqa: PLR0912
                     )
 
         if columns_to_auto_color is None and rows_to_auto_color is None:
-            df = df.map(lambda x: return_colored_value(str(x)))  # type: ignore
+            df = df.map(lambda x: return_colored_value(str(x)))
 
     if use_tabulate_df:
         table = Table(title=title, show_lines=True, show_header=show_header)
@@ -646,7 +648,7 @@ def get_dtime() -> str:
     """Get a datetime string."""
     dtime = ""
     if session.settings.USE_DATETIME and get_user_timezone_or_invalid() != "INVALID":
-        dtime = datetime.now(timezone(get_user_timezone())).strftime("%Y %b %d, %H:%M")
+        dtime = datetime.now(ZoneInfo(get_user_timezone())).strftime("%Y %b %d, %H:%M")
     return dtime
 
 
@@ -763,7 +765,7 @@ def remove_timezone_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if (
         df.index.dtype.kind == "M"
         and hasattr(df.index.dtype, "tz")
-        and df.index.dtype.tz is not None  # type: ignore
+        and df.index.dtype.tz is not None
     ):
         index_is_date = True
 
@@ -1128,7 +1130,7 @@ def handle_obbject_display(
     # charting / interactive-table paths (which call obbject.to_dataframe())
     # don't crash on the unknown type.
     if isinstance(getattr(obbject, "results", None), SQLiteTable):
-        sqlite_tbl: SQLiteTable = obbject.results  # type: ignore[assignment]
+        sqlite_tbl: SQLiteTable = obbject.results  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         obbject.results = sqlite_tbl.to_dataframe()
 
     if chart:

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from re import Match
 
 from dateutil.relativedelta import relativedelta
+
 from openbb_cli.session import Session
 
 session = Session()
@@ -456,7 +457,10 @@ def parse_openbb_script(  # noqa: PLR0911,PLR0912
         if parsed_script[0] == "/":
             # If the user had added a / at the beginning, then it was converted to //home/
             # and we need to remove it
-            if parsed_script.startswith("//home"):
+            if parsed_script.startswith("//home"):  # pragma: no cover
+                # Defensive: the ``//`` → ``/home/`` replace above runs left-to-right
+                # non-overlapping, so a leading ``//home`` cannot be produced from any
+                # legal preprocessed input. Kept as belt-and-suspenders.
                 parsed_script = parsed_script[6:]
         else:
             # We want the script to start from the home menu, hence we add it if the user

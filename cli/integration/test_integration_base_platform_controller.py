@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+
 from openbb_cli.controllers.base_platform_controller import (
     PlatformController,
     Session,
@@ -35,9 +36,9 @@ def platform_controller():
 def test_platform_controller_initialization(platform_controller):
     """Test the initialization of the platform controller."""
     expected_path = "/platform/test/"
-    assert (
-        expected_path == platform_controller.PATH
-    ), "Controller path was not set correctly"
+    assert expected_path == platform_controller.PATH, (
+        "Controller path was not set correctly"
+    )
 
 
 @pytest.mark.integration
@@ -51,9 +52,9 @@ def test_command_generation(platform_controller):
         name=command_name, translator=platform_controller.translators[command_name]
     )
     command_method_name = f"call_{command_name}"
-    assert hasattr(
-        platform_controller, command_method_name
-    ), "Command method was not created"
+    assert hasattr(platform_controller, command_method_name), (
+        "Command method was not created"
+    )
 
 
 @patch(

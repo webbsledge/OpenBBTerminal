@@ -3,7 +3,9 @@
 __docformat__ = "numpy"
 
 
-from openbb import obb
+# ``obb`` is imported lazily inside ``_get_providers`` so importing this
+# module is cheap — important for the spec-driven REPL path that doesn't
+# need ``obb`` at all.
 
 # https://rich.readthedocs.io/en/stable/appendix/colors.html#appendix-colors
 # https://rich.readthedocs.io/en/latest/highlighting.html#custom-highlighters
@@ -53,6 +55,11 @@ class MenuText:
         List
             The list of providers for the given command.
         """
+        try:
+            from openbb import obb  # type: ignore[import-not-found]
+        except ImportError:
+            # Spec-driven REPL — no ``obb`` available locally.
+            return []
         command_reference = obb.reference.get("paths", {}).get(command_path, {})  # type: ignore
         if command_reference:
             providers = list(command_reference["parameters"].keys())

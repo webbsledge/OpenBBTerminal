@@ -58,11 +58,7 @@ class TestRemoveArgument:
         # alpha was in the "provider" group
         assert "provider" in groups
         # alpha should no longer have an action
-        opts = [
-            opt
-            for a in parser._actions
-            for opt in a.option_strings
-        ]
+        opts = [opt for a in parser._actions for opt in a.option_strings]
         assert "--alpha" not in opts
 
     def test_remove_by_dest(self):
@@ -123,3 +119,9 @@ class TestOptionalChoices:
         action = parser._actions[-1]
         set_optional_choices(action, False)
         assert not hasattr(action, "optional_choices")
+
+    def test_get_optional_choices_unknown_argument_returns_false(self):
+        """Unknown argument name walks the actions list and returns False."""
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--known", type=str)
+        assert get_argument_optional_choices(parser, "--never-set") is False

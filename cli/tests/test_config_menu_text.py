@@ -1,6 +1,7 @@
 """Test Config Menu Text."""
 
 import pytest
+
 from openbb_cli.config.menu_text import MenuText
 
 # pylint: disable=redefined-outer-name, protected-access
@@ -65,3 +66,92 @@ def test_add_setting(menu_text):
     assert "Enable Feature" in menu_text.menu_text
     assert "Feature description" in menu_text.menu_text
     assert "[green]" in menu_text.menu_text
+
+
+def test_get_providers_returns_non_standard_keys(menu_text, monkeypatch):
+    """``_get_providers`` reads ``obb.reference['paths']`` and drops the 'standard' key.
+
+    The ``obb`` import is lazy inside the helper, so we inject a fake ``openbb``
+    module into ``sys.modules`` rather than patching the menu_text module.
+    """
+    import sys
+    import types
+
+    fake_obb_mod = types.ModuleType("openbb")
+    fake_obb_mod.obb = type(  # type: ignore[attr-defined]
+        "Obb",
+        (),
+        {
+            "reference": {
+                "paths": {
+                    "/equity/price/historical": {
+                        "parameters": {
+                            "standard": {},
+                            "fmp": {},
+                            "yfinance": {},
+                        }
+                    }
+                }
+            },
+        },
+    )
+    monkeypatch.setitem(sys.modules, "openbb", fake_obb_mod)
+    providers = menu_text._get_providers("/equity/price/historical")
+    assert providers == ["fmp", "yfinance"]
+
+
+def test_format_cmd_description_blanks_when_matches_path(menu_text):
+    """If the description equals ``menu_path + name``, it gets blanked."""
+    out = menu_text._format_cmd_description("command", "/test/pathcommand")
+    assert out == ""
+
+
+def test_add_raw_with_left_spacing(menu_text):
+    """``left_spacing=True`` prepends SECTION_SPACING and a newline."""
+    menu_text.add_raw("hello", left_spacing=True)
+    assert menu_text.menu_text.endswith("hello\n")
+    assert menu_text.menu_text.startswith(" " * menu_text.SECTION_SPACING)
+
+
+def test_get_providers_returns_empty_when_openbb_missing(menu_text, monkeypatch):
+    """Spec-driven REPL: ``openbb`` import fails → return [] (lines 60-62)."""
+    import sys
+
+    # Set ``sys.modules['openbb'] = None`` so ``import openbb`` raises ImportError.
+    monkeypatch.setitem(sys.modules, "openbb", None)
+    assert menu_text._get_providers("/whatever") == []
+
+
+def test_add_cmd_emits_provider_tag(menu_text, monkeypatch):
+    """When providers are known for the path, the line ends with ``[src][...]``."""
+    import sys
+    import types
+
+    fake_obb_mod = types.ModuleType("openbb")
+    fake_obb_mod.obb = type(  # type: ignore[attr-defined]
+        "Obb",
+        (),
+        {
+            "reference": {
+                "paths": {"/test/pathshow": {"parameters": {"standard": {}, "fmp": {}}}}
+            },
+        },
+    )
+    monkeypatch.setitem(sys.modules, "openbb", fake_obb_mod)
+    menu_text.add_cmd("show", "do thing")
+    assert "[src]" in menu_text.menu_text
+    assert "fmp" in menu_text.menu_text
+
+
+def test_add_menu_blanks_description_matching_path(menu_text):
+    """``description == menu_path+name`` is blanked just like in ``add_cmd``."""
+    menu_text.add_menu("settings", description="/test/pathsettings")
+    # Empty description path: the line should NOT include the noisy /test/path text.
+    assert "/test/pathsettings" not in menu_text.menu_text
+
+
+def test_add_menu_truncates_long_description(menu_text):
+    """Description longer than CMD_DESCRIPTION_LENGTH is truncated with ``...``."""
+    long_desc = "y" * (menu_text.CMD_DESCRIPTION_LENGTH + 20)
+    menu_text.add_menu("settings", description=long_desc)
+    assert "..." in menu_text.menu_text

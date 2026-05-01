@@ -7,7 +7,7 @@ license = { text = "AGPL-3.0-only" }
 readme = "README.md"
 requires-python = ">=3.10,<4"
 dependencies = [
-    "openbb-core[pandas]>=1.7.0,<2.0.0",
+    "openbb-core[pandas]>=2.0.0",
     "prompt-toolkit>=3.0.50,<4.0.0",
     "rich>=14.0.0,<15.0.0",
     "python-dotenv>=1.0.1,<2.0.0",
@@ -29,7 +29,7 @@ Repository = "https://github.com/OpenBB-finance/OpenBB"
 Documentation = "https://docs.openbb.co/cli"
 
 [dependency-groups]
-dev = ["openbb-devtools"]
+dev = ["openbb-devtools>=2.0.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -45,20 +45,12 @@ include = [
     "pyproject.toml",
 ]
 
-# Workspace-style path source: dev installs of openbb-cli pick up the in-repo
-# charting checkout instead of resolving the published wheel. The version pin
-# in [project.optional-dependencies] is still authoritative for downstream
-# consumers of the published openbb-cli wheel.
+# openbb-core is path-sourced because v5's has not yet been published.
 [tool.uv.sources]
+openbb-core = { path = "../openbb_platform/core", editable = true }
 openbb-charting = { path = "../openbb_platform/obbject_extensions/charting", editable = true }
+openbb-devtools = { path = "../openbb_platform/extensions/devtools", editable = true }
 
-# ---------------------------------------------------------------------------
-# Ruff — sole linter / formatter / import-sorter for openbb-cli.
-# Mirrors the repo-wide ruff.toml but is scoped to this package so that
-# ``ruff check cli`` (and editor integrations launched from this directory)
-# pick up identical settings without depending on the top-level configuration
-# being discoverable.
-# ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 88
 target-version = "py310"
@@ -113,9 +105,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "D"]
-"integration/**" = ["S101", "D"]
+"tests/**" = ["S101", "S108", "D", "SIM105", "SIM117"]
+"integration/**" = ["S101", "S108", "D", "SIM105", "SIM117"]
 "**/__init__.py" = ["F401"]
+# Protocol stubs and lazy-import shims with `...` bodies don't need per-method docstrings.
+"openbb_cli/backend.py" = ["D102"]
+"openbb_cli/controllers/platform_controller_factory.py" = ["D102"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

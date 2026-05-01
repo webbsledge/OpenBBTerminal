@@ -1,21 +1,31 @@
 """Platform Equity Controller."""
 
 import os
-from functools import partial, update_wrapper
+from functools import lru_cache, partial, update_wrapper
 from types import MethodType
+from typing import Any
 
 import pandas as pd
-from openbb import obb
-from openbb_cli.argparse_translator.argparse_class_processor import (
-    ArgparseClassProcessor,
-)
+
 from openbb_cli.config.menu_text import MenuText
 from openbb_cli.controllers.base_controller import BaseController
 from openbb_cli.controllers.utils import export_data, print_rich_table
 from openbb_cli.session import Session
-from openbb_core.app.model.obbject import OBBject
 
 session = Session()
+
+# ``OBBject`` lives in ``openbb_core`` whose import chain transitively pulls
+# in the entire ``openbb`` package (including its provider auto-build). Defer
+# the import so the spec-driven REPL path (``--spec`` / ``--server``) doesn't
+# pay it. Single-instance cache keeps the lookup cheap on the hot paths.
+
+
+@lru_cache(maxsize=1)
+def _OBBject() -> type:
+    """Return ``OBBject`` lazily; cached after first call via ``lru_cache``."""
+    from openbb_core.app.model.obbject import OBBject
+
+    return OBBject
 
 
 class DummyTranslation:
@@ -28,9 +38,24 @@ class DummyTranslation:
 
 
 class PlatformController(BaseController):
-    """Platform Controller Base class."""
+    """Platform Controller Base class.
+
+    Three construction styles are supported, in priority order:
+
+    1. Class attributes ``_factory_translators`` + ``_factory_paths`` set by
+       ``PlatformControllerFactory`` from a ``Backend`` (current default).
+    2. ``platform_target=...`` — legacy in-process ``obb`` walk via
+       ``ArgparseClassProcessor``. Imports ``obb`` lazily.
+    3. ``translators=...`` (and optionally ``paths=...``) — direct injection,
+       used by ``_generate_sub_controllers`` for nested menus.
+    """
 
     CHOICES_GENERATION = True
+
+    # Populated by ``PlatformControllerFactory.create()`` when a Backend is in use.
+    _factory_backend: Any = None
+    _factory_translators: dict[str, Any] | None = None
+    _factory_paths: dict[str, str] | None = None
 
     def __init__(  # pylint: disable=too-many-positional-arguments
         self,
@@ -39,29 +64,56 @@ class PlatformController(BaseController):
         platform_target: type | None = None,
         queue: list[str] | None = None,
         translators: dict | None = None,
+        paths: dict[str, str] | None = None,
     ):
         """Construct a Platform based Controller."""
         self.PATH = f"/{'/'.join(parent_path)}/{name}/" if parent_path else f"/{name}/"
         super().__init__(queue)
         self._name = name
 
-        if not (platform_target or translators):
-            raise ValueError("Either platform_target or translators must be provided.")
+        # Source 1: factory-injected via Backend (set on the class by
+        # PlatformControllerFactory.create).
+        if (
+            translators is None
+            and platform_target is None
+            and self._factory_translators is not None
+        ):
+            translators = self._factory_translators
+            if paths is None and self._factory_paths is not None:
+                paths = self._factory_paths
+            self._translated_target = DummyTranslation()
+        elif platform_target is not None:
+            # Source 2: legacy in-process obb walk. Lazy-import to avoid
+            # paying the openbb import cost when running spec-driven.
+            from openbb import obb  # type: ignore[import-not-found]
 
-        self._translated_target = (
-            ArgparseClassProcessor(
-                target_class=platform_target,
-                reference=obb.reference["paths"],  # type: ignore
+            from openbb_cli.argparse_translator.argparse_class_processor import (
+                ArgparseClassProcessor,
             )
-            if platform_target
-            else DummyTranslation()
-        )
+
+            self._translated_target = ArgparseClassProcessor(
+                target_class=platform_target,
+                reference=obb.reference["paths"],  # type: ignore[index]  # ty: ignore[not-subscriptable]
+            )
+        elif translators is not None:
+            # Source 3: direct translator injection (sub-controllers).
+            self._translated_target = DummyTranslation()
+        else:
+            raise ValueError(
+                "PlatformController needs one of: factory-injected translators, "
+                "platform_target, or translators=...; got none."
+            )
+
         self.translators = (
             translators
             if translators is not None
             else getattr(self._translated_target, "translators", {})
         )
-        self.paths = getattr(self._translated_target, "paths", {})
+        self.paths = (
+            paths
+            if paths is not None
+            else getattr(self._translated_target, "paths", {})
+        )
 
         if self.translators:
             self._link_obbject_to_data_processing_commands()
@@ -97,7 +149,7 @@ class PlatformController(BaseController):
                 ns_parser.data in session.obbject_registry.obbject_keys
             ):
                 obbject = session.obbject_registry.get(ns_parser.data)
-                if obbject and isinstance(obbject, OBBject):
+                if obbject and isinstance(obbject, _OBBject()):
                     setattr(ns_parser, "data", obbject.results)
 
         return ns_parser
@@ -120,15 +172,18 @@ class PlatformController(BaseController):
                     if translator_name in self.CHOICES_COMMANDS:
                         self.CHOICES_COMMANDS.remove(translator_name)
 
-            # Create the sub controller as a new class
+            # Create the sub controller as a new class. Propagate the
+            # factory backend so nested help-text lookups keep using the same
+            # source (spec-driven sub-menus shouldn't silently fall back to
+            # in-process obb).
             class_name = f"{self._name.capitalize()}{path.capitalize()}Controller"
             SubController = type(
                 class_name,
                 (PlatformController,),
                 {
                     "CHOICES_GENERATION": True,
-                    # "CHOICES_MENUS": [],
                     "CHOICES_COMMANDS": choices_commands,
+                    "_factory_backend": self._factory_backend,
                 },
             )
 
@@ -173,9 +228,9 @@ class PlatformController(BaseController):
 
                     if obbject:
                         if isinstance(obbject, list):
-                            obbject = OBBject(results=obbject)
+                            obbject = _OBBject()(results=obbject)
 
-                        if isinstance(obbject, OBBject):
+                        if isinstance(obbject, _OBBject()):
                             if (
                                 session.max_obbjects_exceeded()
                                 and obbject.results
@@ -253,7 +308,7 @@ class PlatformController(BaseController):
                                 df=df, show_index=True, title=title, export=export
                             )
 
-                        elif not isinstance(obbject, OBBject):
+                        elif not isinstance(obbject, _OBBject()):
                             session.console.print(obbject)
 
                     if export and not df.empty:
@@ -288,7 +343,9 @@ class PlatformController(BaseController):
         bound_method = MethodType(method, self)
 
         # Update the wrapper and set the attribute
-        bound_method = update_wrapper(partial(bound_method, translator=translator), method)  # type: ignore
+        bound_method = update_wrapper(
+            partial(bound_method, translator=translator), method
+        )
         setattr(self, f"call_{name}", bound_method)
 
     def _generate_controller_call(self, controller, name, parent_path, translators):
@@ -308,7 +365,7 @@ class PlatformController(BaseController):
         bound_method = MethodType(method, self)
 
         # Update the wrapper and set the attribute
-        bound_method = update_wrapper(  # type: ignore
+        bound_method = update_wrapper(
             partial(
                 bound_method,
                 name=name,
@@ -320,10 +377,31 @@ class PlatformController(BaseController):
         )
         setattr(self, f"call_{name}", bound_method)
 
+    def _get_reference_paths(self) -> dict[str, dict[str, Any]]:
+        """Return the reference path-description dict from the factory-injected
+        backend when present, otherwise fall back to a lazy ``LocalBackend`` over
+        in-process ``obb``.
+        """
+        if self._factory_backend is not None:
+            return self._factory_backend.reference_paths
+        from openbb_cli.backend import LocalBackend
+
+        return LocalBackend().reference_paths
+
+    def _get_reference_routers(self) -> dict[str, dict[str, Any]]:
+        """Return the reference router-description dict (mirror of ``_get_reference_paths``)."""
+        if self._factory_backend is not None:
+            return self._factory_backend.reference_routers
+        from openbb_cli.backend import LocalBackend
+
+        return LocalBackend().reference_routers
+
     def _get_command_description(self, command: str) -> str:
         """Get command description."""
         command_description = (
-            obb.reference["paths"].get(f"{self.PATH}{command}", {}).get("description", "")  # type: ignore
+            self._get_reference_paths()
+            .get(f"{self.PATH}{command}", {})
+            .get("description", "")
         )
 
         if not command_description:
@@ -348,7 +426,9 @@ class PlatformController(BaseController):
             return commands
 
         menu_description = (
-            obb.reference["routers"].get(f"{self.PATH}{menu}", {}).get("description", "")  # type: ignore
+            self._get_reference_routers()
+            .get(f"{self.PATH}{menu}", {})
+            .get("description", "")
         ) or ""
         if menu_description:
             return menu_description.split(".")[0].lower()

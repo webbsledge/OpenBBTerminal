@@ -15,7 +15,8 @@ def test_default_values():
     assert fields["DEV_BACKEND"].default is False
     assert fields["FILE_OVERWRITE"].default is False
     assert fields["SHOW_VERSION"].default is True
-    assert fields["USE_INTERACTIVE_DF"].default is True
+    # V5 default flip: non-TTY by default; interactive output is opt-in.
+    assert fields["USE_INTERACTIVE_DF"].default is False
     assert fields["USE_CLEAR_AFTER_CMD"].default is False
     assert fields["USE_DATETIME"].default is True
     assert fields["USE_PROMPT_TOOLKIT"].default is True
@@ -31,8 +32,6 @@ def test_default_values():
     assert fields["RICH_STYLE"].default == "dark"
     assert fields["ALLOWED_NUMBER_OF_ROWS"].default == 20
     assert fields["ALLOWED_NUMBER_OF_COLUMNS"].default == 5
-    assert fields["HUB_URL"].default == "https://my.openbb.co"
-    assert fields["BASE_URL"].default == "https://payments.openbb.co"
 
 
 # Test __repr__ output
@@ -92,8 +91,8 @@ def test_output_mode_is_string():
 
 
 def test_output_mode_default():
-    """Test OUTPUT_MODE field default is 'rich'."""
-    assert Settings.model_fields["OUTPUT_MODE"].default == "rich"
+    """V5 default flip: ``tsv`` is line-oriented, ANSI-free, pipe-safe."""
+    assert Settings.model_fields["OUTPUT_MODE"].default == "tsv"
 
 
 def test_allowed_number_of_rows_default():

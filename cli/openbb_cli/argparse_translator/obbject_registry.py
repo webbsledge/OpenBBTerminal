@@ -71,9 +71,7 @@ class Registry:
         def _handle_standard_params(obbject: OBBject) -> str:
             """Handle standard params for obbjects."""
             standard_params_json = ""
-            std_params = getattr(
-                obbject, "_standard_params", {}
-            )  # pylint: disable=protected-access
+            std_params = getattr(obbject, "_standard_params", {})  # pylint: disable=protected-access
             if std_params:
                 standard_params = {
                     k: str(v)[:30] for k, v in std_params.items() if v and k != "data"
@@ -94,9 +92,9 @@ class Registry:
                     else ""
                 )
                 if data_schema and "title" in data_schema:
-                    data_repr = f"{data_schema['title']}"  # type: ignore
+                    data_repr = f"{data_schema['title']}"
                 if data_schema and "description" in data_schema:
-                    data_repr += f" - {data_schema['description'].split('.')[0]}"  # type: ignore
+                    data_repr += f" - {data_schema['description'].split('.')[0]}"
 
             return data_repr
 

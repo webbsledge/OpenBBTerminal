@@ -3,6 +3,7 @@
 import io
 
 import pytest
+
 from openbb_cli.cli import main
 
 

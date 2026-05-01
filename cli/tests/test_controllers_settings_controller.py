@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from openbb_cli.controllers.settings_controller import SettingsController
 
 # pylint: disable=redefined-outer-name, unused-argument, no-member
@@ -138,3 +139,28 @@ def test_call_n_rows_v2(args, expected, mock_session):
         )
     else:
         mock_session.console.print.assert_called_with("[info]Current value:[/info] 20")
+
+
+def test_print_help_walks_feature_flags_and_preferences(mock_session):
+    """``print_help`` formats both groups (feature flags + preferences) into a menu."""
+    controller = SettingsController()
+    controller.print_help()
+    mock_session.console.print.assert_called_once()
+    call_kwargs = mock_session.console.print.call_args[1]
+    assert call_kwargs.get("menu") == "Settings"
+    text = call_kwargs.get("text", "")
+    assert "Feature Flags" in text
+    assert "Preferences" in text
+
+
+def test_generate_command_invalid_action_raises(mock_session):
+    """Action type other than 'toggle'/'set' raises ValueError."""
+    controller = SettingsController()
+    field = {
+        "command": "x",
+        "field_name": "x",
+        "description": "d",
+        "annotation": str,
+    }
+    with pytest.raises(ValueError, match="not allowed"):
+        controller._generate_command("x", field, "bogus")

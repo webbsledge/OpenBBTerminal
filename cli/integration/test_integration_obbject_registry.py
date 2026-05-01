@@ -1,7 +1,8 @@
 """Test the obbject registry."""
 
-from openbb_cli.argparse_translator.obbject_registry import Registry
 from openbb_core.app.model.obbject import OBBject
+
+from openbb_cli.argparse_translator.obbject_registry import Registry
 
 # pylint: disable=unused-variable
 # ruff: noqa: disable=F841

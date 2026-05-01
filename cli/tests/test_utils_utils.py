@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 # pylint: disable=redefined-outer-name
 
 
@@ -15,9 +13,7 @@ class TestChangeLoggingSubApp:
 
         from unittest.mock import patch
 
-        with patch(
-            "openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file
-        ):
+        with patch("openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file):
             from openbb_cli.utils.utils import change_logging_sub_app
 
             initial = change_logging_sub_app()
@@ -33,9 +29,7 @@ class TestChangeLoggingSubApp:
 
         from unittest.mock import patch
 
-        with patch(
-            "openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file
-        ):
+        with patch("openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file):
             from openbb_cli.utils.utils import change_logging_sub_app
 
             initial = change_logging_sub_app()
@@ -49,9 +43,7 @@ class TestChangeLoggingSubApp:
 
         from unittest.mock import patch
 
-        with patch(
-            "openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file
-        ):
+        with patch("openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file):
             from openbb_cli.utils.utils import change_logging_sub_app
 
             initial = change_logging_sub_app()
@@ -69,9 +61,7 @@ class TestResetLoggingSubApp:
 
         from unittest.mock import patch
 
-        with patch(
-            "openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file
-        ):
+        with patch("openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file):
             from openbb_cli.utils.utils import reset_logging_sub_app
 
             reset_logging_sub_app("sdk")
@@ -86,9 +76,7 @@ class TestResetLoggingSubApp:
 
         from unittest.mock import patch
 
-        with patch(
-            "openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file
-        ):
+        with patch("openbb_cli.utils.utils.SYSTEM_SETTINGS_PATH", settings_file):
             from openbb_cli.utils.utils import reset_logging_sub_app
 
             reset_logging_sub_app("")

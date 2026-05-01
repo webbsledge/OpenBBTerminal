@@ -21,6 +21,6 @@ def test_parse_input_invalid_commands():
     input_string = "nonexistentcommand args"
     expected_output = ["nonexistentcommand args"]
     actual_output = controller.parse_input(input_string)
-    assert (
-        actual_output == expected_output
-    ), f"Expected {expected_output}, got {actual_output}"
+    assert actual_output == expected_output, (
+        f"Expected {expected_output}, got {actual_output}"
+    )

@@ -164,3 +164,33 @@ class TestCredentialsController:
 
         ctrl.call_test_api_key([])
         mock_cred_session.console.print.assert_called()
+
+    def test_init_runs_super_and_generates_all_commands(
+        self, mock_cred_session, mock_obb
+    ):
+        """Real ``__init__`` runs ``super().__init__()`` and generates one ``call_*`` per credential."""
+        from unittest.mock import PropertyMock
+
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        with (
+            patch(
+                "openbb_cli.controllers.base_controller.BaseController.__init__",
+                return_value=None,
+            ) as super_init,
+            patch.object(
+                CredentialsController,
+                "choices_default",
+                new_callable=PropertyMock,
+                return_value={},
+            ),
+            patch.object(CredentialsController, "update_completer") as update_completer,
+            patch.object(CredentialsController, "_generate_credential_command") as gen,
+        ):
+            CredentialsController(queue=["x"])
+        super_init.assert_called_once_with(["x"])
+        # one generate per credential in _CRED_COMMANDS
+        assert gen.call_count == len(CredentialsController._CRED_COMMANDS)
+        update_completer.assert_called_once()

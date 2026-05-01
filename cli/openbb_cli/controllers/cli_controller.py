@@ -10,7 +10,6 @@ import difflib
 import os
 import re
 import sys
-import time
 import webbrowser
 from datetime import datetime
 from functools import partial, update_wrapper
@@ -19,8 +18,10 @@ from types import MethodType
 from typing import Any
 
 import pandas as pd
-import requests
-from openbb import obb
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.styles import Style
+
+from openbb_cli.backend import Backend, LocalBackend
 from openbb_cli.config import constants
 from openbb_cli.config.constants import (
     ASSETS_DIRECTORY,
@@ -46,15 +47,7 @@ from openbb_cli.controllers.utils import (
     welcome_message,
 )
 from openbb_cli.session import Session
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.styles import Style
-from pydantic import BaseModel
 
-PLATFORM_ROUTERS = {
-    d: "menu" if not isinstance(getattr(obb, d), BaseModel) else "command"
-    for d in dir(obb)
-    if "_" not in d
-}
 NON_DATA_ROUTERS = ["coverage", "reference", "system", "user"]
 DATA_PROCESSING_ROUTERS = ["technical", "quantitative", "econometrics"]
 env_file = str(ENV_FILE_SETTINGS)
@@ -62,32 +55,47 @@ session = Session()
 
 
 class CLIController(BaseController):
-    """CLI Controller class."""
+    """CLI Controller class.
 
-    CHOICES_COMMANDS = ["record", "stop", "exe", "results"]
-    CHOICES_MENUS = [
-        "settings",
-        "user",
-        "feature",
-    ]
+    Sources its top-level menu and command choices from a ``Backend`` —
+    ``LocalBackend`` (in-process ``obb``, the historical default) or any
+    other implementation passed in by the launcher (e.g. ``SpecBackend``
+    for spec-driven REPL use).
+    """
 
-    for router, value in PLATFORM_ROUTERS.items():
-        if router == "user":
-            continue
-        if value == "menu":
-            CHOICES_MENUS.append(router)
-        else:
-            CHOICES_COMMANDS.append(router)
+    CHOICES_COMMANDS_BUILTIN = ["record", "stop", "exe", "results"]
+    CHOICES_MENUS_BUILTIN = ["settings", "user", "feature"]
 
     PATH = "/"
     CHOICES_GENERATION = False
 
-    def __init__(self, jobs_cmds: list[str] | None = None):
+    def __init__(
+        self,
+        jobs_cmds: list[str] | None = None,
+        *,
+        backend: Backend | None = None,
+    ):
         """Construct CLI controller."""
         self.ROUTINE_FILES: dict[str, Path] = dict()
-        self.ROUTINE_DEFAULT_FILES: dict[str, Path] = dict()
-        self.ROUTINE_PERSONAL_FILES: dict[str, Path] = dict()
         self.ROUTINE_CHOICES: dict[str, Any] = dict()
+
+        # Source-of-truth for the top-level menu structure. ``LocalBackend``
+        # imports ``obb`` lazily on first read; ``SpecBackend`` imports nothing.
+        self._backend: Backend = backend if backend is not None else LocalBackend()
+
+        # Resolve menus / commands from the backend BEFORE BaseController.__init__
+        # builds the argparse parser (it reads ``self.controller_choices``).
+        platform_routers = self._backend.routers
+        menus = list(self.CHOICES_MENUS_BUILTIN)
+        commands = list(self.CHOICES_COMMANDS_BUILTIN)
+        for router, kind in platform_routers.items():
+            if router == "user":
+                continue
+            (menus if kind == "menu" else commands).append(router)
+        # Instance attributes shadow the class-level CHOICES_*; BaseController
+        # consumes whichever it sees on ``self``.
+        self.CHOICES_MENUS = menus
+        self.CHOICES_COMMANDS = commands
 
         super().__init__(jobs_cmds)
 
@@ -105,7 +113,8 @@ class CLIController(BaseController):
         self.update_runtime_choices()
 
     def _generate_platform_commands(self):
-        """Generate Platform based commands/menus."""
+        """Generate Platform based commands/menus from the configured backend."""
+        backend = self._backend
 
         def method_call_class(self, _, controller, name, parent_path, target):
             self.queue = self.load_class(
@@ -114,42 +123,35 @@ class CLIController(BaseController):
 
         # pylint: disable=unused-argument
         def method_call_command(self, _, router: str):
-            """Call command."""
-            mdl = getattr(obb, router)
+            """Call a top-level command-typed router (rare)."""
+            mdl = backend.get_command_target(router)
             df = pd.DataFrame.from_dict(mdl.model_dump(), orient="index")
             if isinstance(df.columns, pd.RangeIndex):
                 df.columns = [str(i) for i in df.columns]
             return print_rich_table(df, show_index=True)
 
-        for router, value in PLATFORM_ROUTERS.items():
+        for router, value in backend.routers.items():
             if router == "user":
                 continue
-            target = getattr(obb, router)
 
             if value == "menu":
-                pcf = PlatformControllerFactory(
-                    target,
-                    reference=obb.reference["paths"],  # type: ignore
-                )
+                pcf = PlatformControllerFactory(backend=backend, router_name=router)
                 DynamicController = pcf.create()
 
-                # Bind the method to the class
                 bound_method = MethodType(method_call_class, self)
-
-                # Update the wrapper and set the attribute
-                bound_method = update_wrapper(  # type: ignore
+                bound_method = update_wrapper(
                     partial(
                         bound_method,
                         controller=DynamicController,
                         name=router,
-                        target=target,
+                        target=None,  # backend-driven; sub-controller doesn't need a target
                         parent_path=self.path,
                     ),
                     method_call_class,
                 )
             else:
                 bound_method = MethodType(method_call_command, self)
-                bound_method = update_wrapper(  # type: ignore
+                bound_method = update_wrapper(
                     partial(bound_method, router=router),
                     method_call_command,
                 )
@@ -162,22 +164,11 @@ class CLIController(BaseController):
 
         if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
             # choices: dict = self.choices_default
-            choices: dict = {c: {} for c in self.controller_choices}  # type: ignore
+            choices: dict = {c: {} for c in self.controller_choices}
 
             self.ROUTINE_FILES = {
-                filepath.name: filepath for filepath in routines_directory.rglob("*.openbb")  # type: ignore
-            }
-            self.ROUTINE_DEFAULT_FILES = {
-                filepath.name: filepath  # type: ignore
-                for filepath in Path(routines_directory / "hub" / "default").rglob(
-                    "*.openbb"
-                )
-            }
-            self.ROUTINE_PERSONAL_FILES = {
-                filepath.name: filepath  # type: ignore
-                for filepath in Path(routines_directory / "hub" / "personal").rglob(
-                    "*.openbb"
-                )
+                filepath.name: filepath
+                for filepath in routines_directory.rglob("*.openbb")
             }
 
             choices["exe"] = {
@@ -189,7 +180,6 @@ class CLIController(BaseController):
                 "-e": "--example",
                 "--input": None,
                 "-i": "--input",
-                "--url": None,
                 "--help": None,
                 "-h": "--help",
             }
@@ -198,8 +188,6 @@ class CLIController(BaseController):
                 "-n": "--name",
                 "--description": None,
                 "-d": "--description",
-                "--public": None,
-                "-p": "--public",
                 "--tag1": {c: None for c in constants.SCRIPT_TAGS},
                 "--tag2": {c: None for c in constants.SCRIPT_TAGS},
                 "--tag3": {c: None for c in constants.SCRIPT_TAGS},
@@ -278,12 +266,15 @@ class CLIController(BaseController):
         mt.add_raw("\n")
         mt.add_info("Retrieve data from different asset classes and providers")
 
-        for router, value in PLATFORM_ROUTERS.items():
+        platform_routers = self._backend.routers
+        reference_routers = self._backend.reference_routers
+
+        for router, value in platform_routers.items():
             if router in NON_DATA_ROUTERS or router in DATA_PROCESSING_ROUTERS:
                 continue
             if value == "menu":
                 menu_description = (
-                    obb.reference["routers"].get(f"{self.PATH}{router}", {}).get("description")  # type: ignore
+                    reference_routers.get(f"{self.PATH}{router}", {}).get("description")
                 ) or ""
                 mt.add_menu(
                     name=router,
@@ -292,15 +283,17 @@ class CLIController(BaseController):
             else:
                 mt.add_cmd(router)
 
-        if any(router in PLATFORM_ROUTERS for router in DATA_PROCESSING_ROUTERS):
+        if any(router in platform_routers for router in DATA_PROCESSING_ROUTERS):
             mt.add_info("\nAnalyze and process previously obtained data")
 
-            for router, value in PLATFORM_ROUTERS.items():
+            for router, value in platform_routers.items():
                 if router not in DATA_PROCESSING_ROUTERS:
                     continue
                 if value == "menu":
                     menu_description = (
-                        obb.reference["routers"].get(f"{self.PATH}{router}", {}).get("description")  # type: ignore
+                        reference_routers.get(f"{self.PATH}{router}", {}).get(
+                            "description"
+                        )
                     ) or ""
                     mt.add_menu(
                         name=router,
@@ -316,7 +309,7 @@ class CLIController(BaseController):
         mt.add_cmd("results")
         if session.obbject_registry.obbjects:
             mt.add_info("\nCached Results")
-            for key, value in list(session.obbject_registry.all.items())[  # type: ignore
+            for key, value in list(session.obbject_registry.all.items())[
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
                 mt.add_raw(
@@ -374,9 +367,7 @@ class CLIController(BaseController):
             required="-h" not in other_args
             and "--help" not in other_args
             and "-e" not in other_args
-            and "--example" not in other_args
-            and "--url" not in other_args
-            and "my.openbb" not in other_args[0],
+            and "--example" not in other_args,
             type=str,
             nargs="+",
         )
@@ -395,14 +386,8 @@ class CLIController(BaseController):
             action="store_true",
             default=False,
         )
-        parser.add_argument(
-            "--url", help="URL to run openbb script from.", dest="url", type=str
-        )
         if other_args and "-" not in other_args[0][0]:
-            if other_args[0].startswith("my.") or other_args[0].startswith("http"):
-                other_args.insert(0, "--url")
-            else:
-                other_args.insert(0, "--file")
+            other_args.insert(0, "--file")
         ns_parser = self.parse_known_args_and_warn(parser, other_args)
         if ns_parser:
             if ns_parser.example:
@@ -410,49 +395,9 @@ class CLIController(BaseController):
                 session.console.print(  # TODO: Point to docs when ready
                     "[info]Executing an example, please visit our docs to learn how to create your own script.[/info]\n"
                 )
-                time.sleep(3)
-            elif ns_parser.url:
-                if not ns_parser.url.startswith(
-                    "https"
-                ) and not ns_parser.url.startswith("http:"):
-                    url = "https://" + ns_parser.url
-                elif ns_parser.url.startswith("http://"):
-                    url = ns_parser.url.replace("http://", "https://")
-                else:
-                    url = ns_parser.url
-                username = url.split("/")[-3]
-                script_name = url.split("/")[-1]
-                file_name = f"{username}_{script_name}.openbb"
-                final_url = f"{url}?raw=true"
-                response = requests.get(final_url, timeout=10)
-                if response.status_code != 200:
-                    session.console.print(
-                        "[red]Could not find the requested script.[/red]"
-                    )
-                    return
-                routine_text = response.json()["script"]
-                file_path = Path(session.user.preferences.export_directory, "routines")
-                routine_path = file_path / file_name
-                with open(routine_path, "w") as file:
-                    file.write(routine_text)
-                self.update_runtime_choices()
-
             elif ns_parser.file:
-                file_path = " ".join(ns_parser.file)  # type: ignore
-                # if string is not in this format "default/file.openbb" then check for files in ROUTINE_FILES
-                full_path = file_path
-                hub_routine = file_path.split("/")  # type: ignore
-                # Change with: my.openbb.co
-                if hub_routine[0] == "default":
-                    routine_path = Path(
-                        self.ROUTINE_DEFAULT_FILES.get(hub_routine[1], full_path)
-                    )
-                elif hub_routine[0] == "personal":
-                    routine_path = Path(
-                        self.ROUTINE_PERSONAL_FILES.get(hub_routine[1], full_path)
-                    )
-                else:
-                    routine_path = Path(self.ROUTINE_FILES.get(file_path, full_path))  # type: ignore
+                file_path = " ".join(ns_parser.file)
+                routine_path = Path(self.ROUTINE_FILES.get(file_path, file_path))
             else:
                 return
 
@@ -556,10 +501,15 @@ def handle_job_cmds(jobs_cmds: list[str] | None) -> list[str] | None:
 
 
 # pylint: disable=unused-argument
-def run_cli(jobs_cmds: list[str] | None = None, test_mode=False):
-    """Run the CLI menu."""
+def run_cli(
+    jobs_cmds: list[str] | None = None,
+    test_mode=False,
+    *,
+    backend: Backend | None = None,
+):
+    """Run the CLI menu, optionally backed by a non-default ``Backend``."""
     ret_code = 1
-    t_controller = CLIController(jobs_cmds)
+    t_controller = CLIController(jobs_cmds, backend=backend)
     an_input = ""
 
     jobs_cmds = handle_job_cmds(jobs_cmds)
@@ -654,7 +604,11 @@ def run_cli(jobs_cmds: list[str] | None = None, test_mode=False):
             )
             if similar_cmd:
                 an_input = similar_cmd[0]
-                if " " in an_input:
+                if " " in an_input:  # pragma: no cover
+                    # Defensive — ``similar_cmd[0]`` is drawn from
+                    # ``controller_choices`` which are single tokens, so this
+                    # branch is unreachable in practice. Kept as a safety net
+                    # for callers who might inject multi-token choices.
                     candidate_input = (
                         f"{similar_cmd[0]} {' '.join(an_input.split(' ')[1:])}"
                     )
@@ -728,7 +682,7 @@ def run_scripts(  # pylint: disable=R0917
             for line in raw_lines:
                 new_line = re.sub(
                     r"\${[^{]+=[^{]+}",
-                    lambda x: replace_dynamic(x, special_arguments),  # type: ignore
+                    lambda x: replace_dynamic(x, special_arguments),
                     line,
                 )
                 lines.append(new_line)
@@ -826,6 +780,8 @@ def main(
     dev: bool,
     path_list: list[str],
     routines_args: list[str] | None = None,
+    *,
+    backend: Backend | None = None,
     **kwargs,
 ):
     """Run the CLI with various options.
@@ -853,8 +809,6 @@ def main(
 
     if dev:
         session.settings.DEV_BACKEND = True
-        session.settings.BASE_URL = "https://payments.openbb.dev/"
-        session.settings.HUB_URL = "https://my.openbb.dev"
 
     if isinstance(path_list, list) and path_list[0].endswith(".openbb"):
         run_routine(
@@ -864,9 +818,9 @@ def main(
     elif path_list:
         argv_cmds = list([" ".join(path_list).replace(" /", "/home/")])
         argv_cmds = insert_start_slash(argv_cmds) if argv_cmds else argv_cmds
-        run_cli(argv_cmds)
+        run_cli(argv_cmds, backend=backend)
     else:
-        run_cli()
+        run_cli(backend=backend)
 
 
 def parse_args_and_run():
@@ -964,11 +918,15 @@ def parse_args_and_run():
 
 
 def launch(
-    debug: bool = False, dev: bool = False, queue: list[str] | None = None
+    debug: bool = False,
+    dev: bool = False,
+    queue: list[str] | None = None,
+    *,
+    backend: Backend | None = None,
 ) -> None:
-    """Launch CLI."""
+    """Launch CLI, optionally with a non-default ``Backend``."""
     if queue:
-        main(debug, dev, queue, module="")
+        main(debug, dev, queue, module="", backend=backend)
     else:
         parse_args_and_run()
 

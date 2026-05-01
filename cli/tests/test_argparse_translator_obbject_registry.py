@@ -3,8 +3,9 @@
 from unittest.mock import Mock
 
 import pytest
-from openbb_cli.argparse_translator.obbject_registry import Registry
 from openbb_core.app.model.obbject import OBBject
+
+from openbb_cli.argparse_translator.obbject_registry import Registry
 
 # pylint: disable=redefined-outer-name, protected-access
 
@@ -188,3 +189,51 @@ def test_get_out_of_bounds(registry, mock_obbject):
     """Test get returns None for out-of-bounds index."""
     registry.register(mock_obbject)
     assert registry.get(99) is None
+
+
+def test_all_serializes_standard_params_dict(registry):
+    """``_handle_standard_params`` builds a JSON dict of non-empty, non-data params."""
+    obj = Mock(spec=OBBject)
+    obj.id = "1"
+    obj.provider = "p"
+    obj.extra = {"command": "cmd"}
+    obj._route = "/r"
+    obj._standard_params = {
+        "symbol": "AAPL",
+        "data": "ignored — explicit skip",
+        "empty": "",  # falsy → skipped
+        "limit": 10,
+    }
+    obj.results = []
+    registry.register(obj)
+    rendered = registry.all[0]["standard params"]
+    import json as _json
+
+    payload = _json.loads(rendered)
+    assert payload["symbol"] == "AAPL"
+    assert payload["limit"] == "10"
+    assert "data" not in payload
+    assert "empty" not in payload
+
+
+def test_all_includes_data_schema_title_and_description(registry):
+    """``_handle_data_repr`` extracts both ``title`` and ``description`` from the schema."""
+
+    class ResultModel:
+        def model_json_schema(self):
+            return {
+                "title": "Quote",
+                "description": "A quote object. Detail line two.",
+            }
+
+    obj = Mock(spec=OBBject)
+    obj.id = "1"
+    obj.provider = "p"
+    obj.extra = {"command": "cmd"}
+    obj._route = "/r"
+    obj._standard_params = {}
+    obj.results = [ResultModel()]
+    registry.register(obj)
+    data_repr = registry.all[0]["data"]
+    assert data_repr.startswith("Quote")
+    assert "A quote object" in data_repr

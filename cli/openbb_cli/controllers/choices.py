@@ -176,7 +176,7 @@ def contains_functions_to_patch(command_func: Callable) -> bool:
     -------
     bool: Whether or not `command_func` contains the mocked functions.
     """
-    co_names = command_func.__code__.co_names
+    co_names = command_func.__code__.co_names  # ty: ignore[unresolved-attribute]
 
     return bool(
         "parse_simple_args" in co_names or "parse_known_args_and_warn" in co_names

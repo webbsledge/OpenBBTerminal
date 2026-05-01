@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.styles import Style
+
 from openbb_cli.config.completer import NestedCompleter
 from openbb_cli.config.constants import SCRIPT_TAGS
 from openbb_cli.controllers.choices import build_controller_choice_map
@@ -24,8 +27,6 @@ from openbb_cli.controllers.utils import (
     validate_register_key,
 )
 from openbb_cli.session import Session
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.styles import Style
 
 # pylint: disable=C0301,C0302,R0902,global-statement,too-many-boolean-expressions
 # pylint: disable=R0912
@@ -40,7 +41,6 @@ SESSION_RECORDED = list()
 SESSION_RECORDED_NAME = ""
 SESSION_RECORDED_DESCRIPTION = ""
 SESSION_RECORDED_TAGS = ""
-SESSION_RECORDED_PUBLIC = False
 
 
 class BaseController(metaclass=ABCMeta):
@@ -113,7 +113,7 @@ class BaseController(metaclass=ABCMeta):
             add_help=False,
             prog=self.path[-1] if self.PATH != "/" else "cli",
         )
-        self.parser.exit_on_error = False  # type: ignore
+        self.parser.exit_on_error = False
         self.parser.add_argument("cmd", choices=self.controller_choices)
 
     def update_completer(self, choices) -> None:
@@ -291,7 +291,9 @@ class BaseController(metaclass=ABCMeta):
         # Navigation slash is being used first split commands
         elif len(actions) > 1:
             # Absolute path is specified
-            if not actions[0]:
+            if not actions[0]:  # pragma: no cover
+                # Unreachable: ``parse_input`` filters out empty segments before
+                # returning. Kept as a defensive guard for direct callers.
                 actions[0] = "home"
 
             # Add all instructions to the queue
@@ -435,15 +437,6 @@ class BaseController(metaclass=ABCMeta):
             default="",
             nargs="+",
         )
-        parser.add_argument(
-            "-p",
-            "--public",
-            dest="public",
-            action="store_true",
-            help="Whether the routine should be public or not",
-            default=False,
-        )
-
         if other_args and "-" not in other_args[0][0]:
             other_args.insert(0, "-n")
 
@@ -502,7 +495,6 @@ class BaseController(metaclass=ABCMeta):
             global SESSION_RECORDED_NAME  # noqa: PLW0603
             global SESSION_RECORDED_DESCRIPTION  # noqa: PLW0603
             global SESSION_RECORDED_TAGS  # noqa: PLW0603
-            global SESSION_RECORDED_PUBLIC  # noqa: PLW0603
 
             RECORD_SESSION = True
             SESSION_RECORDED_NAME = title
@@ -514,8 +506,6 @@ class BaseController(metaclass=ABCMeta):
             SESSION_RECORDED_TAGS = tag1 if tag1 else ""
             SESSION_RECORDED_TAGS += "," + tag2 if tag2 else ""
             SESSION_RECORDED_TAGS += "," + tag3 if tag3 else ""
-
-            SESSION_RECORDED_PUBLIC = ns_parser.public
 
             session.console.print(
                 f"[green]The routine '{title}' is successfully being recorded.[/green]"
@@ -786,7 +776,7 @@ class BaseController(metaclass=ABCMeta):
                         )
 
                         if hasattr(self, "_link_obbject_to_data_processing_commands"):
-                            self._link_obbject_to_data_processing_commands()
+                            self._link_obbject_to_data_processing_commands()  # ty: ignore[call-non-callable]
                             self.update_completer(self.choices_default)
 
                         session.output_adapter.display(
@@ -831,7 +821,7 @@ class BaseController(metaclass=ABCMeta):
                         )
 
                         if hasattr(self, "_link_obbject_to_data_processing_commands"):
-                            self._link_obbject_to_data_processing_commands()
+                            self._link_obbject_to_data_processing_commands()  # ty: ignore[call-non-callable]
                             self.update_completer(self.choices_default)
 
                         session.output_adapter.display(
@@ -881,7 +871,7 @@ class BaseController(metaclass=ABCMeta):
                         )
 
                         if hasattr(self, "_link_obbject_to_data_processing_commands"):
-                            self._link_obbject_to_data_processing_commands()
+                            self._link_obbject_to_data_processing_commands()  # ty: ignore[call-non-callable]
                             self.update_completer(self.choices_default)
 
                         session.output_adapter.display(
@@ -921,9 +911,7 @@ class BaseController(metaclass=ABCMeta):
                         for table_name in tables:
                             # Get row count for metadata
                             quoted = '"' + table_name.replace('"', '""') + '"'
-                            cursor.execute(
-                                f"SELECT COUNT(*) FROM {quoted}"
-                            )  # noqa: S608
+                            cursor.execute(f"SELECT COUNT(*) FROM {quoted}")  # noqa: S608
                             row_count = cursor.fetchone()[0]
 
                             # Create SQLiteTable wrapper (lazy - no data loaded yet)
@@ -992,7 +980,7 @@ class BaseController(metaclass=ABCMeta):
                             if hasattr(
                                 self, "_link_obbject_to_data_processing_commands"
                             ):
-                                self._link_obbject_to_data_processing_commands()
+                                self._link_obbject_to_data_processing_commands()  # ty: ignore[call-non-callable]
                                 self.update_completer(self.choices_default)
                     finally:
                         conn.close()
@@ -1358,7 +1346,12 @@ class BaseController(metaclass=ABCMeta):
                         candidate_input = (
                             f"{similar_cmd[0]} {' '.join(an_input.split(' ')[1:])}"
                         )
-                        if candidate_input == an_input:
+                        if candidate_input == an_input:  # pragma: no cover
+                            # Unreachable in practice — argparse only rejects
+                            # an_input when its first token isn't a valid
+                            # command, but ``similar_cmd[0]`` is drawn from
+                            # ``controller_choices``, so by definition it
+                            # cannot equal the rejected first token.
                             an_input = ""
                             self.queue = []
                             session.console.print("\n")

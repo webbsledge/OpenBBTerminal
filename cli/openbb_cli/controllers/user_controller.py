@@ -8,9 +8,15 @@ Credentials are managed via the credentials sub-menu.
 import argparse
 from functools import partial, update_wrapper
 from types import MethodType
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
-from openbb import obb
+from openbb import obb as _obb_container
+
+# Treat the dynamically-built ``obb`` container as ``Any`` so ty doesn't try to
+# resolve ``obb.user.preferences`` through its property descriptor (the openbb
+# core types model ``user`` as a property whose return type ty can't follow).
+obb = cast(Any, _obb_container)
+
 from openbb_cli.config.menu_text import MenuText
 from openbb_cli.controllers.base_controller import BaseController
 from openbb_cli.session import Session
@@ -26,7 +32,7 @@ class UserController(BaseController):
 
     # Build command metadata from obb.user.preferences model fields.
     _PREF_COMMANDS: dict[str, dict[str, Any]] = {}
-    for _fname, _finfo in sorted(obb.user.preferences.model_fields.items()):  # type: ignore[union-attr]
+    for _fname, _finfo in sorted(obb.user.preferences.model_fields.items()):
         _annotation = _finfo.annotation
         _is_bool = _annotation is bool
         _PREF_COMMANDS[_fname] = {
@@ -58,7 +64,7 @@ class UserController(BaseController):
             if f["action"] == "toggle":
                 mt.add_setting(
                     name=cmd,
-                    status=getattr(obb.user.preferences, f["field_name"]),  # type: ignore[union-attr]
+                    status=getattr(obb.user.preferences, f["field_name"]),
                     description=f["description"],
                 )
 
@@ -66,7 +72,7 @@ class UserController(BaseController):
         mt.add_info("Preferences")
         for cmd, f in self._PREF_COMMANDS.items():
             if f["action"] == "set":
-                current = getattr(obb.user.preferences, f["field_name"])  # type: ignore[union-attr]
+                current = getattr(obb.user.preferences, f["field_name"])
                 mt.add_cmd(
                     name=cmd,
                     description=f"{f['description']} [dim](current: {current})[/dim]",
@@ -104,8 +110,8 @@ class UserController(BaseController):
             )
             ns_parser, _ = self.parse_simple_args(parser, other_args)
             if ns_parser:
-                current = getattr(obb.user.preferences, field_name)  # type: ignore[union-attr]
-                setattr(obb.user.preferences, field_name, not current)  # type: ignore[union-attr]
+                current = getattr(obb.user.preferences, field_name)
+                setattr(obb.user.preferences, field_name, not current)
                 session.console.print(f"[info]{field_name}:[/info] {not current}")
 
         def _set(self, other_args: list[str], field=field) -> None:
@@ -147,12 +153,12 @@ class UserController(BaseController):
             ns_parser, _ = self.parse_simple_args(parser, other_args)
             if ns_parser:
                 if ns_parser.value is not None:
-                    setattr(obb.user.preferences, field_name, ns_parser.value)  # type: ignore[union-attr]
+                    setattr(obb.user.preferences, field_name, ns_parser.value)
                     session.console.print(
-                        f"[info]{field_name}:[/info] {getattr(obb.user.preferences, field_name)}"  # type: ignore[union-attr]
+                        f"[info]{field_name}:[/info] {getattr(obb.user.preferences, field_name)}"
                     )
                 elif not other_args:
-                    current = getattr(obb.user.preferences, field_name)  # type: ignore[union-attr]
+                    current = getattr(obb.user.preferences, field_name)
                     session.console.print(f"[info]{field_name}:[/info] {current}")
 
         if action_type == "toggle":

@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+
 from openbb_cli.controllers.base_controller import BaseController
 from openbb_cli.session import Session
 
@@ -54,9 +55,9 @@ def test_parse_input(base_controller):
     input_str = "/equity/price/help"
     # Leading '/' prepends "home" to navigate to root first
     expected_output = ["home", "equity", "price", "help"]
-    assert (
-        base_controller.parse_input(input_str) == expected_output
-    ), "Input parsing failed"
+    assert base_controller.parse_input(input_str) == expected_output, (
+        "Input parsing failed"
+    )
 
 
 @pytest.mark.integration
@@ -85,6 +86,6 @@ def test_custom_reset(base_controller):
     base_controller.custom_reset = Mock(return_value=["custom", "reset"])
     base_controller.call_reset(None)
     expected_queue = ["quit", "reset", "custom", "reset"]
-    assert (
-        base_controller.queue == expected_queue
-    ), f"Expected queue to be {expected_queue}, but was {base_controller.queue}"
+    assert base_controller.queue == expected_queue, (
+        f"Expected queue to be {expected_queue}, but was {base_controller.queue}"
+    )

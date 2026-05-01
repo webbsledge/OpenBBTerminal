@@ -7,12 +7,17 @@ Allows viewing and setting obb.user.credentials at the session level
 import argparse
 from functools import partial, update_wrapper
 from types import MethodType
-from typing import Any
+from typing import Any, cast
 
-from openbb import obb
+from openbb import obb as _obb_container
+from pydantic import SecretStr
+
+# Treat the dynamically-built ``obb`` container as ``Any`` so ty doesn't try to
+# resolve ``obb.user.credentials`` through its property descriptor.
+obb = cast(Any, _obb_container)
+
 from openbb_cli.controllers.base_controller import BaseController
 from openbb_cli.session import Session
-from pydantic import SecretStr
 
 session = Session()
 
@@ -72,7 +77,7 @@ class CredentialsController(BaseController):
         lines.append("")
 
         for cmd, f in self._CRED_COMMANDS.items():
-            raw = getattr(obb.user.credentials, f["field_name"], None)  # type: ignore[union-attr]
+            raw = getattr(obb.user.credentials, f["field_name"], None)
             status = _credential_status(raw)
             provider = f["provider"]
             pad = " " * (col_width - len(cmd))
@@ -106,12 +111,12 @@ class CredentialsController(BaseController):
             ns_parser, _ = self.parse_simple_args(parser, other_args)
             if ns_parser:
                 if ns_parser.value is not None:
-                    setattr(obb.user.credentials, field_name, ns_parser.value)  # type: ignore[union-attr]
+                    setattr(obb.user.credentials, field_name, ns_parser.value)
                     session.console.print(
                         f"[info]{field_name}:[/info] [green]Set[/green]"
                     )
                 elif not other_args:
-                    raw = getattr(obb.user.credentials, field_name, None)  # type: ignore[union-attr]
+                    raw = getattr(obb.user.credentials, field_name, None)
                     status = _credential_status(raw)
                     session.console.print(f"[info]{field_name}:[/info] {status}")
 

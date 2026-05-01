@@ -4,6 +4,7 @@ import argparse
 import ast
 
 import pandas as pd
+
 from openbb_cli.controllers.base_controller import BaseController, session
 from openbb_cli.controllers.utils import extract_dataframe
 
@@ -606,14 +607,13 @@ class FeatureController(BaseController):
                 else result
             )
 
-            is_sqlite = isinstance(data_obj, SQLiteTable)
-
             # Join with spaces but preserve the structure from argparse
             query_str = " ".join(ns_parser.expression).strip()
 
-            # Try SQL query optimization for SQLite tables
-            if is_sqlite:
-                assert isinstance(data_obj, SQLiteTable)
+            # Try SQL query optimization for SQLite tables. Using isinstance in
+            # the if-condition narrows the type for the body without needing an
+            # `assert` (which is forbidden in production code).
+            if isinstance(data_obj, SQLiteTable):
                 # Simple query patterns that can be pushed to SQL
                 sql_query = None
 
@@ -1342,9 +1342,7 @@ class FeatureController(BaseController):
                             elif ns_parser.mode == "append":
                                 # Get current row count for reporting
                                 quoted_tbl = '"' + table_name.replace('"', '""') + '"'
-                                cursor.execute(
-                                    f"SELECT COUNT(*) FROM {quoted_tbl}"
-                                )  # noqa: S608
+                                cursor.execute(f"SELECT COUNT(*) FROM {quoted_tbl}")  # noqa: S608
                                 old_count = cursor.fetchone()[0]
                                 session.console.print(
                                     f"[cyan]Appending {len(df)} rows to existing {old_count} rows...[/cyan]"
@@ -1360,9 +1358,7 @@ class FeatureController(BaseController):
 
                         # Success messages
                         if table_exists and ns_parser.mode == "append":
-                            cursor.execute(
-                                f"SELECT COUNT(*) FROM {quoted_tbl}"
-                            )  # noqa: S608
+                            cursor.execute(f"SELECT COUNT(*) FROM {quoted_tbl}")  # noqa: S608
                             new_count = cursor.fetchone()[0]
                             session.console.print(
                                 f"[green]Appended {len(df)} rows. Table '{table_name}' now has {new_count} rows[/green]"

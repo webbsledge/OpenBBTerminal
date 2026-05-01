@@ -1,13 +1,12 @@
 """Tests for SQLiteTable and extract_dataframe in controllers/utils.py."""
 
 import sqlite3
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
-from unittest.mock import Mock
 
 from openbb_cli.controllers.utils import SQLiteTable, extract_dataframe
-
 
 # ---------------------------------------------------------------------------
 # SQLiteTable

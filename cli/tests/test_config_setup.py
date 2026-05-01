@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+
 from openbb_cli.config.setup import bootstrap
 
 # pylint: disable=unused-variable

@@ -7,9 +7,7 @@ def in_group(parser: ArgumentParser, argument_name: str, group_title: str) -> bo
     """Check if an argument is in a group of an ArgumentParser."""
     for action_group in parser._action_groups:  # pylint: disable=protected-access
         if action_group.title == group_title:
-            for (
-                action
-            ) in action_group._group_actions:  # pylint: disable=protected-access
+            for action in action_group._group_actions:  # pylint: disable=protected-access
                 opts = action.option_strings
                 if (opts and opts[0] == argument_name) or action.dest == argument_name:
                     return True
@@ -63,7 +61,7 @@ def get_argument_optional_choices(parser: ArgumentParser, argument_name: str) ->
             or action.dest == argument_name
             and hasattr(action, "optional_choices")
         ):
-            return action.optional_choices  # type: ignore[attr-defined] # this is a custom attribute
+            return action.optional_choices  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute] — custom attribute
     return False
 
 

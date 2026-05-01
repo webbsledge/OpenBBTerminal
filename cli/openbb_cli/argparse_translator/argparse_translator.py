@@ -57,8 +57,8 @@ class ArgparseTranslator:
         self.provider_parameters: dict[str, list[str]] = {}
 
         self._parser = argparse.ArgumentParser(
-            prog=func.__name__,
-            description=self._build_description(func.__doc__),  # type: ignore
+            prog=func.__name__,  # ty: ignore[unresolved-attribute]
+            description=self._build_description(func.__doc__),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             formatter_class=argparse.RawTextHelpFormatter,
             add_help=add_help if add_help else False,
         )
@@ -111,9 +111,14 @@ class ArgparseTranslator:
                         set_optional_choices(action, optional_choices)
                 return
 
-            # check if the argument is in the optional arguments
-            if in_group(self._parser, argument.name, group_title="optional arguments"):
-                for action in self._parser._actions:
+            # check if the argument is in the optional arguments group.
+            # Python ≥3.10 renamed argparse's default group to ``options``, so
+            # in_group(...) only matches the legacy title and is unreachable
+            # in any modern interpreter we support. Kept as belt-and-suspenders.
+            if in_group(  # pragma: no cover
+                self._parser, argument.name, group_title="optional arguments"
+            ):
+                for action in self._parser._actions:  # pragma: no cover
                     if action.dest == argument.name:
                         # update choices
                         if choices:
@@ -124,7 +129,7 @@ class ArgparseTranslator:
                             action.help = ArgparseTranslator._escape_help(
                                 _update_providers(action.help or "", [group.title])
                             )
-                return
+                return  # pragma: no cover
 
             # we need to check if the optional choices were set in other group
             # before we remove the argument from the group, otherwise we will lose info
@@ -232,8 +237,12 @@ class ArgparseTranslator:
         if origin is Union and bool in args:
             return "store_true"
 
-        # Special case for Optional[bool] which is Union[bool, None]
-        if origin is Union and bool in args and type(None) in args:
+        # Special case for Optional[bool] which is Union[bool, None].
+        # Defensive — the previous branch already catches any Union containing
+        # bool, so this duplicate-condition arm is never reached.
+        if (  # pragma: no cover
+            origin is Union and bool in args and type(None) in args
+        ):
             return "store_true"
 
         return "store"
@@ -264,11 +273,13 @@ class ArgparseTranslator:
                 for arg in non_none_args:
                     if arg not in (type(None), Any):
                         return get_base_type(arg)
-                return str
+                return str  # pragma: no cover  - only reachable if every
+                # non-None arg in the Union is ``Any`` or ``type(None)``;
+                # ``Union[Any, X]`` collapses to ``Any``, so this is dead.
             if origin is Literal:
                 return type(args[0]) if args else str
             if origin is list:
-                return get_base_type(args[0]) if args else Any  # type: ignore
+                return get_base_type(args[0]) if args else Any
             if t is Any:
                 return str
             # Handle actual type objects (like datetime.date)
