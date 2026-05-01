@@ -66,18 +66,21 @@ jobs:
           allow-prereleases: true
           cache: "pip"
 
-      - name: Install gfortran (macOS, prerelease Python — scipy source build)
+      - name: Install gfortran + OpenBLAS (macOS, prerelease Python — scipy source build)
         if: runner.os == 'macOS' && matrix.python_version == '3.15'
         shell: bash
         working-directory: .
         run: |
           set -euo pipefail
-          brew install gcc
+          brew install gcc openblas pkg-config
           GFORTRAN_BIN=$(ls /opt/homebrew/opt/gcc/bin/gfortran-* | tail -1)
           GFORTRAN_DIR=$(dirname "$GFORTRAN_BIN")
           ln -sf "$GFORTRAN_BIN" "$GFORTRAN_DIR/gfortran"
           echo "$GFORTRAN_DIR" >> "$GITHUB_PATH"
           "$GFORTRAN_DIR/gfortran" --version
+          OPENBLAS_PC="$(brew --prefix openblas)/lib/pkgconfig"
+          echo "PKG_CONFIG_PATH=$OPENBLAS_PC" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH="$OPENBLAS_PC" pkg-config --modversion openblas
 
       - name: Install gfortran (Linux, prerelease Python — scipy source build)
         if: runner.os == 'Linux' && matrix.python_version == '3.15'
