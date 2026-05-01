@@ -66,6 +66,10 @@ jobs:
           allow-prereleases: true
           cache: "pip"
 
+      - name: Install gfortran (macOS prerelease Python — scipy has no wheel)
+        if: runner.os == 'macOS' && matrix.python_version == '3.15'
+        run: brew install gcc
+
       - name: Install openbb-cli
         run: |
           python -m pip install --upgrade pip uv
