@@ -70,7 +70,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip uv
           python -m uv pip install --system -e ".[all]"
-          python -m uv pip install --system pytest pytest-cov pytest-asyncio httpx "coverage[toml]"
+          python -m uv pip install --system pytest pytest-cov pytest-asyncio pytest-freezer pyyaml httpx "coverage[toml]"
 
       - name: Run unit tests
         run: |
