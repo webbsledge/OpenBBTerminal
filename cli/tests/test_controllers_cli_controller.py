@@ -12,8 +12,6 @@ from openbb_cli.controllers.cli_controller import (
     run_cli,
 )
 
-# pylint: disable=redefined-outer-name, unused-argument
-
 
 def test_parse_and_split_input_custom_filters():
     """Test the parse_and_split_input function with custom filters."""
@@ -52,7 +50,7 @@ def test_handle_job_cmds_with_export_path():
     jobs_cmds = ["export /path/to/export some_command"]
     result = handle_job_cmds(jobs_cmds)
     expected = "some_command"
-    assert expected in result[0]  # type: ignore
+    assert expected in result[0]
 
 
 def test_handle_job_cmds_no_export_returns_input_unchanged():
@@ -74,9 +72,6 @@ def test_handle_job_cmds_with_tilde_path(tmp_path, monkeypatch):
     (tmp_path / "out").mkdir()
     with patch.object(cli_controller, "session") as sess:
         sess.console.print = MagicMock()
-        # Syntax is: ``"export <folder> /<cmd>"`` — folder lives in commands[0]
-        # which is split on the first ``/``. The path-expansion check inspects
-        # the first token after ``export ``.
         handle_job_cmds(["export ~/out /cmd"])
     sess.console.print.assert_called()
 
@@ -88,16 +83,12 @@ def test_handle_job_cmds_creates_missing_directory(tmp_path, monkeypatch):
 
     from openbb_cli.controllers import cli_controller
 
-    # ``handle_job_cmds`` resolves relative paths against the controllers/ dir.
-    # Use a folder name that won't have a ``/`` in it (else ``commands[0].split(' ')``
-    # truncates after the first slash).
     folder = "fresh_export_dir"
     with patch.object(cli_controller, "session") as sess:
         sess.console.print = MagicMock()
         handle_job_cmds([f"export {folder} /cmd"])
     expected = Path(cli_controller.__file__).parent / folder
     assert expected.is_dir()
-    # Cleanup so we don't leave stray dirs in the source tree.
     shutil.rmtree(expected, ignore_errors=True)
 
 
@@ -165,9 +156,6 @@ def test_update_runtime_choices_no_prompt_session_is_noop(tmp_path):
     controller.update_completer.assert_not_called()
 
 
-# ── module-level helpers ────────────────────────────────────────────
-
-
 def test_insert_start_slash_prepends_slash():
     """Single command without leading slash gets one."""
     from openbb_cli.controllers.cli_controller import insert_start_slash
@@ -216,7 +204,7 @@ def test_run_scripts_missing_file_warns(tmp_path):
         try:
             cli_controller.run_scripts(tmp_path / "missing.openbb", test_mode=True)
         except FileNotFoundError:
-            pass  # expected — open() runs unconditionally after the warning
+            pass
     sess.console.print.assert_called()
 
 
@@ -240,9 +228,6 @@ def test_run_scripts_with_routines_args(tmp_path):
     script = tmp_path / "r.openbb"
     script.write_text("echo $ARGV[0]\necho $ARGV[1]\n")
     with patch.object(cli_controller, "run_cli") as run_cli_:
-        # ``output=False`` keeps test_mode on the no-write branch — otherwise
-        # ``run_scripts`` writes an empty output file under
-        # ``REPOSITORY_DIRECTORY/integration_test_output`` (the real repo root).
         cli_controller.run_scripts(
             script, test_mode=True, output=False, routines_args=["AAPL", "MSFT"]
         )
@@ -266,9 +251,6 @@ def test_run_scripts_special_arguments_substitution(tmp_path):
         )
     cmd = run_cli_.call_args[0][0][0]
     assert "TSLA" in cmd
-
-
-# ── main entry / parse_args_and_run ────────────────────────────────
 
 
 def test_main_with_openbb_path_runs_routine():
@@ -333,9 +315,6 @@ def test_main_dev_mode_flips_dev_backend():
     assert sess.settings.DEV_BACKEND is True
 
 
-# ── run_routine ──────────────────────────────────────────────────────
-
-
 def test_run_routine_user_path_exists_runs_user_script(tmp_path):
     """When the user-routines path exists, ``run_scripts`` runs it."""
     from openbb_cli.controllers import cli_controller
@@ -345,7 +324,6 @@ def test_run_routine_user_path_exists_runs_user_script(tmp_path):
         patch.object(cli_controller, "run_scripts") as run_scripts,
     ):
         sess.user.preferences.export_directory = str(tmp_path)
-        # Create the user routines dir so .exists() is True
         (tmp_path / "routines").mkdir()
         cli_controller.run_routine(file="routine.openbb")
     run_scripts.assert_called_once()
@@ -355,7 +333,6 @@ def test_run_routine_falls_back_to_default(tmp_path):
     """User path missing but default exists → ``run_scripts`` runs the default."""
     from openbb_cli.controllers import cli_controller
 
-    # ``default_routine_path = ASSETS_DIRECTORY / "routines" / file``.
     routines_root = tmp_path / "routines"
     fake_default = routines_root / "routine.openbb"
     fake_default.parent.mkdir(parents=True)
@@ -401,9 +378,6 @@ def test_run_routine_with_routines_args(tmp_path):
     assert kwargs["routines_args"] == ["AAPL,MSFT"]
 
 
-# ── call_exe ─────────────────────────────────────────────────────────
-
-
 def test_call_exe_no_args_warns():
     """``exe`` with no args prints the helper message."""
     from openbb_cli.controllers import cli_controller
@@ -414,9 +388,6 @@ def test_call_exe_no_args_warns():
         controller.call_exe([])
     calls = [str(c) for c in sess.console.print.call_args_list]
     assert any("Provide a path" in c for c in calls)
-
-
-# ── run_cli REPL loop ────────────────────────────────────────────────
 
 
 def test_run_cli_consumes_queue_and_breaks_on_q():
@@ -508,9 +479,6 @@ def test_run_cli_first_time_user_opens_docs():
     wb.open.assert_called_once()
 
 
-# ── parse_args_and_run ──────────────────────────────────────────────
-
-
 def test_parse_args_and_run_invokes_main_with_parsed_options():
     """Top-level entry parses argv and forwards to ``main``."""
     from openbb_cli.controllers import cli_controller
@@ -534,7 +502,6 @@ def test_parse_args_and_run_inserts_file_flag_for_positional_path():
         patch.object(cli_controller.sys, "argv", ["openbb", "routine.openbb"]),
     ):
         cli_controller.parse_args_and_run()
-    # No exception → success; the parser auto-inserted --file before the path.
 
 
 def test_parse_args_and_run_exits_on_unknown_args_without_debug():
@@ -548,9 +515,6 @@ def test_parse_args_and_run_exits_on_unknown_args_without_debug():
         pytest.raises(SystemExit),
     ):
         cli_controller.parse_args_and_run()
-
-
-# ── launch ──────────────────────────────────────────────────────────
 
 
 def test_launch_with_queue_calls_main_with_queue():
@@ -569,9 +533,6 @@ def test_launch_without_queue_falls_through_to_parse_args_and_run():
     with patch.object(cli_controller, "parse_args_and_run") as parse_args:
         cli_controller.launch()
     parse_args.assert_called_once()
-
-
-# ── CLIController.print_help ────────────────────────────────────────
 
 
 def _stub_backend(routers=None, reference_routers=None):
@@ -662,11 +623,8 @@ def test_run_cli_quit_command(mock_print_goodbye, mock_switch):
     mock_print_goodbye.assert_called_once()
 
 
-# ── coverage closers — generated platform call methods ──────────────
-
-
 def test_generated_call_class_method_invokes_load_class():
-    """``method_call_class`` (line 112) wraps load_class for menu routers."""
+    """``method_call_class`` wraps load_class for menu routers."""
     from openbb_cli.controllers import cli_controller
 
     controller = cli_controller.CLIController.__new__(cli_controller.CLIController)
@@ -675,9 +633,8 @@ def test_generated_call_class_method_invokes_load_class():
     sub = MagicMock()
     cli_controller.CLIController._generate_platform_commands.__globals__[
         "method_call_class"
-    ] if False else None  # noop: shows where the closure lives
+    ] if False else None
 
-    # Replicate the inner closure shape and exercise its body directly.
     def method_call_class(self, _, controller_, name, parent_path, target):  # noqa: ARG001
         self.queue = self.load_class(controller_, name, parent_path, target, self.queue)
 
@@ -699,7 +656,7 @@ def test_generated_call_command_method_emits_table():
     backend = MagicMock()
     backend.get_command_target.return_value = fake_router
     with patch.object(cli_controller, "print_rich_table") as prt:
-        # Re-implement the closure body to exercise the backend dispatch.
+
         def method_call_command(self, _, router):
             mdl = backend.get_command_target(router)
             df = pd.DataFrame.from_dict(mdl.model_dump(), orient="index")
@@ -713,7 +670,7 @@ def test_generated_call_command_method_emits_table():
 
 
 def test_cli_controller_skips_user_router_during_init():
-    """A backend that includes ``user`` does not duplicate it (line 93).
+    """A backend that includes ``user`` does not duplicate it.
 
     ``user`` is in the BUILTIN menu list (it's the local-preferences menu),
     so the loop's ``continue`` on a backend-supplied ``user`` router is a
@@ -735,7 +692,7 @@ def test_cli_controller_skips_user_router_during_init():
 
 
 def test_generate_platform_commands_skips_user_router():
-    """Same as above but for ``_generate_platform_commands`` (line 135)."""
+    """Same as above but for ``_generate_platform_commands``."""
     from openbb_cli.controllers import cli_controller
 
     backend = MagicMock()
@@ -746,12 +703,11 @@ def test_generate_platform_commands_skips_user_router():
         patch.object(cli_controller.CLIController, "update_runtime_choices"),
     ):
         ctrl = cli_controller.CLIController(backend=backend)
-    # ``call_user`` is the built-in user-controller bridge; no factory-bound wrapper for it.
     assert hasattr(ctrl, "call_equity")
 
 
 def test_method_call_class_invokes_load_class():
-    """The bound ``method_call_class`` closure delegates to ``load_class`` (line 120)."""
+    """The bound ``method_call_class`` closure delegates to ``load_class``."""
     from openbb_cli.controllers import cli_controller
 
     backend = MagicMock()
@@ -764,16 +720,14 @@ def test_method_call_class_invokes_load_class():
         ctrl = cli_controller.CLIController(backend=backend)
     ctrl.load_class = MagicMock(return_value=["after"])
     ctrl.queue = ["before"]
-    # Invoke the bound ``call_equity`` (which is method_call_class wrapped).
     ctrl.call_equity([])
     ctrl.load_class.assert_called_once()
-    # ``self.queue`` was reassigned to load_class's return.
     assert ctrl.queue == ["after"]
 
 
 def test_method_call_command_emits_table_via_backend():
     """The bound ``method_call_command`` closure prints a rich table from the
-    backend's command-target (lines 127-131)."""
+    backend's command-target."""
     from openbb_cli.controllers import cli_controller
 
     backend = MagicMock()
@@ -793,7 +747,7 @@ def test_method_call_command_emits_table_via_backend():
 
 
 def test_call_exe_no_example_no_file_returns():
-    """``ns_parser`` with neither example nor file → bare ``return`` (line 406)."""
+    """``ns_parser`` with neither example nor file → bare ``return``."""
     from openbb_cli.controllers import cli_controller
 
     backend = MagicMock()
@@ -803,22 +757,20 @@ def test_call_exe_no_example_no_file_returns():
         patch.object(cli_controller.CLIController, "update_runtime_choices"),
     ):
         ctrl = cli_controller.CLIController(backend=backend)
-        # Only --help printed via argparse; ns_parser.example=False, ns_parser.file=None.
         ctrl.parse_known_args_and_warn = MagicMock(
             return_value=MagicMock(
                 example=False, file=None, url=None, routine_args=None
             )
         )
-        # The function should silently return without raising / printing routine.
         ctrl.call_exe(["--input", "x"])
 
 
 def test_call_exe_parse_openbb_script_error_prints_and_returns(tmp_path):
-    """A non-empty err from ``parse_openbb_script`` → ``console.print(err)`` + return (lines 434-435)."""
+    """A non-empty err from ``parse_openbb_script`` → ``console.print(err)`` + return."""
     from openbb_cli.controllers import cli_controller
 
     routine = tmp_path / "broken.openbb"
-    routine.write_text("foreach $$X in 1\nend\nend\n")  # too many ``end``s
+    routine.write_text("foreach $$X in 1\nend\nend\n")
     backend = MagicMock()
     backend.routers = {}
     with (
@@ -861,9 +813,6 @@ def test_print_help_skips_routers_not_in_data_processing(tmp_path):
     sess.console.print.assert_called()
 
 
-# ── call_exe deep paths ─────────────────────────────────────────────
-
-
 def test_call_exe_inserts_file_for_plain_filename():
     """First positional arg without ``-`` triggers ``--file`` insertion."""
     from openbb_cli.controllers import cli_controller
@@ -872,7 +821,6 @@ def test_call_exe_inserts_file_for_plain_filename():
         controller = cli_controller.CLIController()
         controller.queue = []
         controller.call_exe(["random.openbb"])
-    # We don't open any file (it doesn't exist) — the FileNotFoundError prints red.
     msgs = [str(c) for c in sess.console.print.call_args_list]
     assert any("doesn't exist" in m for m in msgs)
 
@@ -894,7 +842,7 @@ def test_call_exe_example_branch():
 
 
 def test_call_exe_file_falls_through_to_routine_files(tmp_path):
-    """Plain file path resolves via ROUTINE_FILES (line 463)."""
+    """Plain file path resolves via ROUTINE_FILES."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -910,7 +858,7 @@ def test_call_exe_file_falls_through_to_routine_files(tmp_path):
 
 
 def test_call_exe_routine_args_with_brackets():
-    """Bracketed routine_args are extracted and replaced (lines 474-481)."""
+    """Bracketed routine_args are extracted and replaced."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -924,14 +872,13 @@ def test_call_exe_routine_args_with_brackets():
         controller.queue = []
         controller.ROUTINE_FILES = {"r.openbb": "/tmp/whatever.openbb"}
         controller.call_exe(["--file", "r.openbb", "-i", "[group_a],TSLA"])
-    # script_inputs gathered both the bracketed token and the trailing comma-split entry.
     script_inputs = parse_mock.call_args[1]["script_inputs"]
     assert "group_a" in script_inputs
     assert "TSLA" in script_inputs
 
 
 def test_call_exe_export_path_relative_creates_dir(tmp_path):
-    """``parsed_script`` whose first cmd is ``export <relpath>`` resolves + creates the dir (lines 511-514, 522-525).
+    """``parsed_script`` whose first cmd is ``export <relpath>`` resolves + creates the dir.
 
     ``os.makedirs`` is patched so the relative path under the cli_controller
     package isn't actually created on disk.
@@ -962,7 +909,7 @@ def test_call_exe_export_path_relative_creates_dir(tmp_path):
 
 
 def test_call_exe_export_path_with_tilde(tmp_path, monkeypatch):
-    """``~`` in export path expands to ``HOME_DIRECTORY`` (lines 507-509)."""
+    """``~`` in export path expands to ``HOME_DIRECTORY``."""
     from openbb_cli.controllers import cli_controller
 
     monkeypatch.setattr(cli_controller, "HOME_DIRECTORY", tmp_path)
@@ -984,7 +931,7 @@ def test_call_exe_export_path_with_tilde(tmp_path, monkeypatch):
 
 
 def test_call_exe_filenotfounderror_warns():
-    """``FileNotFoundError`` is caught and printed in red (lines 528-532)."""
+    """``FileNotFoundError`` is caught and printed in red."""
     from openbb_cli.controllers import cli_controller
 
     with patch.object(cli_controller, "session") as sess:
@@ -995,11 +942,8 @@ def test_call_exe_filenotfounderror_warns():
     assert any("doesn't exist" in m for m in msgs)
 
 
-# ── run_cli — print location, toolbar prompt, similar_cmd ───────────
-
-
 def test_run_cli_print_location_for_known_command():
-    """Queue entry whose first token is in ``CHOICES_COMMANDS`` prints location (line 599)."""
+    """Queue entry whose first token is in ``CHOICES_COMMANDS`` prints location."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1022,7 +966,7 @@ def test_run_cli_print_location_for_known_command():
 
 
 def test_run_cli_prompt_toolbar_hint_branch():
-    """``USE_PROMPT_TOOLKIT`` + ``TOOLBAR_HINT`` exercises the toolbar prompt (lines 607-624)."""
+    """``USE_PROMPT_TOOLKIT`` + ``TOOLBAR_HINT`` exercises the toolbar prompt."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1046,7 +990,7 @@ def test_run_cli_prompt_toolbar_hint_branch():
 
 
 def test_run_cli_prompt_no_toolbar_hint_branch():
-    """``USE_PROMPT_TOOLKIT`` without TOOLBAR_HINT exercises the simpler prompt (lines 626-630)."""
+    """``USE_PROMPT_TOOLKIT`` without TOOLBAR_HINT exercises the simpler prompt."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1070,7 +1014,7 @@ def test_run_cli_prompt_no_toolbar_hint_branch():
 
 
 def test_run_cli_quit_alias_breaks_loop():
-    """``quit`` typed at the prompt also triggers print_goodbye and breaks (lines 644-646)."""
+    """``quit`` typed at the prompt also triggers print_goodbye and breaks."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1093,7 +1037,7 @@ def test_run_cli_quit_alias_breaks_loop():
 
 
 def test_run_cli_reset_command_calls_reset():
-    """``reset`` invokes ``reset(...)`` and breaks the loop (lines 648-651)."""
+    """``reset`` invokes ``reset(...)`` and breaks the loop."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1117,7 +1061,7 @@ def test_run_cli_reset_command_calls_reset():
 
 
 def test_run_cli_systemexit_with_close_match_replaces():
-    """SystemExit + difflib match → an_input replaced and queued (lines 663-677)."""
+    """SystemExit + difflib match → an_input replaced and queued."""
     from openbb_cli.controllers import cli_controller
 
     with (
@@ -1135,8 +1079,6 @@ def test_run_cli_systemexit_with_close_match_replaces():
         instance.controller_choices = ["help", "q"]
         instance.update_success = False
 
-        # First switch raises SystemExit (unknown cmd), second returns ["q"]
-        # so the loop exits cleanly after the replacement runs.
         instance.switch.side_effect = [SystemExit(), ["q"]]
         with patch("builtins.input", side_effect=["hlep", "q"]):
             cli_controller.run_cli(test_mode=True)
@@ -1144,11 +1086,8 @@ def test_run_cli_systemexit_with_close_match_replaces():
     assert any("Replacing by 'help'" in m for m in msgs)
 
 
-# ── run_scripts deep paths ──────────────────────────────────────────
-
-
 def test_run_scripts_no_args_passthrough(tmp_path):
-    """Without ``routines_args`` or ``special_arguments`` the lines pass through (line 745)."""
+    """Without ``routines_args`` or ``special_arguments`` the lines pass through."""
     from openbb_cli.controllers import cli_controller
 
     script = tmp_path / "x.openbb"
@@ -1159,7 +1098,7 @@ def test_run_scripts_no_args_passthrough(tmp_path):
 
 
 def test_run_scripts_export_first_line_strip(tmp_path):
-    """First line beginning with ``export`` is stripped & captured (lines 753-754)."""
+    """First line beginning with ``export`` is stripped & captured."""
     from openbb_cli.controllers import cli_controller
 
     script = tmp_path / "x.openbb"
@@ -1171,7 +1110,7 @@ def test_run_scripts_export_first_line_strip(tmp_path):
 
 
 def test_run_scripts_test_mode_with_output(tmp_path, monkeypatch):
-    """``test_mode=True`` + ``output=True`` writes captured stdout to file (lines 770-782)."""
+    """``test_mode=True`` + ``output=True`` writes captured stdout to file."""
     from openbb_cli.controllers import cli_controller
 
     monkeypatch.setattr(cli_controller, "REPOSITORY_DIRECTORY", tmp_path)
@@ -1186,7 +1125,7 @@ def test_run_scripts_test_mode_with_output(tmp_path, monkeypatch):
 
 
 def test_run_scripts_test_mode_no_output(tmp_path):
-    """``test_mode=True`` + ``output=False`` runs run_cli without writing output (line 784)."""
+    """``test_mode=True`` + ``output=False`` runs run_cli without writing output."""
     from openbb_cli.controllers import cli_controller
 
     script = tmp_path / "x.openbb"
@@ -1198,23 +1137,20 @@ def test_run_scripts_test_mode_no_output(tmp_path):
     run_cli_mock.assert_called()
 
 
-# ── replace_dynamic + parse_args_and_run ────────────────────────────
-
-
 def test_replace_dynamic_returns_default_when_no_value():
-    """If ``dict_value`` resolves falsy, the function returns the default (line 807)."""
+    """If ``dict_value`` resolves falsy, the function returns the default."""
     import re as re_mod
 
     from openbb_cli.controllers.cli_controller import replace_dynamic
 
     match = re_mod.search(r"\${[^{]+=[^{]+}", "${KEY=fallback}")
     assert match is not None
-    out = replace_dynamic(match, {"KEY": ""})  # value is empty → falls back to default
+    out = replace_dynamic(match, {"KEY": ""})
     assert out == "fallback"
 
 
 def test_parse_args_and_run_unknown_args_with_debug_prints(monkeypatch):
-    """Unknown args + ``--debug`` prints the unknown list and continues to main (line 959)."""
+    """Unknown args + ``--debug`` prints the unknown list and continues to main."""
     import sys
 
     from openbb_cli.controllers import cli_controller

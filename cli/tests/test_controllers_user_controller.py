@@ -4,9 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# pylint: disable=redefined-outer-name, unused-argument
-
-
 MODULE = "openbb_cli.controllers.user_controller"
 
 
@@ -52,7 +49,6 @@ class TestUserController:
         assert hasattr(ctrl, "call_enable_feature")
 
         ctrl.call_enable_feature([])
-        # Should toggle: current=True → set to False
         assert True
         mock_user_session.console.print.assert_called()
 

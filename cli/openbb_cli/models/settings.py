@@ -18,10 +18,10 @@ VERSION = get_package_version("openbb-cli")
 class OutputMode(str, Enum):
     """Output mode for displaying results."""
 
-    rich = "rich"  # Rich table in terminal with truncation
-    json = "json"  # Full JSON output
-    tsv = "tsv"  # DataFrame to_string() output for pipes
-    html = "html"  # HTML table in browser
+    rich = "rich"
+    json = "json"
+    tsv = "tsv"
+    html = "html"
 
 
 class SettingGroups(Enum):
@@ -34,18 +34,14 @@ class SettingGroups(Enum):
 class Settings(BaseModel):
     """Settings model."""
 
-    # Platform CLI version
     VERSION: str = VERSION
 
-    # DEVELOPMENT FLAGS
     TEST_MODE: bool = False
     DEBUG_MODE: bool = False
     DEV_BACKEND: bool = False
 
-    # GENERAL
     PREVIOUS_USE: bool = False
 
-    # FEATURE FLAGS
     FILE_OVERWRITE: bool = Field(
         default=False,
         description="whether to overwrite Excel files if they already exists",
@@ -135,8 +131,7 @@ class Settings(BaseModel):
         },
     )
 
-    # PREFERENCES
-    TIMEZONE: Literal[tuple(all_timezones)] = Field(  # type: ignore[valid-type]  # ty: ignore[invalid-type-form]
+    TIMEZONE: Literal[tuple(all_timezones)] = Field(  # ty: ignore[invalid-type-form]
         default="America/New_York",
         description="pick timezone",
         json_schema_extra={
@@ -144,7 +139,7 @@ class Settings(BaseModel):
             "group": SettingGroups.preferences.value,
         },
     )
-    FLAIR: Literal[tuple(AVAILABLE_FLAIRS)] = Field(  # type: ignore[valid-type]  # ty: ignore[invalid-type-form]
+    FLAIR: Literal[tuple(AVAILABLE_FLAIRS)] = Field(  # ty: ignore[invalid-type-form]
         default=":openbb",
         description="choose flair icon",
         json_schema_extra={

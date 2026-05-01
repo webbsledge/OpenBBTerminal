@@ -13,8 +13,6 @@ from prompt_toolkit.history import FileHistory
 
 NestedDict = Mapping[str, Any | set[str] | None | Completer]
 
-# pylint: disable=too-many-arguments,global-statement,too-many-branches,global-variable-not-assigned
-
 
 class WordCompleter(Completer):
     """Simple autocompletion on a list of words.
@@ -35,7 +33,7 @@ class WordCompleter(Completer):
         default one (see document._FIND_WORD_RE)
     """
 
-    def __init__(  # pylint: disable=R0917
+    def __init__(
         self,
         words: list[str] | Callable[[], list[str]],
         ignore_case: bool = False,
@@ -64,12 +62,10 @@ class WordCompleter(Completer):
         _complete_event: CompleteEvent,
     ) -> Iterable[Completion]:
         """Get completions."""
-        # Get list of words.
         words = self.words
         if callable(words):
             words = words()  # ty: ignore[call-top-callable]
 
-        # Get word/text before cursor.
         if self.sentence:
             word_before_cursor = document.text_before_cursor
         else:
@@ -85,10 +81,6 @@ class WordCompleter(Completer):
             elif (  # pragma: no cover
                 f"--{word_before_cursor}" == document.text_before_cursor
             ):
-                # Defensive fallback: triggered only when prompt_toolkit's
-                # word-before-cursor matcher strips a "--" prefix that the
-                # full text retains. Hard to reach in practice — the regex
-                # used by prompt_toolkit's Document includes punctuation.
                 word_before_cursor = document.text_before_cursor
 
         if self.ignore_case:
@@ -193,7 +185,6 @@ class NestedCompleter(Completer):
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         """Get completions."""
-        # Split document.
         cmd = ""
         text = document.text_before_cursor.lstrip()
         if " " in text:
@@ -207,7 +198,6 @@ class NestedCompleter(Completer):
             unprocessed_text = text
         stripped_len = len(document.text_before_cursor) - len(text)
 
-        # Check if there are multiple flags for the same command
         if self.complementary:
             for same_flags in self.complementary:
                 if (
@@ -224,8 +214,8 @@ class NestedCompleter(Completer):
 
                     if cmd:
                         self.options = {
-                            k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options  # type: ignore
+                            k: self.original_options.get(cmd).options[k]  # ty: ignore[unresolved-attribute]
+                            for k in self.original_options.get(cmd).options  # ty: ignore[unresolved-attribute]
                             if k not in self.flags_processed
                         }
                     else:
@@ -235,11 +225,9 @@ class NestedCompleter(Completer):
                             if k not in self.flags_processed
                         }
 
-        # If there is a space, check for the first term, and use a subcompleter.
         if " " in unprocessed_text:
             first_term = unprocessed_text.split()[0]
 
-            # user is updating one of the values
             if unprocessed_text[-1] != " ":
                 self.flags_processed = [
                     flag for flag in self.flags_processed if flag != first_term
@@ -266,9 +254,6 @@ class NestedCompleter(Completer):
                 if cmd and self.original_options.get(cmd):
                     self.options = self.original_options
                 else:  # pragma: no cover
-                    # Only reachable when ``cmd`` is empty AND we're already in the
-                    # editing branch; the path is covered by other arms during normal
-                    # interactive use.
                     self.options = {
                         k: self.original_options[k]
                         for k in self.original_options
@@ -278,13 +263,10 @@ class NestedCompleter(Completer):
             if "-" not in text:
                 completer = self.options.get(first_term)
             elif cmd in self.options and self.options.get(cmd):
-                completer = self.options.get(cmd).options.get(first_term)  # type: ignore
+                completer = self.options.get(cmd).options.get(first_term)  # ty: ignore[unresolved-attribute]
             else:  # pragma: no cover
-                # Defensive branch when neither sub-tree path matches; in normal
-                # interactive flows the parser routes through one of the above.
                 completer = self.options.get(first_term)
 
-            # If we have a sub completer, use this for the completions.
             if completer is not None:
                 remaining_text = unprocessed_text[len(first_term) :].lstrip()
                 move_cursor = len(text) - len(remaining_text) + stripped_len
@@ -294,7 +276,6 @@ class NestedCompleter(Completer):
                     cursor_position=document.cursor_position - move_cursor,
                 )
 
-                # Provides auto-completion but if user doesn't take it still keep going
                 if " " in new_document.text:
                     if (
                         new_document.text in [f"{opt} " for opt in self.options]
@@ -303,26 +284,21 @@ class NestedCompleter(Completer):
                         self.flags_processed.append(first_term)
                         if cmd:
                             self.options = {
-                                k: self.original_options.get(cmd).options[k]  # type: ignore
-                                for k in self.original_options.get(cmd).options  # type: ignore
+                                k: self.original_options.get(cmd).options[k]  # ty: ignore[unresolved-attribute]
+                                for k in self.original_options.get(cmd).options  # ty: ignore[unresolved-attribute]
                                 if k not in self.flags_processed
                             }
                         else:  # pragma: no cover
-                            # Defensive — no-cmd flow rarely lands here in normal use.
                             self.options = {
                                 k: self.original_options[k]
                                 for k in self.original_options
                                 if k not in self.flags_processed
                             }
 
-                # In case the users inputs a single boolean flag
-                elif not completer.options:  # type: ignore
+                elif not completer.options:  # ty: ignore[unresolved-attribute]
                     self.flags_processed.append(first_term)
 
                     if self.complementary:  # pragma: no cover
-                        # Boolean-flag-with-complementary path — only triggered
-                        # when both paired flags share an empty subtree, an
-                        # unusual production option-dict shape.
                         for same_flags in self.complementary:
                             if (
                                 same_flags[0] in self.flags_processed
@@ -338,8 +314,8 @@ class NestedCompleter(Completer):
 
                     if cmd:
                         self.options = {
-                            k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options  # type: ignore
+                            k: self.original_options.get(cmd).options[k]  # ty: ignore[unresolved-attribute]
+                            for k in self.original_options.get(cmd).options  # ty: ignore[unresolved-attribute]
                             if k not in self.flags_processed
                         }
                     else:  # pragma: no cover
@@ -350,12 +326,9 @@ class NestedCompleter(Completer):
                         }
 
                 else:
-                    # This is a NestedCompleter
                     yield from completer.get_completions(new_document, complete_event)
 
-        # No space in the input: behave exactly like `WordCompleter`.
         else:
-            # check if the prompt has been updated in the meantime
             if " " in text or "-" in text:
                 actual_flags_processed = [
                     flag for flag in self.flags_processed if flag in text
@@ -380,12 +353,9 @@ class NestedCompleter(Completer):
                 if len(actual_flags_processed) < len(self.flags_processed):
                     self.flags_processed = actual_flags_processed
                     if cmd:  # pragma: no cover
-                        # No-space branch with cmd recovery — primarily exercised
-                        # in interactive REPL flows where the user backspaces
-                        # over a previously-completed cmd.
                         self.options = {
-                            k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options  # type: ignore
+                            k: self.original_options.get(cmd).options[k]  # ty: ignore[unresolved-attribute]
+                            for k in self.original_options.get(cmd).options  # ty: ignore[unresolved-attribute]
                             if k not in self.flags_processed
                         }
                     else:
@@ -396,12 +366,12 @@ class NestedCompleter(Completer):
                         }
 
             command = self.options.get(cmd)
-            options = command.options if command else {}  # type: ignore
+            options = command.options if command else {}  # ty: ignore[unresolved-attribute]
             command_options = [f"{cmd} {opt}" for opt in options]
             text_list = [text in val for val in command_options]
             if cmd and cmd in self.options and text_list:
                 completer = WordCompleter(
-                    list(self.options.get(cmd).options.keys()),  # type: ignore
+                    list(self.options.get(cmd).options.keys()),  # ty: ignore[unresolved-attribute]
                     ignore_case=self.ignore_case,
                 )
             elif bool([val for val in self.options if text in val]):
@@ -409,7 +379,6 @@ class NestedCompleter(Completer):
                     list(self.options.keys()), ignore_case=self.ignore_case
                 )
             else:
-                # The user has delete part of the first command and we need to reset options
                 if bool([val for val in self.original_options if text in val]):
                     self.options = self.original_options
                     self.flags_processed = list()
@@ -417,7 +386,6 @@ class NestedCompleter(Completer):
                     list(self.options.keys()), ignore_case=self.ignore_case
                 )
 
-            # This is a WordCompleter
             yield from completer.get_completions(document, complete_event)
 
 

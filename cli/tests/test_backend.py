@@ -24,8 +24,6 @@ from openbb_cli.backend import (
     _NamedStub,
 )
 
-# ── LocalBackend --------------------------------------------------
-
 
 class _FakeBaseModel(BaseModel):
     """Pydantic model used to mark a router as a "command" rather than a menu."""
@@ -37,16 +35,16 @@ def _install_fake_obb(monkeypatch: pytest.MonkeyPatch) -> Any:
     """Install a stand-in ``openbb`` module exposing the surface ``LocalBackend`` reads."""
     obb = types.SimpleNamespace()
     obb.equity = types.SimpleNamespace(_marker="menu-equity")
-    obb.coverage = _FakeBaseModel()  # classified as "command"
-    obb.user = types.SimpleNamespace()  # excluded
-    obb.system = types.SimpleNamespace()  # excluded
-    obb.account = types.SimpleNamespace()  # excluded
+    obb.coverage = _FakeBaseModel()
+    obb.user = types.SimpleNamespace()
+    obb.system = types.SimpleNamespace()
+    obb.account = types.SimpleNamespace()
     obb.reference = {
         "paths": {"/equity/quote": {"description": "Get a quote."}},
         "routers": {"/equity/": {"description": "Equity menu."}},
     }
     fake_mod = types.ModuleType("openbb")
-    fake_mod.obb = obb  # type: ignore[attr-defined]
+    fake_mod.obb = obb
     monkeypatch.setitem(sys.modules, "openbb", fake_mod)
     return obb
 
@@ -57,7 +55,7 @@ def test_local_backend_lazy_import(monkeypatch):
     backend = LocalBackend()
     assert backend._obb is None
     assert "equity" in backend.routers
-    assert backend._obb is not None  # populated after first .routers
+    assert backend._obb is not None
 
 
 def test_local_backend_routers_classifies_menu_vs_command(monkeypatch):
@@ -66,7 +64,6 @@ def test_local_backend_routers_classifies_menu_vs_command(monkeypatch):
     routers = backend.routers
     assert routers["equity"] == "menu"
     assert routers["coverage"] == "command"
-    # Excluded names never show up.
     for excluded in ("user", "system", "account"):
         assert excluded not in routers
 
@@ -76,7 +73,7 @@ def test_local_backend_routers_cached_after_first_call(monkeypatch):
     backend = LocalBackend()
     first = backend.routers
     second = backend.routers
-    assert first is second  # same dict object — not recomputed
+    assert first is second
 
 
 def test_local_backend_reference_paths_and_routers(monkeypatch):
@@ -108,9 +105,6 @@ def test_local_backend_get_translators_for_path_calls_processor(monkeypatch):
     translators, paths = backend.get_translators_for_path("equity")
     assert translators == {"equity_quote": fake_processor.translators["equity_quote"]}
     assert paths == {"price": "subpath"}
-
-
-# ── SpecBackend ---------------------------------------------------
 
 
 def _spec_with(commands=None, routers=None, reference=None):
@@ -191,14 +185,13 @@ def test_spec_backend_get_translators_for_path_collects_commands():
                 "fxs.latest": cmd_spec,
                 "fxs.list.counterparties": cmd_spec,
                 "fxs.search": cmd_spec,
-                "rates.all.latest": cmd_spec,  # different router — excluded
+                "rates.all.latest": cmd_spec,
             }
         ),
         dispatcher=MagicMock(),
     )
     translators, paths = backend.get_translators_for_path("fxs")
     assert set(translators) == {"fxs_latest", "fxs_list_counterparties", "fxs_search"}
-    # ``list`` is the one nested sub-router under ``fxs``.
     assert paths == {"list": "subpath"}
 
 
@@ -215,9 +208,7 @@ def test_spec_backend_get_translators_for_path_classifies_subsubpath():
         dispatcher=MagicMock(),
     )
     _, paths = backend.get_translators_for_path("pd")
-    assert paths["list"] == "subpath"  # depth 1
-    # ``get`` shows up at depth 1 in the first command and depth 1 in the
-    # second; ``all`` is depth 2 in the deeper command.
+    assert paths["list"] == "subpath"
     assert paths.get("all") == "subsubpath"
 
 
@@ -231,9 +222,6 @@ def test_spec_backend_empty_router_returns_no_translators():
     assert paths == {}
 
 
-# ── _CommandStub --------------------------------------------------
-
-
 def test_command_stub_model_dump_carries_meta():
     stub = _CommandStub("x.y", {"method": "get", "url_path": "/api/x/y"})
     dump = stub.model_dump()
@@ -243,9 +231,6 @@ def test_command_stub_model_dump_carries_meta():
 def test_command_stub_model_dump_with_empty_meta():
     stub = _CommandStub("solo", {})
     assert stub.model_dump() == {"command": "solo"}
-
-
-# ── SpecTranslator ------------------------------------------------
 
 
 def _trl(command: str, dispatcher: Any) -> SpecTranslator:
@@ -278,7 +263,6 @@ def test_spec_translator_parser_returns_fresh_copy():
     p1 = trl.parser
     p2 = trl.parser
     assert p1 is not p2
-    # Mutating the copy doesn't affect the original.
     p1.add_argument("--injected")
     p3 = trl.parser
     assert "--injected" not in {
@@ -299,7 +283,6 @@ def test_spec_translator_execute_func_dispatches_and_returns_result():
     trl = _trl("foo.bar", dispatcher)
     out = trl.execute_func(argparse.Namespace(x="v"))
     assert out == {"hello": "world"}
-    # Dispatcher saw the request with non-None params only.
     dispatched_request = dispatcher.dispatch.call_args.args[0]
     assert dispatched_request.command == "foo.bar"
     assert dispatched_request.params == {"x": "v"}
@@ -333,9 +316,6 @@ def test_spec_translator_execute_func_raises_with_default_message_when_no_error(
     trl = _trl("x", dispatcher)
     with pytest.raises(RuntimeError, match="dispatch failed"):
         trl.execute_func(argparse.Namespace())
-
-
-# ── _NamedStub ---------------------------------------------------
 
 
 def test_named_stub_records_name():

@@ -7,8 +7,6 @@ import pytest
 
 from openbb_cli.config.style import Style
 
-# pylint: disable=redefined-outer-name, protected-access
-
 
 @pytest.fixture
 def mock_style_directory(tmp_path):
@@ -82,7 +80,7 @@ def test_apply_invalid_with_no_default_prints_error(
     style, mock_style_directory, capsys
 ):
     """When neither the requested style nor 'dark' exists, error is printed."""
-    style.console_styles_available = {}  # no default available
+    style.console_styles_available = {}
     with patch.object(style, "_load"):
         style.apply("missing", mock_style_directory)
     captured = capsys.readouterr()

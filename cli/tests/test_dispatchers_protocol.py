@@ -23,12 +23,12 @@ def test_request_with_id_and_params():
 
 def test_request_rejects_extra_fields():
     with pytest.raises(ValidationError):
-        Request(command="x", unknown_field=True)  # type: ignore[call-arg]
+        Request(command="x", unknown_field=True)
 
 
 def test_request_requires_command():
     with pytest.raises(ValidationError):
-        Request()  # type: ignore[call-arg]
+        Request()
 
 
 def test_response_ok():

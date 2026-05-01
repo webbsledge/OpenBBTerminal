@@ -3,7 +3,6 @@
 import inspect
 from typing import Any
 
-# TODO: this needs to be done differently
 from openbb_core.app.static.container import Container
 
 from openbb_cli.argparse_translator.argparse_translator import ArgparseTranslator
@@ -15,7 +14,6 @@ from openbb_cli.argparse_translator.reference_processor import (
 class ArgparseClassProcessor:
     """Process a target class to create ArgparseTranslators for its methods."""
 
-    # reference variable used to create custom groups for the ArgpaseTranslators
     _reference: dict[str, Any] = {}
 
     def __init__(
@@ -78,7 +76,7 @@ class ArgparseClassProcessor:
         if not reference:
             return {}
         rp = ReferenceToArgumentsProcessor(reference)
-        return rp.custom_groups.get(route, {})  # type: ignore
+        return rp.custom_groups.get(route, {})  # ty: ignore[invalid-return-type]
 
     @classmethod
     def _process_class(
@@ -96,7 +94,7 @@ class ArgparseClassProcessor:
                 methods[f"{class_name}_{name}"] = ArgparseTranslator(
                     func=member,
                     add_help=add_help,
-                    custom_argument_groups=cls._custom_groups_from_reference(  # type: ignore
+                    custom_argument_groups=cls._custom_groups_from_reference(  # ty: ignore[invalid-argument-type]
                         class_name=class_name, function_name=name
                     ),
                 )

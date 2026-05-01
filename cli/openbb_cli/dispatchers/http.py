@@ -45,9 +45,6 @@ class HttpDispatcher:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_prefix = "/" + api_prefix.strip("/")
-        # When the caller injects a client, it owns the client's header
-        # configuration. When the dispatcher constructs its own client we
-        # apply ``headers`` here so they're sent on every request.
         if client is not None:
             self._client = client
             self._owns_client = False
@@ -87,8 +84,6 @@ class HttpDispatcher:
             consumed.add(key)
             value = params.get(key)
             if value is None:
-                # Leave placeholder in place so the server returns a clear
-                # validation error rather than a malformed URL.
                 return match.group(0)
             return str(value)
 

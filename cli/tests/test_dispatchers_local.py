@@ -75,7 +75,7 @@ def test_dispatch_missing_required_param(run_in_obb):
     """)
     assert result["ok"] is False
     assert result["error"] is not None
-    assert result["error"]["type"]  # whichever specific type openbb-core surfaces
+    assert result["error"]["type"]
 
 
 def test_dispatch_runtime_error_isolated(run_in_obb):
@@ -141,9 +141,6 @@ def test_aclose_is_noop(run_in_obb):
     assert result == {"closed": True}
 
 
-# ── static helpers — in-process (no obb dependency) ────────────────
-
-
 def test_serialize_passes_through_primitives():
     assert LocalDispatcher._serialize(None) is None
     assert LocalDispatcher._serialize(42) == 42
@@ -196,7 +193,7 @@ def test_command_not_found_subclasses_keyerror():
 
 
 def test_dispatch_runs_sync_command_in_thread_pool():
-    """Sync (non-async) callables go through ``asyncio.to_thread`` (line 69 of local.py)."""
+    """Sync (non-async) callables go through ``asyncio.to_thread``."""
     import asyncio
     import sys
     from types import SimpleNamespace
@@ -219,7 +216,7 @@ def test_dispatch_runs_sync_command_in_thread_pool():
 
 
 def test_dispatch_runs_async_command_in_loop():
-    """Async (coroutine) callables are awaited directly (line 69 of local.py)."""
+    """Async (coroutine) callables are awaited directly."""
     import asyncio
     import sys
     from types import SimpleNamespace

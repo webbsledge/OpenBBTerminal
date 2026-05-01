@@ -66,7 +66,6 @@ def parse_argv(argv: Iterable[str]) -> Request:
             params[key.replace("-", "_")] = _coerce_literal(value)
             i += 1
             continue
-        # Either next token is a value, or this is a bool flag.
         if i + 1 < len(args) and not args[i + 1].startswith("--"):
             params[body.replace("-", "_")] = _coerce_literal(args[i + 1])
             i += 2

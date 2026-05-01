@@ -64,12 +64,11 @@ def test_process_class_recurses_into_container_members():
         _FakeContainer,
     ):
         proc = ArgparseClassProcessor(target_class=target)
-    # The nested method is reachable via the recursion branch (line 104).
     assert any("detail" in name for name in proc.translators)
 
 
 def test_build_paths_walks_nested_containers():
-    """``_build_paths`` records the nested namespace name and depth (lines 146–147)."""
+    """``_build_paths`` records the nested namespace name and depth."""
     target = _make_target_with_method_and_container()
     with patch(
         "openbb_cli.argparse_translator.argparse_class_processor.Container",
@@ -77,7 +76,6 @@ def test_build_paths_walks_nested_containers():
     ):
         proc = ArgparseClassProcessor(target_class=target)
     assert "nested" in proc.paths
-    # depth=1 outer call + 1 recursion → "sub" * 1 + "path"
     assert proc.paths["nested"] == "subpath"
 
 
@@ -89,7 +87,6 @@ def test_custom_groups_from_reference_pulls_route_when_present():
             """Hello."""
             return {}
 
-    # Empty groups list keeps the resulting Translator's argument-group loop a no-op.
     fake_rp = MagicMock()
     fake_rp.custom_groups = {"/plain/hello": []}
 
@@ -108,5 +105,4 @@ def test_custom_groups_from_reference_pulls_route_when_present():
             target_class=target,
             reference={"/plain/hello": {"some": "reference-data"}},
         )
-    # The Reference processor was constructed at least once with our reference dict.
     rp_class.assert_called()

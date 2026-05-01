@@ -23,11 +23,6 @@ def _make_parser_with_groups():
     return parser
 
 
-# ---------------------------------------------------------------------------
-# in_group
-# ---------------------------------------------------------------------------
-
-
 class TestInGroup:
     def test_argument_in_group(self):
         parser = _make_parser_with_groups()
@@ -46,18 +41,11 @@ class TestInGroup:
         assert in_group(parser, "alpha", "provider") is True
 
 
-# ---------------------------------------------------------------------------
-# remove_argument
-# ---------------------------------------------------------------------------
-
-
 class TestRemoveArgument:
     def test_remove_existing_argument(self):
         parser = _make_parser_with_groups()
         groups = remove_argument(parser, "--alpha")
-        # alpha was in the "provider" group
         assert "provider" in groups
-        # alpha should no longer have an action
         opts = [opt for a in parser._actions for opt in a.option_strings]
         assert "--alpha" not in opts
 
@@ -70,11 +58,6 @@ class TestRemoveArgument:
         parser = _make_parser_with_groups()
         groups = remove_argument(parser, "--nonexistent")
         assert groups == []
-
-
-# ---------------------------------------------------------------------------
-# get_argument_choices
-# ---------------------------------------------------------------------------
 
 
 class TestGetArgumentChoices:
@@ -93,16 +76,10 @@ class TestGetArgumentChoices:
         assert get_argument_choices(parser, "--missing") == ()
 
 
-# ---------------------------------------------------------------------------
-# get_argument_optional_choices / set_optional_choices
-# ---------------------------------------------------------------------------
-
-
 class TestOptionalChoices:
     def test_set_and_get_optional_choices(self):
         parser = argparse.ArgumentParser()
         parser.add_argument("--provider", type=str)
-        # Grab the action and set optional_choices
         action = parser._actions[-1]
         set_optional_choices(action, True)
         assert get_argument_optional_choices(parser, "--provider") is True

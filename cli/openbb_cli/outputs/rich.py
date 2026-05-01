@@ -24,18 +24,14 @@ class RichTableOutput:
         if export:
             return
 
-        # Handle OBBject instances - extract results manually
         if hasattr(data, "model_dump"):
-            # Handle chart display if requested
             if chart:
                 try:
                     data.show()
                     return
                 except Exception as e:
                     session.console.print(f"[yellow]Chart not available: {e}[/yellow]")
-                    # Fall through to show table instead
 
-            # Check if we should use interactive window for OBBjects
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
                     data.charting.table()
@@ -44,16 +40,13 @@ class RichTableOutput:
                     session.console.print(
                         f"[yellow]Interactive table not available: {e}[/yellow]"
                     )
-                    # Fall through to rich table
 
-            # Extract results from OBBject
             results = data.model_dump().get("results")
 
             if results is None:
                 session.console.print("[yellow]No results to display[/yellow]")
                 return
 
-            # Try to convert to DataFrame for display
             try:
                 if isinstance(results, pd.DataFrame):
                     df = results
@@ -61,7 +54,6 @@ class RichTableOutput:
                     if not results:
                         session.console.print("[yellow]Empty results[/yellow]")
                         return
-                    # Try DataFrame conversion
                     df = pd.DataFrame(results)
                 elif isinstance(results, dict):
                     df = pd.DataFrame([results])
@@ -75,7 +67,6 @@ class RichTableOutput:
 
         elif isinstance(data, pd.DataFrame):
             df = data
-            # Check if we should use interactive window for plain DataFrames
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
                     session.backend.send_table(
@@ -85,7 +76,6 @@ class RichTableOutput:
                     )
                     return
                 except Exception:  # noqa: S110
-                    # Fall through to rich table if PyWry fails
                     pass
             if df.empty:
                 session.console.print("[yellow]Empty DataFrame[/yellow]")
@@ -108,7 +98,6 @@ class RichTableOutput:
                 session.console.print(data)
                 return
         else:
-            # Scalar or other type - just print it
             session.console.print(data)
             return
 

@@ -40,9 +40,6 @@ from openbb_cli.dispatchers.openapi_schema import (
 SPEC_VERSION = 1
 
 
-# ── OpenAPI param dict → normalized command-spec param --------------
-
-
 _TYPE_TO_NAME: dict[type, str] = {
     str: "string",
     int: "integer",
@@ -72,8 +69,6 @@ def _normalize_parameter(param: dict[str, Any]) -> dict[str, Any] | None:
         if c not in choices:
             choices.append(c)
 
-    # Path parameters are always required by definition; OpenAPI specs that
-    # leave ``required: false`` on path params are nonsensical, but normalize.
     required = bool(param.get("required")) or location == "path"
     if "default" in schema and location != "path":
         required = False
@@ -132,9 +127,6 @@ def build_command_spec(
     return out
 
 
-# ── spec-file marshalling ------------------------------------------
-
-
 def build_spec_document(
     openapi: dict[str, Any],
     *,
@@ -178,9 +170,6 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     return spec_doc
 
 
-# ── command-spec → argparse parser --------------------------------
-
-
 def parser_from_command_spec(cmd_spec: dict[str, Any]) -> argparse.ArgumentParser:
     """Build an ArgumentParser from one entry in ``spec["commands"]``."""
     parser = argparse.ArgumentParser(
@@ -222,9 +211,6 @@ def _add_normalized_parameter(
     parser.add_argument(flag, **kwargs)
 
 
-# ── one-shot dispatch from a loaded spec ---------------------------
-
-
 class SpecCommandError(KeyError):
     """Raised when a dotted command path is not present in the spec."""
 
@@ -247,7 +233,5 @@ def parse_command_argv(
         raise SpecCommandError(f"command not in spec: {command!r}")
     parser = parser_from_command_spec(cmd_spec)
     ns = parser.parse_args(rest)
-    # ``argparse.Namespace`` → dict, dropping ``None`` so the server gets a
-    # clean payload (matches the in-process call shape).
     params = {k: v for k, v in vars(ns).items() if v is not None}
     return command, params

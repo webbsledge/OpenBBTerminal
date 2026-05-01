@@ -12,9 +12,6 @@ from typing import Annotated, Any, Literal, cast, get_args, get_origin
 
 from openbb import obb as _obb_container
 
-# Treat the dynamically-built ``obb`` container as ``Any`` so ty doesn't try to
-# resolve ``obb.user.preferences`` through its property descriptor (the openbb
-# core types model ``user`` as a property whose return type ty can't follow).
 obb = cast(Any, _obb_container)
 
 from openbb_cli.config.menu_text import MenuText
@@ -30,9 +27,8 @@ class UserController(BaseController):
     PATH = "/user/"
     CHOICES_GENERATION = True
 
-    # Build command metadata from obb.user.preferences model fields.
     _PREF_COMMANDS: dict[str, dict[str, Any]] = {}
-    for _fname, _finfo in sorted(obb.user.preferences.model_fields.items()):
+    for _fname, _finfo in sorted(obb.user.preferences.__class__.model_fields.items()):
         _annotation = _finfo.annotation
         _is_bool = _annotation is bool
         _PREF_COMMANDS[_fname] = {
@@ -120,7 +116,6 @@ class UserController(BaseController):
             annotation = field["annotation"]
             command = field["command"]
 
-            # Determine the type and choices for argparse
             type_: type = str
             choices = None
             if get_origin(annotation) is Literal:

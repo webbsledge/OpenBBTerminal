@@ -46,17 +46,11 @@ class PlatformControllerFactory:
             self._backend: Backend = backend
             self._router_name: str = router_name
         else:
-            # Legacy path — wrap a LocalBackend that returns the existing
-            # ArgparseClassProcessor output. ``reference`` is unused here
-            # because LocalBackend reads it directly from ``obb.reference``.
-            del reference  # acknowledged unused
+            del reference
             assert platform_router is not None  # noqa: S101 — narrowed by L40-41
             self._backend = LocalBackend()
             self._router_name = _derive_router_name(platform_router)
 
-        # Pre-fetch translators + paths so ``create()`` can stash them on
-        # the dynamic class and ``__init__`` can pick them up without
-        # re-walking the backend.
         self._translators, self._paths = self._backend.get_translators_for_path(
             self._router_name
         )
@@ -73,23 +67,17 @@ class PlatformControllerFactory:
         """Create the platform controller class for this router."""
         choices_menus: list[str] = []
         choices_commands: list[str] = []
-        # menus — every entry in paths whose value is *not* "path"
         for key, value in self._paths.items():
             if value == "path":
                 continue
             choices_menus.append(key)
-        # commands — translator names not already covered by a sub-menu prefix
         for name in self._translators:
             if any(
                 f"{self._router_name}_{path}_" in f"{name}_" for path in self._paths
             ):
-                # Translator belongs to a sub-menu; sub-controller will pick it up.
                 continue
             choices_commands.append(name.replace(f"{self._router_name}_", ""))
 
-        # Stash backend-sourced translators + paths on the class so the
-        # controller __init__ uses them directly instead of falling back to
-        # ArgparseClassProcessor.
         attributes: dict[str, Any] = {
             "CHOICES_GENERATION": True,
             "CHOICES_MENUS": choices_menus,

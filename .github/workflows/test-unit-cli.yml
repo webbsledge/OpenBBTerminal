@@ -35,6 +35,7 @@ jobs:
     env:
       OPENBB_ALLOW_ON_COMMAND_OUTPUT: "True"
       OPENBB_ALLOW_MUTABLE_EXTENSIONS: "True"
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
     permissions:
       contents: read
     strategy:
@@ -65,6 +66,14 @@ jobs:
           python-version: ${{ matrix.python_version }}
           allow-prereleases: true
           cache: "pip"
+
+      - name: Cache uv (built wheels — scipy/numpy/pandas source builds)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.uv-cache
+          key: uv-${{ runner.os }}-py${{ matrix.python_version }}-${{ hashFiles('cli/pyproject.toml', 'cli/uv.lock', 'openbb_platform/core/pyproject.toml', 'openbb_platform/obbject_extensions/charting/pyproject.toml', 'openbb_platform/extensions/devtools/pyproject.toml') }}
+          restore-keys: |
+            uv-${{ runner.os }}-py${{ matrix.python_version }}-
 
       - name: Install gfortran + OpenBLAS (macOS, prerelease Python — scipy source build)
         if: runner.os == 'macOS' && matrix.python_version == '3.15'

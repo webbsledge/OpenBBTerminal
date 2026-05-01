@@ -46,11 +46,8 @@ class Registry:
 
     def _get_by_index(self, idx: int) -> OBBject | None:
         """Return the obbject at index idx."""
-        # the list should work as a stack
-        # i.e., the last element needs to be accessed by idx=0 and so on
         reversed_list = list(reversed(self._obbjects))
 
-        # check if the index is out of bounds
         if idx >= len(reversed_list):
             return None
 
@@ -58,8 +55,6 @@ class Registry:
 
     def remove(self, idx: int = -1):
         """Remove the obbject at index idx, default is the last element."""
-        # the list should work as a stack
-        # i.e., the last element needs to be accessed by idx=0 and so on
         reversed_list = list(reversed(self._obbjects))
         del reversed_list[idx]
         self._obbjects = list(reversed(reversed_list))
@@ -71,7 +66,7 @@ class Registry:
         def _handle_standard_params(obbject: OBBject) -> str:
             """Handle standard params for obbjects."""
             standard_params_json = ""
-            std_params = getattr(obbject, "_standard_params", {})  # pylint: disable=protected-access
+            std_params = getattr(obbject, "_standard_params", {})
             if std_params:
                 standard_params = {
                     k: str(v)[:30] for k, v in std_params.items() if v and k != "data"
@@ -101,7 +96,7 @@ class Registry:
         obbjects = {}
         for i, obbject in enumerate(list(reversed(self._obbjects))):
             obbjects[i] = {
-                "route": obbject._route,  # pylint: disable=protected-access
+                "route": obbject._route,
                 "provider": obbject.provider,
                 "standard params": _handle_standard_params(obbject),
                 "data": _handle_data_repr(obbject),

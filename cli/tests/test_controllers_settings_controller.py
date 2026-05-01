@@ -6,8 +6,6 @@ import pytest
 
 from openbb_cli.controllers.settings_controller import SettingsController
 
-# pylint: disable=redefined-outer-name, unused-argument, no-member
-
 
 @pytest.fixture
 def mock_session():

@@ -5,9 +5,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-# pylint: disable=redefined-outer-name, unused-argument
-
-
 MODULE = "openbb_cli.controllers.feature_controller"
 
 
@@ -73,9 +70,6 @@ def test_feature_controller_init_runs_super_and_initializes_state(mock_session):
     update_completer.assert_called_once()
 
 
-# ── Helper method tests ──────────────────────────────────────────────
-
-
 class TestGetTableIndices:
     def test_returns_register_keys(self, controller, mock_session):
         mock_session.obbject_registry.all = {0: {"key": "prices"}, 1: {"key": "vol"}}
@@ -120,9 +114,6 @@ class TestGetColumnNames:
         assert controller._get_column_names() == []
 
 
-# ── Command tests ────────────────────────────────────────────────────
-
-
 class TestCallList:
     def test_empty_registry(self, controller, mock_session):
         mock_session.obbject_registry.all = {}
@@ -143,7 +134,6 @@ class TestCallList:
     def test_no_parser(self, controller):
         controller.parse_known_args_and_warn.return_value = None
         controller.call_list([])
-        # Should do nothing when parser returns None
 
 
 class TestCallSelect:
@@ -257,7 +247,6 @@ class TestCallQuery:
         mock_result.model_dump.return_value = {"results": sample_df}
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_query([])
-        # Should save back to result
         assert mock_result.results is not None
 
     def test_invalid_expression(self, controller, mock_session, sample_df, mock_result):
@@ -269,7 +258,6 @@ class TestCallQuery:
         mock_result.model_dump.return_value = {"results": sample_df}
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_query([])
-        # Should print error - check all calls since hint messages may follow
         assert any(
             "error" in str(c).lower() for c in mock_session.console.print.call_args_list
         )
@@ -498,7 +486,6 @@ class TestCallJoin:
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
 
-        # _resolve_table_identifier needs registry data
         mock_session.obbject_registry.all = {0: {"key": "prices"}}
 
         def get_side_effect(idx):
@@ -536,7 +523,6 @@ class TestCallJoin:
 
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_join([])
-        # When save=True, result_left.results should be set
         assert mock_result.results is not None
 
 
@@ -669,9 +655,6 @@ class TestCallDelete:
         mock_session.console.print.assert_not_called()
 
 
-# ── Additional call_query tests ──────────────────────────────────────
-
-
 class TestCallQueryAdvanced:
     """Advanced call_query tests: SQLite push-down, result types, error hints."""
 
@@ -702,7 +685,6 @@ class TestCallQueryAdvanced:
 
         controller.call_query([])
 
-        # SQL push-down should display the result
         mock_session.output_adapter.display.assert_called()
 
     def test_sqlite_optimization_with_save(
@@ -748,7 +730,6 @@ class TestCallQueryAdvanced:
         conn.close()
 
         sqlite_table = SQLiteTable(db_path=str(db_path), table_name="data", row_count=3)
-        # Monkey-patch query to raise so fallback is triggered
         sqlite_table.query = MagicMock(side_effect=Exception("SQL error"))
 
         ns = MagicMock()
@@ -764,7 +745,6 @@ class TestCallQueryAdvanced:
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_query([])
 
-        # Should have printed SQL optimization failed warning then displayed result
         console_calls = [str(c) for c in mock_session.console.print.call_args_list]
         assert any("SQL optimization failed" in c for c in console_calls)
 
@@ -810,7 +790,6 @@ class TestCallQueryAdvanced:
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_query([])
 
-        # Scalar result → console.print with "Result:"
         console_calls = [str(c) for c in mock_session.console.print.call_args_list]
         assert any("Result" in c for c in console_calls)
 
@@ -860,9 +839,6 @@ class TestCallQueryAdvanced:
 
         console_calls = [str(c) for c in mock_session.console.print.call_args_list]
         assert any("rows" in c.lower() or "updated" in c.lower() for c in console_calls)
-
-
-# ── Additional call_save tests ───────────────────────────────────────
 
 
 class TestCallSaveAdvanced:
@@ -979,11 +955,10 @@ class TestCallSaveAdvanced:
         console_calls = [str(c) for c in mock_session.console.print.call_args_list]
         assert any("Appending" in c or "Appended" in c for c in console_calls)
 
-        # Verify the rows actually appended
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM data")
-        assert cursor.fetchone()[0] == 6  # 3 original + 3 appended
+        assert cursor.fetchone()[0] == 6
         conn.close()
 
     def test_save_sqlite_fail_mode(
@@ -1056,9 +1031,6 @@ class TestCallSaveAdvanced:
 
         args = mock_session.console.print.call_args[0][0]
         assert "Error" in args
-
-
-# ── Additional call_join tests ───────────────────────────────────────
 
 
 class TestCallJoinAdvanced:
@@ -1134,9 +1106,6 @@ class TestCallJoinAdvanced:
         assert any("updated" in c.lower() for c in console_calls)
 
 
-# ── print_help / choices_default tests ───────────────────────────────
-
-
 class TestPrintHelp:
     def test_print_help_no_table_selected(self, controller, mock_session):
         controller.current_table = None
@@ -1159,7 +1128,6 @@ class TestPrintHelp:
         controller.current_table = 0
         mock_session.obbject_registry.get.side_effect = Exception("bad")
         controller.print_help()
-        # Should still print help (with fallback info)
         mock_session.console.print.assert_called_once()
         call_kwargs = mock_session.console.print.call_args[1]
         text = call_kwargs.get("text", "")
@@ -1212,7 +1180,6 @@ class TestChoicesDefault:
         mock_session.obbject_registry.all = {0: {"key": "prices"}}
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             choices = controller.choices_default
-        # query completions should include column names
         assert "A" in choices["query"]
         assert "B" in choices["query"]
 
@@ -1225,9 +1192,6 @@ class TestChoicesDefault:
         assert "prices" in choices["select"]
         assert "vol" in choices["select"]
         assert "prices" in choices["delete"]
-
-
-# ── Miscellaneous edge case tests ────────────────────────────────────
 
 
 class TestMiscEdgeCases:
@@ -1256,7 +1220,6 @@ class TestMiscEdgeCases:
         mock_session.obbject_registry.obbjects = [mock_result]
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_select([])
-        # current_table should be set
         mock_session.console.print.assert_called()
         args = mock_session.console.print.call_args[0][0]
         assert "Selected" in args
@@ -1351,9 +1314,6 @@ class TestMiscEdgeCases:
         mock_session.console.print.assert_not_called()
 
 
-# ── coverage closers — `result is None` early-returns and rare branches ──
-
-
 class TestResultIsNoneEarlyReturns:
     """Each ``call_*`` method has a ``result is None: return`` guard after
     ``session.obbject_registry.get(self.current_table)``. Trigger it by
@@ -1431,7 +1391,6 @@ class TestResultIsNoneEarlyReturns:
         self._setup(controller, mock_session, ns)
         mock_session.user.preferences.data_directory = str(tmp_path)
         controller.call_save([])
-        # No file was created since the early return triggered.
         assert not (tmp_path / "x.csv").exists()
 
 
@@ -1443,19 +1402,17 @@ class TestQueryRareBranches:
     def test_sql_value_quoted_string_passes_through(
         self, controller, mock_session, sample_df, mock_result
     ):
-        """Filter expression like ``col == 'x'`` keeps the literal quoted (line 641)."""
+        """Filter expression like ``col == 'x'`` keeps the literal quoted."""
         from openbb_cli.controllers.utils import SQLiteTable
 
         sqlite_tbl = MagicMock(spec=SQLiteTable)
         sqlite_tbl.query.return_value = pd.DataFrame({"a": [1]})
         mock_result.model_dump.return_value = {"results": sqlite_tbl}
-        # The simple_filter regex requires the form: df[df['col'] op value]
         ns = MagicMock(expression=["df[df['REF_AREA'] == 'CHE']"], save=False)
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
         mock_session.obbject_registry.get.return_value = mock_result
         controller.call_query([])
-        # SQL path runs; data_obj.query receives the WHERE clause with quoted value.
         sqlite_tbl.query.assert_called_once()
         where = sqlite_tbl.query.call_args[1]["where"]
         assert "'CHE'" in where
@@ -1463,13 +1420,12 @@ class TestQueryRareBranches:
     def test_sql_value_literal_eval_returns_string(
         self, controller, mock_session, sample_df, mock_result
     ):
-        """``ast.literal_eval`` returns a non-numeric string → wrap in quotes (lines 652)."""
+        """``ast.literal_eval`` returns a non-numeric string → wrap in quotes."""
         from openbb_cli.controllers.utils import SQLiteTable
 
         sqlite_tbl = MagicMock(spec=SQLiteTable)
         sqlite_tbl.query.return_value = pd.DataFrame({"a": [1]})
         mock_result.model_dump.return_value = {"results": sqlite_tbl}
-        # Bare ``True`` literal_eval-evaluates to True → str("True") → not digit → quoted.
         ns = MagicMock(expression=["df[df['flag'] == True]"], save=False)
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
@@ -1481,13 +1437,12 @@ class TestQueryRareBranches:
     def test_sql_value_literal_eval_raises_falls_back_to_string(
         self, controller, mock_session, sample_df, mock_result
     ):
-        """``ast.literal_eval`` raising → wrap raw value in quotes (lines 653-654)."""
+        """``ast.literal_eval`` raising → wrap raw value in quotes."""
         from openbb_cli.controllers.utils import SQLiteTable
 
         sqlite_tbl = MagicMock(spec=SQLiteTable)
         sqlite_tbl.query.return_value = pd.DataFrame({"a": [1]})
         mock_result.model_dump.return_value = {"results": sqlite_tbl}
-        # ``CHE`` is bare alphabetic → ast.literal_eval raises ValueError.
         ns = MagicMock(expression=["df[df['REF_AREA'] == CHE]"], save=False)
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
@@ -1499,7 +1454,7 @@ class TestQueryRareBranches:
     def test_query_returns_iterable_array(
         self, controller, mock_session, sample_df, mock_result
     ):
-        """``df.values`` returns numpy array → iterable branch (lines 735-745)."""
+        """``df.values`` returns numpy array → iterable branch."""
         ns = MagicMock(expression=["df.values.flatten()"], save=False)
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
@@ -1510,9 +1465,7 @@ class TestQueryRareBranches:
     def test_query_invalid_syntax_emits_hint(
         self, controller, mock_session, sample_df, mock_result
     ):
-        """A syntactically invalid expression triggers the ``invalid syntax`` hint (line 757)."""
-        # ``1 +`` raises SyntaxError("invalid syntax ...") — the literal substring
-        # the controller checks for.
+        """A syntactically invalid expression triggers the ``invalid syntax`` hint."""
         ns = MagicMock(expression=["1", "+"], save=False)
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
@@ -1524,33 +1477,30 @@ class TestQueryRareBranches:
 
 class TestSelectIntFallback:
     """``call_select`` falls back to int(index) lookup when the string lookup
-    misses (line 446)."""
+    misses."""
 
     def test_select_string_miss_int_hit(
         self, controller, mock_session, mock_result, sample_df
     ):
-        ns = MagicMock(index="0")  # string index
+        ns = MagicMock(index="0")
         controller.parse_known_args_and_warn.return_value = ns
 
-        # ``side_effect`` is a callable so we can branch on the argument type.
         def get(arg):
             return mock_result if isinstance(arg, int) else None
 
         mock_session.obbject_registry.get.side_effect = get
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df):
             controller.call_select([])
-        # The first lookup (string ``"0"``) missed; the int retry hit.
         assert mock_session.obbject_registry.get.call_count >= 2
 
 
 class TestDeleteUnknownIndex:
     """``call_delete`` warns when the resolved index isn't actually present
-    in ``obbject_registry.all`` (line 1418)."""
+    in ``obbject_registry.all``."""
 
     def test_delete_resolved_but_not_in_registry(self, controller, mock_session):
         ns = MagicMock(index="0")
         controller.parse_known_args_and_warn.return_value = ns
-        # _resolve_table_identifier returns 0, but registry.all is empty.
         mock_session.obbject_registry.all = {}
         with patch.object(controller, "_resolve_table_identifier", return_value=0):
             controller.call_delete([])
@@ -1560,7 +1510,7 @@ class TestDeleteUnknownIndex:
 
 class TestJoinResultMissing:
     """When the resolved-but-evicted right-side result is None, ``call_join``
-    short-circuits silently (line 1129)."""
+    short-circuits silently."""
 
     def test_join_with_missing_right(self, controller, mock_session, mock_result):
         ns = MagicMock(
@@ -1570,14 +1520,13 @@ class TestJoinResultMissing:
         controller.current_table = 0
         mock_session.obbject_registry.all = {0: {"key": "x"}}
 
-        # Left lookup → mock_result; right lookup → None.
         mock_session.obbject_registry.get.side_effect = [mock_result, None]
         controller.call_join([])
         mock_session.output_adapter.display.assert_not_called()
 
     def test_join_resolved_idx_not_in_registry_all(self, controller, mock_session):
         """``_resolve_table_identifier`` returns an index, but ``registry.all`` is
-        missing it → red 'not found' warning (lines 1121-1124)."""
+        missing it → red 'not found' warning."""
         ns = MagicMock(
             table="0", on=None, left_on=None, right_on=None, how="inner", save=False
         )
@@ -1591,7 +1540,7 @@ class TestJoinResultMissing:
 
 
 class TestRenameColumnError:
-    """Exception inside the rename ``try`` is caught and reported (lines 996-997)."""
+    """Exception inside the rename ``try`` is caught and reported."""
 
     def test_rename_failure_emits_error_message(
         self, controller, mock_session, sample_df, mock_result
@@ -1599,7 +1548,6 @@ class TestRenameColumnError:
         ns = MagicMock(old_name="A", new_name="X")
         controller.parse_known_args_and_warn.return_value = ns
         controller.current_table = 0
-        # Force ``update_completer`` to raise inside the rename try-block.
         controller.update_completer.side_effect = RuntimeError("synthetic")
         with patch(f"{MODULE}.extract_dataframe", return_value=sample_df.copy()):
             controller.call_renamecol([])

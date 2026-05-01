@@ -71,9 +71,6 @@ def _resolve_headers(
 
 def _build_dispatcher(server_url: str | None, headers: dict[str, str] | None = None):
     if server_url:
-        # Auto-discover per-command HTTP methods from the server's OpenAPI doc;
-        # without this the dispatcher POSTs every command and 405s on GET-only
-        # endpoints (which is most of OpenBB Platform).
         from openbb_cli.dispatchers.http import http_dispatcher_from_server
 
         return http_dispatcher_from_server(server_url, headers=headers)
@@ -118,7 +115,6 @@ def _launch_repl(
         from openbb_cli.dispatchers.openapi_schema import fetch_openapi
         from openbb_cli.dispatchers.spec import build_spec_document
 
-        # Fetch the spec once at REPL startup; subsequent navigation is local.
         openapi = fetch_openapi(server_url, headers=headers)
         spec_doc = build_spec_document(openapi, base_url=server_url)
         backend = SpecBackend(
@@ -127,19 +123,15 @@ def _launch_repl(
 
     bootstrap()
     if backend is None:
-        # Legacy in-process path: defer to ``launch`` which delegates to
-        # ``parse_args_and_run`` for argv parsing.
         launch(dev, debug)
         return 0
-    # Backend-driven REPL: bypass the legacy argv re-parser (which expects
-    # different flags) and go straight to ``run_cli`` with the chosen backend.
     from openbb_cli.controllers.cli_controller import run_cli, session
 
     if debug:
         session.settings.DEBUG_MODE = True
     if dev:
         session.settings.DEV_BACKEND = True
-    run_cli(backend=backend)  # type: ignore[arg-type]
+    run_cli(backend=backend)
     return 0
 
 
@@ -221,15 +213,11 @@ def main(argv: list[str] | None = None) -> int:
 
     headers = _resolve_headers(getattr(args, "header", []), args.header_file)
     if headers is None and (args.header or args.header_file):
-        # _resolve_headers returned None due to a parsing failure; the
-        # error message has already been written to stderr.
         return 2
 
     if args.generate_spec:
         return _generate_spec(args.server, args.output, args.openapi_path, headers)
 
-    # ``-i`` wins over ``--spec`` / ``--server`` so they can act as backend
-    # sources for the REPL instead of triggering one-shot dispatch.
     if args.interactive:
         return _launch_repl(args.dev, args.debug, args.spec, args.server, headers)
 
@@ -253,8 +241,6 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except BrokenPipeError:
-        # ``head``, ``grep -m``, etc. closing stdout early is normal in shells.
-        # Exit cleanly without spamming a traceback.
         with contextlib.suppress(Exception):
             sys.stdout.close()
         sys.exit(0)

@@ -7,12 +7,10 @@ import pytest
 from openbb_cli.models.settings import Settings
 from openbb_cli.session import _UNSET, Session
 
-# pylint: disable=redefined-outer-name, unused-argument, protected-access
-
 
 def _fresh_session() -> Session:
     """Return a Session that's not the cached singleton from a prior test."""
-    Session._instances.pop(Session, None)  # type: ignore[attr-defined]
+    Session._instances.pop(Session, None)
     return Session()
 
 
@@ -29,13 +27,9 @@ def test_session_initialization(session):
     assert session.console is not None
     assert session.obbject_registry is not None
     assert isinstance(session.settings, Settings)
-    # Lazy slots hold the _UNSET sentinel until first access.
     assert session._prompt_session is _UNSET
     assert session._backend is _UNSET
     assert session._output_adapter is _UNSET
-
-
-# ── prompt_session lazy + TTY detection ──────────────────────────────
 
 
 @patch("openbb_cli.session.sys.stdin.isatty", return_value=True)
@@ -72,9 +66,6 @@ def test_prompt_session_cached(session):
     build.assert_called_once()
 
 
-# ── output_adapter dispatch ──────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "mode, expected_module",
     [
@@ -87,8 +78,8 @@ def test_prompt_session_cached(session):
 def test_output_adapter_modes(mode, expected_module):
     """OUTPUT_MODE setting selects the matching adapter."""
     s = _fresh_session()
-    s.settings.OUTPUT_MODE = mode  # type: ignore[assignment]
-    s._output_adapter = _UNSET  # ensure rebuild on next access
+    s.settings.OUTPUT_MODE = mode
+    s._output_adapter = _UNSET
     adapter = s.output_adapter
     assert adapter.__class__.__module__ == expected_module
 
@@ -105,9 +96,6 @@ def test_output_adapter_cached(session):
     a1 = session.output_adapter
     a2 = session.output_adapter
     assert a1 is a2
-
-
-# ── backend lazy ────────────────────────────────────────────────────
 
 
 def test_backend_cached(session):
@@ -164,9 +152,6 @@ def test_build_prompt_session_swallows_failure(session):
         assert session._build_prompt_session() is None
 
 
-# ── max_obbjects_exceeded ────────────────────────────────────────────
-
-
 def test_max_obbjects_not_exceeded(session):
     """Returns False under the registry size limit."""
     session.settings.N_TO_KEEP_OBBJECT_REGISTRY = 10
@@ -180,9 +165,6 @@ def test_max_obbjects_exceeded_at_limit():
     assert s.max_obbjects_exceeded() is True
 
 
-# ── lazy ``_obb`` accessor ──────────────────────────────────────────
-
-
 def test_obb_swallows_user_styles_directory_failure():
     """If reading ``obb.user.preferences.user_styles_directory`` raises, the
     session still returns the fake obb (the styling apply is best-effort)."""
@@ -191,15 +173,13 @@ def test_obb_swallows_user_styles_directory_failure():
 
     fake = types.SimpleNamespace()
     fake.user = MagicMock()
-    # Accessing user_styles_directory raises — exercises the except branch.
     type(fake.user).preferences = property(
         lambda self: (_ for _ in ()).throw(RuntimeError("preferences blew up"))
     )
     fake_mod = types.ModuleType("openbb")
-    fake_mod.obb = fake  # type: ignore[attr-defined]
+    fake_mod.obb = fake
     s = _fresh_session()
     with patch.dict(sys.modules, {"openbb": fake_mod}):
         assert s._obb is fake
-    # Calling again returns the cache without re-importing.
     with patch.dict(sys.modules, {"openbb": None}):
         assert s._obb is fake

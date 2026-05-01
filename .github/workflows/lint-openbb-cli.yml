@@ -20,6 +20,8 @@ jobs:
   lint:
     name: Lint openbb-cli
     runs-on: ubuntu-latest
+    env:
+      UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
     permissions:
       contents: read
     steps:
@@ -39,6 +41,14 @@ jobs:
         with:
           python-version: "3.10"
           architecture: x64
+
+      - name: Cache uv (built wheels)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.uv-cache
+          key: uv-${{ runner.os }}-py3.10-lint-${{ hashFiles('cli/pyproject.toml', 'cli/uv.lock', 'openbb_platform/core/pyproject.toml', 'openbb_platform/obbject_extensions/charting/pyproject.toml', 'openbb_platform/extensions/devtools/pyproject.toml') }}
+          restore-keys: |
+            uv-${{ runner.os }}-py3.10-lint-
 
       - name: Get changed CLI files for PR
         if: github.event_name == 'pull_request'

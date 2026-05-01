@@ -64,7 +64,6 @@ class TestRichOutputDisplay:
         mock_obj = Mock()
         mock_obj.model_dump.return_value = {"results": 42}
         rich_output.display(data=mock_obj)
-        # Scalar results are printed directly
         mock_session.console.print.assert_called()
 
     def test_dataframe(self, rich_output, mock_session):
@@ -111,7 +110,6 @@ class TestRichOutputDisplay:
         mock_obj.show.side_effect = Exception("no chart")
         with patch("openbb_cli.outputs.rich.print_rich_table"):
             rich_output.display(data=mock_obj, chart=True)
-            # Should fallback to table display
             mock_session.console.print.assert_called()
 
     def test_empty_list_input(self, rich_output, mock_session):
@@ -132,7 +130,7 @@ class TestRichOutputDisplay:
         mock_obj.charting.table.assert_called_once()
 
     def test_interactive_mode_obbject_falls_back_on_error(self, mock_session):
-        """charting.table() failure falls through to rich-table display (lines 43-44)."""
+        """charting.table() failure falls through to rich-table display."""
         mock_session.settings.USE_INTERACTIVE_DF = True
         mock_session.backend = MagicMock()
 
@@ -143,7 +141,6 @@ class TestRichOutputDisplay:
 
         with patch("openbb_cli.outputs.rich.print_rich_table") as prt:
             rich_output.display(data=mock_obj)
-        # Warning printed AND rich table attempted.
         assert any(
             "Interactive table not available" in str(c)
             for c in mock_session.console.print.call_args_list
@@ -153,7 +150,7 @@ class TestRichOutputDisplay:
     def test_obbject_with_dataframe_result_passes_through(
         self, rich_output, mock_session
     ):
-        """When OBBject.results is already a DataFrame, it's used directly (line 59)."""
+        """When OBBject.results is already a DataFrame, it's used directly."""
         df_in = pd.DataFrame({"col": [1, 2]})
         mock_obj = Mock()
         mock_obj.model_dump.return_value = {"results": df_in}
@@ -162,7 +159,7 @@ class TestRichOutputDisplay:
         prt.assert_called_once()
 
     def test_dataframe_interactive_send_table(self, mock_session):
-        """USE_INTERACTIVE_DF + backend → ``send_table`` for DataFrames (lines 80-86)."""
+        """USE_INTERACTIVE_DF + backend → ``send_table`` for DataFrames."""
         mock_session.settings.USE_INTERACTIVE_DF = True
         mock_session.backend = MagicMock()
         mock_session.user.preferences.table_style = "dark"
@@ -173,7 +170,7 @@ class TestRichOutputDisplay:
         mock_session.backend.send_table.assert_called_once()
 
     def test_dataframe_interactive_send_table_failure_falls_through(self, mock_session):
-        """``send_table`` failure swallowed; rich-table follows (lines 87-89)."""
+        """``send_table`` failure swallowed; rich-table follows."""
         mock_session.settings.USE_INTERACTIVE_DF = True
         mock_session.backend = MagicMock()
         mock_session.backend.send_table.side_effect = Exception("backend down")
@@ -186,7 +183,7 @@ class TestRichOutputDisplay:
         prt.assert_called_once()
 
     def test_obbject_dataframe_conversion_failure(self, rich_output, mock_session):
-        """OBBject.results that pandas can't coerce falls through to console.print (lines 71-74).
+        """OBBject.results that pandas can't coerce falls through to console.print.
 
         Patch ``pd.DataFrame`` inside ``openbb_cli.outputs.rich`` so the list
         branch raises during construction; this exercises the except handler.
@@ -206,7 +203,7 @@ class TestRichOutputDisplay:
         )
 
     def test_dict_input_conversion_failure(self, rich_output, mock_session):
-        """Dict that ``pd.DataFrame.from_dict`` rejects falls through to console.print (lines 98-100)."""
+        """Dict that ``pd.DataFrame.from_dict`` rejects falls through to console.print."""
         with patch(
             "openbb_cli.outputs.rich.pd.DataFrame.from_dict",
             side_effect=Exception("bad dict"),
@@ -215,25 +212,23 @@ class TestRichOutputDisplay:
         mock_session.console.print.assert_called()
 
     def test_list_input_conversion_failure(self, rich_output, mock_session):
-        """List that ``pd.DataFrame()`` rejects falls through to console.print (lines 107-109).
+        """List that ``pd.DataFrame()`` rejects falls through to console.print.
 
         Wraps ``pd.DataFrame.__call__`` via a sentinel that fails ONLY when
         called from the list-input branch (so the upstream isinstance check
         keeps using the real class).
         """
 
-        # An object whose conversion raises inside pandas.
         class Boom:
             def __iter__(self):
                 raise ValueError("synthetic")
 
         rich_output.display(data=[Boom()])
-        # console.print was called for the fallback message.
         mock_session.console.print.assert_called()
 
     def test_range_index_columns_stringified(self, rich_output, mock_session):
-        """RangeIndex columns get stringified before ``print_rich_table`` (line 116)."""
-        df = pd.DataFrame([[1, 2, 3], [4, 5, 6]])  # default RangeIndex columns
+        """RangeIndex columns get stringified before ``print_rich_table``."""
+        df = pd.DataFrame([[1, 2, 3], [4, 5, 6]])
         captured = {}
 
         def capture_prt(**kwargs):

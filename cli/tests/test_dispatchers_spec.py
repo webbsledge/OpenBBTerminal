@@ -18,8 +18,6 @@ from openbb_cli.dispatchers.spec import (
     write_spec,
 )
 
-# ── _normalize_parameter ------------------------------------------
-
 
 def test_normalize_parameter_skips_chart():
     assert (
@@ -62,7 +60,7 @@ def test_normalize_parameter_with_default_not_required():
     out = _normalize_parameter(
         {
             "name": "limit",
-            "required": True,  # OpenAPI ``required`` ignored when schema has a default.
+            "required": True,
             "schema": {"type": "integer", "default": 10},
         }
     )
@@ -98,9 +96,6 @@ def test_normalize_parameter_help_falls_back_to_schema_description():
         {"name": "x", "schema": {"type": "string", "description": "from schema"}}
     )
     assert out["help"] == "from schema"
-
-
-# ── build_command_spec --------------------------------------------
 
 
 def test_build_command_spec_keys_by_dotted_path():
@@ -159,9 +154,6 @@ def test_build_command_spec_drops_chart_parameter():
     assert {p["name"] for p in params} == {"symbol"}
 
 
-# ── build_spec_document --------------------------------------------
-
-
 def test_build_spec_document_carries_metadata():
     openapi = {
         "paths": {
@@ -174,11 +166,8 @@ def test_build_spec_document_carries_metadata():
     assert doc["base_url"] == "http://h:1"
     assert doc["api_prefix"] == "/api/v1"
     assert "x" in doc["commands"]
-    assert "x" in doc["routers"]  # leaf command also tracked
+    assert "x" in doc["routers"]
     assert "/x" in doc["reference"]["paths"]
-
-
-# ── write_spec / load_spec -----------------------------------------
 
 
 def test_write_then_load_round_trip(tmp_path):
@@ -203,13 +192,9 @@ def test_write_spec_is_compact(tmp_path):
     target = tmp_path / "x.spec"
     write_spec(target, {"version": SPEC_VERSION, "commands": {}})
     text = target.read_text()
-    # No newlines, no spaces between separators.
     assert "\n" not in text
     assert ", " not in text
     assert ": " not in text
-
-
-# ── parser_from_command_spec ---------------------------------------
 
 
 def test_parser_from_command_spec_required_arg_enforced():
@@ -324,9 +309,6 @@ def test_parser_from_command_spec_skips_duplicate_parameter():
     assert ns.x == "first"
 
 
-# ── parse_command_argv --------------------------------------------
-
-
 def _spec_with(commands: dict) -> dict:
     return {
         "version": SPEC_VERSION,
@@ -375,8 +357,7 @@ def test_parse_command_argv_unknown_command_raises():
 
 
 def test_build_command_spec_skips_empty_command():
-    """A URL that strips to an empty dotted command is skipped (line 115)."""
-    # ``/api`` with default api_prefix=/api/v1 strips to nothing → cmd == "" → continue.
+    """A URL that strips to an empty dotted command is skipped."""
     spec = {"paths": {"/api/v1": {"get": {"operationId": "x", "parameters": []}}}}
     assert build_command_spec(spec) == {}
 
@@ -393,7 +374,6 @@ def test_build_command_spec_disambiguates_collisions_with_numeric_suffix():
     out = build_command_spec(spec, api_prefix="/api")
     keys = sorted(out.keys())
     assert keys == ["x", "x_2", "x_3"]
-    # Each entry preserves its own URL template.
     assert out["x"]["url_path"] == "/api/x/{a}"
     assert out["x_2"]["url_path"] == "/api/x/{b}/{c}"
     assert out["x_3"]["url_path"] == "/api/x/{d}"

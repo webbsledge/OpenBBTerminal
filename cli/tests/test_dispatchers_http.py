@@ -101,8 +101,6 @@ async def test_dispatch_unexpected_exception_isolated():
 
     assert resp.ok is False
     assert resp.error is not None
-    # httpx wraps RuntimeError as a TransportError → RequestError, but if it's not
-    # a request-level exception we still surface its name.
     assert resp.error.type in {"RuntimeError", "TransportError"}
 
 
@@ -111,8 +109,6 @@ async def test_aclose_owns_client_when_constructed_internally():
     d = HttpDispatcher("http://x")
     assert d._owns_client is True
     await d.aclose()
-    # Subsequent calls do not raise even though the client is closed.
-    # (httpx.AsyncClient.aclose is idempotent.)
 
 
 @pytest.mark.asyncio
@@ -121,7 +117,6 @@ async def test_aclose_does_not_close_external_client():
     client = httpx.AsyncClient(transport=transport)
     d = HttpDispatcher("http://x", client=client)
     await d.aclose()
-    # External client must still be usable.
     response = await client.get("http://x/")
     assert response.status_code == 200
     await client.aclose()
@@ -135,9 +130,6 @@ def test_url_for_strips_separators():
 def test_custom_api_prefix():
     d = HttpDispatcher("http://srv", api_prefix="custom/v2")
     assert d._url_for("ping") == "http://srv/custom/v2/ping"
-
-
-# ── per-command method routing -------------------------------------
 
 
 @pytest.mark.asyncio
@@ -161,7 +153,6 @@ async def test_dispatch_uses_get_when_command_methods_says_so():
     finally:
         await d.aclose()
     assert captured["method"] == "GET"
-    # Query params went on the URL.
     assert "symbol=AAPL" in captured["url"]
 
 
@@ -175,7 +166,7 @@ async def test_dispatch_falls_back_to_post_without_method_map():
 
     transport = httpx.MockTransport(handler)
     client = httpx.AsyncClient(transport=transport, base_url="http://t")
-    d = HttpDispatcher("http://t", client=client)  # no command_methods
+    d = HttpDispatcher("http://t", client=client)
     try:
         await d.dispatch(Request(command="equity.quote", params={"symbol": "X"}))
     finally:
@@ -196,16 +187,13 @@ async def test_dispatch_explicit_method_overrides_map():
     d = HttpDispatcher(
         "http://t",
         client=client,
-        command_methods={"x": "post"},  # map says post
+        command_methods={"x": "post"},
     )
     try:
-        await d.dispatch(Request(command="x"), method="get")  # override → get
+        await d.dispatch(Request(command="x"), method="get")
     finally:
         await d.aclose()
     assert captured["method"] == "GET"
-
-
-# ── factories ------------------------------------------------------
 
 
 def test_http_dispatcher_from_spec_extracts_methods():
@@ -246,9 +234,6 @@ def test_http_dispatcher_from_server_fetches_and_maps(monkeypatch):
     assert d._command_methods == {"x.y": "get", "foo.bar": "post"}
 
 
-# ── headers -------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_dispatch_sends_constructor_headers():
     """Headers passed at construction time go on every request."""
@@ -259,11 +244,6 @@ async def test_dispatch_sends_constructor_headers():
         return httpx.Response(200, json={"ok": True})
 
     transport = httpx.MockTransport(handler)
-    # When the dispatcher constructs its own client we want headers applied;
-    # mimic that by passing ``client=None`` and a custom ``transport``-built
-    # client created on the dispatcher side. To keep the test deterministic
-    # we use a one-off dispatcher whose client we let it build, but redirect
-    # the transport via httpx.Client construction kwargs.
     dispatcher = HttpDispatcher(
         "http://t",
         headers={"Authorization": "Bearer xyz", "X-Tenant": "acme"},
@@ -288,10 +268,8 @@ def test_http_dispatcher_owns_client_when_headers_passed():
         "http://h",
         headers={"X-Foo": "bar"},
     )
-    # The dispatcher's stored ``_headers`` field reflects what was passed in.
     assert d._headers == {"X-Foo": "bar"}
     assert d._owns_client is True
-    # And the underlying httpx client has the same default headers.
     assert d._client.headers["x-foo"] == "bar"
 
 
@@ -336,11 +314,8 @@ async def test_dispatch_substitutes_path_params_into_url_template():
         )
     finally:
         await d.aclose()
-    # ``{format}`` was replaced by ``json``.
     assert "/api/fxs/list/counterparties.json" in captured["url"]
-    # Path-substituted params are NOT echoed in the query string.
     assert "format=" not in captured["url"]
-    # Other params still show up as query string.
     assert "extra=value" in captured["url"]
 
 
@@ -365,7 +340,6 @@ async def test_dispatch_keeps_placeholder_when_param_missing():
         await d.dispatch(Request(command="x", params={}))
     finally:
         await d.aclose()
-    # ``{missing}`` is URL-encoded by httpx's URL builder, so test for the encoded form.
     assert "%7Bmissing%7D" in captured["url"] or "{missing}" in captured["url"]
 
 
@@ -385,7 +359,5 @@ def test_http_dispatcher_from_server_passes_headers(monkeypatch):
     d = http_mod.http_dispatcher_from_server(
         "http://h", headers={"Authorization": "Bearer abc"}
     )
-    # Fetch saw the headers.
     assert captured["headers"] == {"Authorization": "Bearer abc"}
-    # Dispatcher remembers them too.
     assert d._headers == {"Authorization": "Bearer abc"}

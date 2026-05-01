@@ -75,11 +75,11 @@ def test_serialization_failure_emits_error_envelope(json_output, capsys):
             raise TypeError("not serializable")
         return original(*args, **kwargs)
 
-    mod.json.dumps = maybe_failing  # type: ignore[assignment]
+    mod.json.dumps = maybe_failing
     try:
         json_output.display(data=bad)
     finally:
-        mod.json.dumps = original  # type: ignore[assignment]
+        mod.json.dumps = original
 
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload["error"]["type"] == "TypeError"

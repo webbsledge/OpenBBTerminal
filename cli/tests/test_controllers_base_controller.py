@@ -7,8 +7,6 @@ import pytest
 
 from openbb_cli.controllers.base_controller import BaseController
 
-# pylint: disable=unused-argument, unused-variable
-
 
 class DummyBaseController(BaseController):
     """Testable Base Controller."""
@@ -26,7 +24,7 @@ def test_base_controller_initialization():
     """Test the initialization of the base controller."""
     with patch.object(DummyBaseController, "check_path", return_value=None):
         controller = DummyBaseController()
-        assert controller.path == ["valid", "path"]  # Checking for correct path split
+        assert controller.path == ["valid", "path"]
 
 
 def test_path_validation():
@@ -129,7 +127,6 @@ def test_load_class_returns_existing_instance_menu_when_cached():
 
     base_controller.controllers["/cached/"] = cached
     try:
-        # ``arguments == 1`` is the gate; pass exactly one positional.
         result = controller.load_class(cached, "extra-arg")
     finally:
         base_controller.controllers.pop("/cached/", None)
@@ -173,7 +170,7 @@ def test_custom_reset_returns_empty_list():
 
 def test_call_reset_uses_custom_reset_when_subclass_overrides():
     """A controller whose ``custom_reset`` returns non-empty has its result
-    prepended to ``self.queue`` (line 381 of base_controller)."""
+    prepended to ``self.queue``."""
 
     class CustomResetController(DummyBaseController):
         def custom_reset(self):
@@ -183,13 +180,8 @@ def test_call_reset_uses_custom_reset_when_subclass_overrides():
     controller.queue = ["existing"]
     with patch.object(controller, "save_class"):
         controller.call_reset(None)
-    # Front of queue should be the path's reverse + 'reset' + 'quit's;
-    # critically the custom_reset tokens flow into the queue.
     assert "restored" in controller.queue
     assert "tokens" in controller.queue
-
-
-# ── parse_input ──────────────────────────────────────────────────────
 
 
 def test_parse_input_protects_file_path_with_extension():
@@ -224,11 +216,7 @@ def test_parse_input_does_not_double_prepend_home():
     """If the first token is already ``home``, don't add another."""
     controller = DummyBaseController()
     result = controller.parse_input("/home/equity")
-    # "home" appears at most once at the start.
     assert result.count("home") == 1
-
-
-# ── switch ───────────────────────────────────────────────────────────
 
 
 def test_switch_empty_input_returns_queue():
@@ -246,7 +234,6 @@ def test_switch_multiple_actions_pushes_to_queue():
     controller.queue = []
     with patch("openbb_cli.controllers.base_controller.session"):
         controller.switch("first/second/third")
-    # All three commands now in the queue
     assert "first" in controller.queue
     assert "second" in controller.queue
     assert "third" in controller.queue
@@ -295,7 +282,6 @@ def test_switch_unknown_command_lambda_fallback():
     """Unknown commands without raise → lambda fallback returning the warning string."""
     controller = DummyBaseController()
     controller.queue = []
-    # Stub the parser to return a known_args with an arbitrary cmd name and no error.
     fake_known = MagicMock()
     fake_known.cmd = "nonexistent_command_xyz"
     with (
@@ -304,11 +290,7 @@ def test_switch_unknown_command_lambda_fallback():
             controller.parser, "parse_known_args", return_value=(fake_known, [])
         ),
     ):
-        # Should not raise — the lambda fallback returns the string and is discarded.
         controller.switch("nonexistent_command_xyz")
-
-
-# ── simple call_* methods ────────────────────────────────────────────
 
 
 def test_call_cls_invokes_system_clear():
@@ -322,7 +304,7 @@ def test_call_cls_invokes_system_clear():
 def test_call_home_pushes_quits_for_each_path_segment():
     """``call_home`` saves and pushes ``quit`` for each path-slash beyond the first."""
     controller = DummyBaseController()
-    controller.PATH = "/a/b/c/"  # count("/") == 4 → 3 quits
+    controller.PATH = "/a/b/c/"
     controller.queue = []
     with (
         patch.object(controller, "save_class") as save_class,
@@ -337,7 +319,7 @@ def test_call_home_pushes_quits_for_each_path_segment():
 def test_call_home_at_root_calls_print_help_when_auto_help_enabled():
     """At PATH depth ``count('/')==1`` (root), ``ENABLE_EXIT_AUTO_HELP`` triggers ``print_help``."""
     controller = DummyBaseController()
-    controller.PATH = "/"  # count("/") == 1
+    controller.PATH = "/"
     controller.queue = []
     with (
         patch.object(controller, "save_class"),
@@ -368,11 +350,7 @@ def test_call_reset_pushes_resetting_signal():
         patch("openbb_cli.controllers.base_controller.session"),
     ):
         controller.call_reset(None)
-    # Either some sentinel is pushed or save_class was called; behaviour-tied.
-    assert True  # call_reset triggered without raising
-
-
-# ── call_record ──────────────────────────────────────────────────────
+    assert True
 
 
 def _make_record_args(name, description=None, tag1="", tag2="", tag3=""):
@@ -465,9 +443,6 @@ def test_call_record_inserts_dash_n_when_first_arg_lacks_flag(mock_base_session)
     assert captured[0][1] == "my_routine"
 
 
-# ── call_stop ────────────────────────────────────────────────────────
-
-
 def test_call_stop_when_not_recording_warns(mock_base_session):
     """``stop`` while ``RECORD_SESSION`` is False prints a warning."""
     from openbb_cli.controllers import base_controller
@@ -541,7 +516,6 @@ def test_call_stop_overwrites_with_new_name_when_user_declines(
     mock_base_session.user.preferences.export_directory = str(tmp_path)
     routines_dir = tmp_path / "routines"
     routines_dir.mkdir()
-    # Pre-existing file at the canonical path forces the rename branch.
     (routines_dir / "Same.openbb").write_text("# old")
     mock_base_session.console.input.return_value = "n"
     controller.parse_simple_args = MagicMock(return_value=(None, []))
@@ -549,12 +523,8 @@ def test_call_stop_overwrites_with_new_name_when_user_declines(
         controller.call_stop([])
     finally:
         base_controller.RECORD_SESSION = False
-    # A new file with timestamp prefix exists.
     new_files = [f for f in routines_dir.iterdir() if f.name != "Same.openbb"]
     assert new_files
-
-
-# ── parse_known_args_and_warn export-mode branches ─────────────────
 
 
 @pytest.mark.parametrize(
@@ -576,10 +546,6 @@ def test_parse_known_args_and_warn_export_choices(
     BaseController.parse_known_args_and_warn(parser, [], export_allowed=mode)
     for action in parser._actions:
         if "--export" in action.option_strings:
-            # ``check_file_type_saved`` returns a callable; the *choices* are the
-            # validation set on the action — pull them off the parser's setup.
-            # Here we only assert the type wrapper was attached; the choices live
-            # inside the closure used by ``type=check_file_type_saved(...)``.
             return
     pytest.fail("--export not added")
 
@@ -743,9 +709,6 @@ def test_comma_split_multiple_flags_each_protected(mock_base_session):
     assert result.provider == "yfinance,polygon"
 
 
-# ── Tests for call_results ──────────────────────────────────────────
-
-
 class TestCallResults:
     """Test the call_results method on BaseController."""
 
@@ -843,9 +806,6 @@ class TestCallResults:
         )
         controller.call_results(["-k", "unknown"])
         mock_base_session.console.print.assert_called()
-
-
-# ── Tests for call_load ─────────────────────────────────────────────
 
 
 class TestCallLoad:
@@ -979,7 +939,6 @@ class TestCallLoad:
         controller.parse_simple_args = MagicMock(return_value=(ns, []))
         with patch("openbb_cli.controllers.base_controller.session", mock_base_session):
             controller.call_load(["-f", "keyed.csv", "--register_key", "my_key"])
-        # Get the OBBject that was registered
         obbject = mock_base_session.obbject_registry.register.call_args[0][0]
         assert obbject.extra.get("register_key") == "my_key"
 
@@ -1310,9 +1269,6 @@ class TestCallResultsAdvanced:
             assert call_kwargs["sheet_name"] == "Sheet1"
 
 
-# ── coverage closers for base_controller.py ─────────────────────────
-
-
 @pytest.fixture
 def mock_base_session_full():
     with patch("openbb_cli.controllers.base_controller.session") as sess:
@@ -1335,7 +1291,7 @@ def mock_base_session_full():
 
 
 def test_call_record_invalid_tag2(mock_base_session_full):
-    """Tag2 outside SCRIPT_TAGS prints red error and returns (lines 477-480)."""
+    """Tag2 outside SCRIPT_TAGS prints red error and returns."""
     from openbb_cli.controllers.base_controller import SCRIPT_TAGS
 
     controller = DummyBaseController()
@@ -1345,7 +1301,6 @@ def test_call_record_invalid_tag2(mock_base_session_full):
     ns.tag3 = ""
     ns.name = ["myrun"]
     ns.description = []
-    # ``call_record`` uses ``parse_simple_args`` which returns a (ns, unknown) tuple.
     controller.parse_simple_args = MagicMock(return_value=(ns, []))
     controller.call_record(["-n", "myrun"])
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
@@ -1353,7 +1308,7 @@ def test_call_record_invalid_tag2(mock_base_session_full):
 
 
 def test_call_record_invalid_tag3(mock_base_session_full):
-    """Tag3 outside SCRIPT_TAGS prints red error and returns (lines 488-491)."""
+    """Tag3 outside SCRIPT_TAGS prints red error and returns."""
     from openbb_cli.controllers.base_controller import SCRIPT_TAGS
 
     controller = DummyBaseController()
@@ -1370,7 +1325,7 @@ def test_call_record_invalid_tag3(mock_base_session_full):
 
 
 def test_parse_simple_args_help_flag_returns_none(mock_base_session_full):
-    """``-h`` in other_args produces help text and returns ``(None, None)`` (line 1047-1050)."""
+    """``-h`` in other_args produces help text and returns ``(None, None)``."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--limit", type=int, default=10)
     out, unknown = DummyBaseController.parse_simple_args(parser, ["-h"])
@@ -1380,7 +1335,7 @@ def test_parse_simple_args_help_flag_returns_none(mock_base_session_full):
 
 
 def test_parse_simple_args_unknown_args_warning(mock_base_session_full):
-    """Leftover args print the 'couldn't be interpreted' warning (lines 1052-1055)."""
+    """Leftover args print the 'couldn't be interpreted' warning."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name")
     out, unknown = DummyBaseController.parse_simple_args(
@@ -1428,10 +1383,9 @@ def test_menu_queue_with_known_command_then_quit(mock_base_session_full):
 
 
 def test_menu_queue_with_unknown_command_emits_red_warning(mock_base_session_full):
-    """Unknown command triggers SystemExit handling + similarity hint (lines 1346-1373)."""
+    """Unknown command triggers SystemExit handling + similarity hint."""
     controller = DummyBaseController()
     controller.controller_choices = ["help", "exit", "q"]
-    # The first command is unknown; switch raises SystemExit. Then "q" exits.
     controller.queue = ["definitely_not_a_real_command", "q"]
     controller.menu()
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
@@ -1448,7 +1402,6 @@ def test_menu_prompt_path_keyboardinterrupt_becomes_exit(mock_base_session_full)
     controller = DummyBaseController()
     controller.queue = []
     mock_base_session_full.prompt_session.prompt.side_effect = KeyboardInterrupt()
-    # Spy on call_exit without replacing its behavior.
     real_exit = controller.call_exit
     spy = MagicMock(side_effect=real_exit)
     controller.call_exit = spy
@@ -1457,11 +1410,10 @@ def test_menu_prompt_path_keyboardinterrupt_becomes_exit(mock_base_session_full)
 
 
 def test_menu_with_custom_path_menu_above_inserts_path(mock_base_session_full):
-    """``custom_path_menu_above`` is inserted into the queue when quitting (line 1273-1274)."""
+    """``custom_path_menu_above`` is inserted into the queue when quitting."""
     controller = DummyBaseController()
     controller.queue = ["q", "remaining"]
     out = controller.menu(custom_path_menu_above="/equity")
-    # The custom path was inserted after the leading 'q'.
     assert "/equity" in out
 
 
@@ -1475,7 +1427,7 @@ def _load_ns(file: str, register_key: str = "", sheet_name=None):
 
 
 def test_load_unsupported_extension(mock_base_session_full, tmp_path):
-    """Unsupported file extension prints red error (lines 999-1003)."""
+    """Unsupported file extension prints red error."""
     controller = DummyBaseController()
     fake = tmp_path / "x.parquet"
     fake.write_bytes(b"dummy")
@@ -1486,7 +1438,7 @@ def test_load_unsupported_extension(mock_base_session_full, tmp_path):
 
 
 def test_load_csv_register_key_collision(mock_base_session_full, tmp_path):
-    """CSV path with register_key already in registry → yellow warning (lines 790-791 area)."""
+    """CSV path with register_key already in registry → yellow warning."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1503,7 +1455,7 @@ def test_load_csv_register_key_collision(mock_base_session_full, tmp_path):
 
 
 def test_load_json_path(mock_base_session_full, tmp_path):
-    """JSON file is loaded successfully (lines 804-847)."""
+    """JSON file is loaded successfully."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1517,7 +1469,7 @@ def test_load_json_path(mock_base_session_full, tmp_path):
 
 
 def test_load_xlsx_path(mock_base_session_full, tmp_path):
-    """xlsx file loads via ``read_excel`` (lines 849-897)."""
+    """xlsx file loads via ``read_excel``."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1531,7 +1483,7 @@ def test_load_xlsx_path(mock_base_session_full, tmp_path):
 
 
 def test_load_sqlite_path(mock_base_session_full, tmp_path):
-    """SQLite db loads each table as a lazy OBBject (lines 899-997)."""
+    """SQLite db loads each table as a lazy OBBject."""
     import sqlite3
 
     import pandas as pd
@@ -1549,7 +1501,7 @@ def test_load_sqlite_path(mock_base_session_full, tmp_path):
 
 
 def test_load_register_failed(mock_base_session_full, tmp_path):
-    """``register`` returns False → 'Failed to register OBBject' yellow warning (line 800)."""
+    """``register`` returns False → 'Failed to register OBBject' yellow warning."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1563,24 +1515,21 @@ def test_load_register_failed(mock_base_session_full, tmp_path):
 
 
 def test_load_sqlite_no_tables(mock_base_session_full, tmp_path):
-    """SQLite db with no tables emits the yellow 'No tables found' notice (lines 914-918)."""
+    """SQLite db with no tables emits the yellow 'No tables found' notice."""
     import sqlite3
 
     controller = DummyBaseController()
     db = tmp_path / "empty.db"
     conn = sqlite3.connect(db)
-    conn.close()  # creates an empty db
+    conn.close()
     controller.parse_simple_args = MagicMock(return_value=(_load_ns(str(db)), []))
     controller.call_load([])
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
     assert any("No tables found" in m for m in msgs)
 
 
-# ── coverage closers — load _link_obbject hooks + sqlite branches ───
-
-
 def test_load_csv_link_obbject_hook(mock_base_session_full, tmp_path):
-    """When ``_link_obbject_to_data_processing_commands`` exists, CSV load invokes it (lines 790-791)."""
+    """When ``_link_obbject_to_data_processing_commands`` exists, CSV load invokes it."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1588,7 +1537,6 @@ def test_load_csv_link_obbject_hook(mock_base_session_full, tmp_path):
     pd.DataFrame({"a": [1]}).to_csv(csv, index=False)
     controller.parse_simple_args = MagicMock(return_value=(_load_ns(str(csv)), []))
     mock_base_session_full.obbject_registry.register.return_value = True
-    # Add the link hook so the ``hasattr`` guard passes.
     controller._link_obbject_to_data_processing_commands = MagicMock()
     controller.update_completer = MagicMock()
     controller.call_load([])
@@ -1596,7 +1544,7 @@ def test_load_csv_link_obbject_hook(mock_base_session_full, tmp_path):
 
 
 def test_load_json_register_key_collision(mock_base_session_full, tmp_path):
-    """JSON path with register_key collision prints the yellow warning (line 816 area)."""
+    """JSON path with register_key collision prints the yellow warning."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1613,7 +1561,7 @@ def test_load_json_register_key_collision(mock_base_session_full, tmp_path):
 
 
 def test_load_json_link_obbject_hook(mock_base_session_full, tmp_path):
-    """JSON load triggers the link hook when present (lines 834-836)."""
+    """JSON load triggers the link hook when present."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1628,7 +1576,7 @@ def test_load_json_link_obbject_hook(mock_base_session_full, tmp_path):
 
 
 def test_load_xlsx_register_key_collision(mock_base_session_full, tmp_path):
-    """xlsx path with register_key collision emits yellow warning (line 866)."""
+    """xlsx path with register_key collision emits yellow warning."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1645,7 +1593,7 @@ def test_load_xlsx_register_key_collision(mock_base_session_full, tmp_path):
 
 
 def test_load_xlsx_link_obbject_hook(mock_base_session_full, tmp_path):
-    """xlsx load triggers the link hook when present (lines 884-886)."""
+    """xlsx load triggers the link hook when present."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1662,7 +1610,7 @@ def test_load_xlsx_link_obbject_hook(mock_base_session_full, tmp_path):
 def test_load_sqlite_register_key_single_table_collision(
     mock_base_session_full, tmp_path
 ):
-    """SQLite with one table + register_key already taken → falls back to auto_key (lines 945-958)."""
+    """SQLite with one table + register_key already taken → falls back to auto_key."""
     import sqlite3
 
     import pandas as pd
@@ -1683,7 +1631,7 @@ def test_load_sqlite_register_key_single_table_collision(
 
 
 def test_load_sqlite_auto_key_collision(mock_base_session_full, tmp_path):
-    """Auto-generated key already in registry → yellow warning, no key set (lines 963-966)."""
+    """Auto-generated key already in registry → yellow warning, no key set."""
     import sqlite3
 
     import pandas as pd
@@ -1694,7 +1642,6 @@ def test_load_sqlite_auto_key_collision(mock_base_session_full, tmp_path):
     pd.DataFrame({"a": [1]}).to_sql("t1", conn, if_exists="replace", index=False)
     pd.DataFrame({"b": [2]}).to_sql("t2", conn, if_exists="replace", index=False)
     conn.close()
-    # Pre-load the auto-key so collisions hit the warning branch.
     controller.parse_simple_args = MagicMock(return_value=(_load_ns(str(db)), []))
     mock_base_session_full.obbject_registry.obbject_keys = ["multi_t1", "multi_t2"]
     mock_base_session_full.obbject_registry.register.return_value = True
@@ -1704,7 +1651,7 @@ def test_load_sqlite_auto_key_collision(mock_base_session_full, tmp_path):
 
 
 def test_load_sqlite_max_obbjects_evicts(mock_base_session_full, tmp_path):
-    """``max_obbjects_exceeded()=True`` evicts oldest before register (lines 970-971)."""
+    """``max_obbjects_exceeded()=True`` evicts oldest before register."""
     import sqlite3
 
     import pandas as pd
@@ -1722,7 +1669,7 @@ def test_load_sqlite_max_obbjects_evicts(mock_base_session_full, tmp_path):
 
 
 def test_load_sqlite_link_obbject_hook(mock_base_session_full, tmp_path):
-    """SQLite load triggers the link hook when present (lines 994-995)."""
+    """SQLite load triggers the link hook when present."""
     import sqlite3
 
     import pandas as pd
@@ -1741,7 +1688,7 @@ def test_load_sqlite_link_obbject_hook(mock_base_session_full, tmp_path):
 
 
 def test_load_inner_exception_is_caught(mock_base_session_full, tmp_path):
-    """An exception raised while loading is caught and emitted as red error (lines 1006-1007)."""
+    """An exception raised while loading is caught and emitted as red error."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1757,11 +1704,8 @@ def test_load_inner_exception_is_caught(mock_base_session_full, tmp_path):
     assert any("Error loading file" in m for m in msgs)
 
 
-# ── parse_simple_args + parse_known_args_and_warn coverage ──────────
-
-
 def test_parse_simple_args_use_clear_after_cmd(mock_base_session_full):
-    """``USE_CLEAR_AFTER_CMD=True`` invokes ``system_clear`` (line 1038)."""
+    """``USE_CLEAR_AFTER_CMD=True`` invokes ``system_clear``."""
     mock_base_session_full.settings.USE_CLEAR_AFTER_CMD = True
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name", default="x")
@@ -1771,7 +1715,7 @@ def test_parse_simple_args_use_clear_after_cmd(mock_base_session_full):
 
 
 def test_parse_known_args_and_warn_use_clear_after_cmd(mock_base_session_full):
-    """``parse_known_args_and_warn`` honors ``USE_CLEAR_AFTER_CMD`` (line 1172)."""
+    """``parse_known_args_and_warn`` honors ``USE_CLEAR_AFTER_CMD``."""
     mock_base_session_full.settings.USE_CLEAR_AFTER_CMD = True
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name", default="x")
@@ -1781,7 +1725,7 @@ def test_parse_known_args_and_warn_use_clear_after_cmd(mock_base_session_full):
 
 
 def test_parse_known_args_and_warn_help_short_circuits(mock_base_session_full):
-    """``--help`` in other_args prints help and returns None (lines 1174-1177)."""
+    """``--help`` in other_args prints help and returns None."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name", default="x")
     out = BaseController.parse_known_args_and_warn(parser, ["--help"])
@@ -1791,7 +1735,7 @@ def test_parse_known_args_and_warn_help_short_circuits(mock_base_session_full):
 
 
 def test_parse_known_args_and_warn_routine_args_index_protected(mock_base_session_full):
-    """``--input value`` for a parser with ``routine_args`` dest is not comma-split (line 1200)."""
+    """``--input value`` for a parser with ``routine_args`` dest is not comma-split."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-i", "--input", dest="routine_args", default="")
     out = BaseController.parse_known_args_and_warn(parser, ["-i", "AAPL,MSFT"])
@@ -1800,17 +1744,17 @@ def test_parse_known_args_and_warn_routine_args_index_protected(mock_base_sessio
 
 
 def test_parse_known_args_and_warn_resets_optional_choices(mock_base_session_full):
-    """Actions with ``optional_choices`` have their ``choices`` cleared (line 1238)."""
+    """Actions with ``optional_choices`` have their ``choices`` cleared."""
     parser = argparse.ArgumentParser(add_help=False)
     action = parser.add_argument("--symbol", default="AAPL", choices=["AAPL", "MSFT"])
-    action.optional_choices = True  # type: ignore[attr-defined]
+    action.optional_choices = True
     out = BaseController.parse_known_args_and_warn(parser, ["--symbol", "ANYTHING"])
     assert out is not None
     assert out.symbol == "ANYTHING"
 
 
 def test_parse_known_args_and_warn_systemexit_returns_none(mock_base_session_full):
-    """Required arg missing → SystemExit caught, returns None (lines 1250-1253)."""
+    """Required arg missing → SystemExit caught, returns None."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name", required=True)
     out = BaseController.parse_known_args_and_warn(parser, [])
@@ -1818,7 +1762,7 @@ def test_parse_known_args_and_warn_systemexit_returns_none(mock_base_session_ful
 
 
 def test_parse_known_args_and_warn_unknown_args_warning(mock_base_session_full):
-    """Unrecognized args trigger the warning print (line 1256)."""
+    """Unrecognized args trigger the warning print."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--name", default="x")
     BaseController.parse_known_args_and_warn(parser, ["--name", "y", "--bogus"])
@@ -1826,11 +1770,8 @@ def test_parse_known_args_and_warn_unknown_args_warning(mock_base_session_full):
     assert any("couldn't be interpreted" in m for m in msgs)
 
 
-# ── menu() interactive prompt + similarity branches ─────────────────
-
-
 def test_menu_prompt_path_returns_input_then_quit(mock_base_session_full):
-    """The non-toolbar prompt branch yields input on iter1, then ``q`` exits (line 1325-1329)."""
+    """The non-toolbar prompt branch yields input on iter1, then ``q`` exits."""
     controller = DummyBaseController()
     controller.queue = []
     mock_base_session_full.settings.TOOLBAR_HINT = False
@@ -1839,18 +1780,17 @@ def test_menu_prompt_path_returns_input_then_quit(mock_base_session_full):
 
 
 def test_menu_prompt_path_with_toolbar_hint(mock_base_session_full):
-    """``TOOLBAR_HINT=True`` builds the toolbar prompt (line 1308-1323)."""
+    """``TOOLBAR_HINT=True`` builds the toolbar prompt."""
     controller = DummyBaseController()
     controller.queue = []
     mock_base_session_full.settings.TOOLBAR_HINT = True
     mock_base_session_full.prompt_session.prompt.side_effect = ["q"]
     controller.menu()
-    # The toolbar-hint variant of prompt was invoked at least once.
     assert mock_base_session_full.prompt_session.prompt.called
 
 
 def test_menu_prompt_path_uses_input_when_no_prompt_session(mock_base_session_full):
-    """Without a prompt session, the menu falls back to ``builtins.input`` (line 1332)."""
+    """Without a prompt session, the menu falls back to ``builtins.input``."""
     controller = DummyBaseController()
     controller.queue = []
     mock_base_session_full.prompt_session = None
@@ -1860,11 +1800,8 @@ def test_menu_prompt_path_uses_input_when_no_prompt_session(mock_base_session_fu
 
 
 def test_menu_unknown_command_with_close_match_replaces(mock_base_session_full):
-    """Close match found via difflib → replaces an_input and continues (lines 1356-1373)."""
+    """Close match found via difflib → replaces an_input and continues."""
     controller = DummyBaseController()
-    # ``hlep`` is close to ``help`` (the controller has ``help`` in CHOICES_COMMON).
-    # The replacement re-injects ``help`` into the queue; second iter consumes it
-    # via the help-no-op path; third iter consumes the trailing ``q`` and exits.
     controller.queue = ["hlep", "q"]
     controller.menu()
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
@@ -1872,10 +1809,8 @@ def test_menu_unknown_command_with_close_match_replaces(mock_base_session_full):
 
 
 def test_menu_unknown_multi_token_with_close_match(mock_base_session_full):
-    """Multi-token unknown with close match → ``similar_cmd[0] + rest`` (lines 1359-1373)."""
+    """Multi-token unknown with close match → ``similar_cmd[0] + rest``."""
     controller = DummyBaseController()
-    # ``hlep --x`` isn't a valid choice; difflib closeness drops "hlep"→"help".
-    # The replacement preserves the trailing tokens.
     controller.queue = ["hlep --x", "q"]
     controller.menu()
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
@@ -1883,21 +1818,20 @@ def test_menu_unknown_multi_token_with_close_match(mock_base_session_full):
 
 
 def test_menu_queue_prints_location_for_known_non_help_command(mock_base_session_full):
-    """A queue entry that's a real command (not ``home``/``help``) prints the prompt location (line 1293)."""
+    """A queue entry that's a real command (not ``home``/``help``) prints the prompt location."""
     controller = DummyBaseController()
     controller.queue = [
         "cls",
         "q",
-    ]  # ``cls`` is in CHOICES_COMMON → call_cls → system_clear
+    ]
     with patch("openbb_cli.controllers.base_controller.system_clear"):
         controller.menu()
     msgs = [str(c) for c in mock_base_session_full.console.print.call_args_list]
-    # The location prompt contains the PATH and the command.
     assert any("/valid/path/" in m and "cls" in m for m in msgs)
 
 
 def test_call_stop_existing_routine_invalid_then_no(mock_base_session_full, tmp_path):
-    """``call_stop`` retries the y/n prompt on invalid input then proceeds (lines 569-570)."""
+    """``call_stop`` retries the y/n prompt on invalid input then proceeds."""
     from openbb_cli.controllers import base_controller as bc
 
     controller = DummyBaseController()
@@ -1908,25 +1842,22 @@ def test_call_stop_existing_routine_invalid_then_no(mock_base_session_full, tmp_
     existing.write_text("placeholder")
     mock_base_session_full.user.preferences.export_directory = str(tmp_path)
 
-    # Set the recording globals required to reach the file-collision branch.
     bc.RECORD_SESSION = True
-    bc.SESSION_RECORDED = ["a", "b", "c", "d", "e"]  # >= 5 entries
+    bc.SESSION_RECORDED = ["a", "b", "c", "d", "e"]
     bc.SESSION_RECORDED_NAME = title
     bc.SESSION_RECORDED_DESCRIPTION = "desc"
     bc.SESSION_RECORDED_TAGS = ""
     try:
-        # First reply is invalid (loop iter), second reply is "n" (skip override).
         mock_base_session_full.console.input.side_effect = ["maybe", "n"]
         controller.call_stop([])
     finally:
         bc.RECORD_SESSION = False
         bc.SESSION_RECORDED = []
-    # The retry input was solicited at least twice.
     assert mock_base_session_full.console.input.call_count >= 2
 
 
 def test_load_json_register_key_set(mock_base_session_full, tmp_path):
-    """JSON load with a fresh register_key sets it on the OBBject (line 818)."""
+    """JSON load with a fresh register_key sets it on the OBBject."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1948,7 +1879,7 @@ def test_load_json_register_key_set(mock_base_session_full, tmp_path):
 
 
 def test_load_xlsx_register_key_set(mock_base_session_full, tmp_path):
-    """xlsx load with a fresh register_key sets it on the OBBject (line 868)."""
+    """xlsx load with a fresh register_key sets it on the OBBject."""
     import pandas as pd
 
     controller = DummyBaseController()
@@ -1970,7 +1901,7 @@ def test_load_xlsx_register_key_set(mock_base_session_full, tmp_path):
 
 
 def test_load_sqlite_single_table_register_key_set(mock_base_session_full, tmp_path):
-    """SQLite with a single table + fresh register_key sets the key (line 952)."""
+    """SQLite with a single table + fresh register_key sets the key."""
     import sqlite3
 
     import pandas as pd
@@ -1997,7 +1928,7 @@ def test_load_sqlite_single_table_register_key_set(mock_base_session_full, tmp_p
 
 
 def test_switch_record_session_appends(mock_base_session_full):
-    """``RECORD_SESSION=True`` causes ``switch`` to append the input (line 313)."""
+    """``RECORD_SESSION=True`` causes ``switch`` to append the input."""
     from openbb_cli.controllers import base_controller as bc
 
     controller = DummyBaseController()
@@ -2005,7 +1936,6 @@ def test_switch_record_session_appends(mock_base_session_full):
     bc.SESSION_RECORDED = []
     try:
         controller.switch("help")
-        # Capture state inside the try — the finally would reset it.
         recorded = list(bc.SESSION_RECORDED)
     finally:
         bc.RECORD_SESSION = False

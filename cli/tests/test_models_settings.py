@@ -4,8 +4,6 @@ from unittest.mock import mock_open, patch
 
 from openbb_cli.models.settings import Settings
 
-# pylint: disable=unused-argument
-
 
 def test_default_values():
     """Test the default values of the settings model."""
@@ -15,7 +13,6 @@ def test_default_values():
     assert fields["DEV_BACKEND"].default is False
     assert fields["FILE_OVERWRITE"].default is False
     assert fields["SHOW_VERSION"].default is True
-    # V5 default flip: non-TTY by default; interactive output is opt-in.
     assert fields["USE_INTERACTIVE_DF"].default is False
     assert fields["USE_CLEAR_AFTER_CMD"].default is False
     assert fields["USE_DATETIME"].default is True
@@ -34,27 +31,24 @@ def test_default_values():
     assert fields["ALLOWED_NUMBER_OF_COLUMNS"].default == 5
 
 
-# Test __repr__ output
 def test_repr():
     """Test the __repr__ method of the settings model."""
     settings = Settings()
-    repr_str = settings.__repr__()  # pylint: disable=C2801
+    repr_str = settings.__repr__()
     assert "Settings\n\n" in repr_str
 
 
-# Test loading from environment variables
 @patch(
     "openbb_cli.models.settings.dotenv_values",
     return_value={"OPENBB_TEST_MODE": "True", "OPENBB_VERSION": "2.0.0"},
 )
 def test_from_env(mock_dotenv_values):
     """Test loading settings from environment variables."""
-    settings = Settings.from_env({})  # type: ignore
+    settings = Settings.from_env({})
     assert settings["TEST_MODE"] == "True"
     assert settings["VERSION"] == "2.0.0"
 
 
-# Test setting an item and updating .env
 @patch("openbb_cli.models.settings.set_key")
 @patch(
     "openbb_cli.models.settings.open",
@@ -66,9 +60,6 @@ def test_set_item(mock_file, mock_set_key):
     settings = Settings()
     settings.set_item("TEST_MODE", True)
     assert settings.TEST_MODE is True
-
-
-# ── Tests for OutputMode enum ───────────────────────────────────────
 
 
 from openbb_cli.models.settings import OutputMode
@@ -85,9 +76,6 @@ def test_output_mode_values():
 def test_output_mode_is_string():
     """Test OutputMode members are also strings."""
     assert isinstance(OutputMode.rich, str)
-
-
-# ── Tests for OUTPUT_MODE field ─────────────────────────────────────
 
 
 def test_output_mode_default():

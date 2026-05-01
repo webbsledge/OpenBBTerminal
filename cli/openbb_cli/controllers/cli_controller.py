@@ -1,8 +1,4 @@
-#!/usr/bin/env python
 """Main CLI Module."""
-
-# pylint: disable=too-many-public-methods,import-outside-toplevel, too-many-function-args
-# pylint: disable=too-many-branches,no-member,C0302,too-many-return-statements, inconsistent-return-statements
 
 import argparse
 import contextlib
@@ -79,12 +75,8 @@ class CLIController(BaseController):
         self.ROUTINE_FILES: dict[str, Path] = dict()
         self.ROUTINE_CHOICES: dict[str, Any] = dict()
 
-        # Source-of-truth for the top-level menu structure. ``LocalBackend``
-        # imports ``obb`` lazily on first read; ``SpecBackend`` imports nothing.
         self._backend: Backend = backend if backend is not None else LocalBackend()
 
-        # Resolve menus / commands from the backend BEFORE BaseController.__init__
-        # builds the argparse parser (it reads ``self.controller_choices``).
         platform_routers = self._backend.routers
         menus = list(self.CHOICES_MENUS_BUILTIN)
         commands = list(self.CHOICES_COMMANDS_BUILTIN)
@@ -92,8 +84,6 @@ class CLIController(BaseController):
             if router == "user":
                 continue
             (menus if kind == "menu" else commands).append(router)
-        # Instance attributes shadow the class-level CHOICES_*; BaseController
-        # consumes whichever it sees on ``self``.
         self.CHOICES_MENUS = menus
         self.CHOICES_COMMANDS = commands
 
@@ -121,7 +111,6 @@ class CLIController(BaseController):
                 controller, name, parent_path, target, self.queue
             )
 
-        # pylint: disable=unused-argument
         def method_call_command(self, _, router: str):
             """Call a top-level command-typed router (rare)."""
             mdl = backend.get_command_target(router)
@@ -144,7 +133,7 @@ class CLIController(BaseController):
                         bound_method,
                         controller=DynamicController,
                         name=router,
-                        target=None,  # backend-driven; sub-controller doesn't need a target
+                        target=None,
                         parent_path=self.path,
                     ),
                     method_call_class,
@@ -163,7 +152,6 @@ class CLIController(BaseController):
         routines_directory = Path(session.user.preferences.export_directory, "routines")
 
         if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
-            # choices: dict = self.choices_default
             choices: dict = {c: {} for c in self.controller_choices}
 
             self.ROUTINE_FILES = {
@@ -196,7 +184,6 @@ class CLIController(BaseController):
             }
             choices["stop"] = {"--help": None, "-h": "--help"}
 
-            # Get dynamic index and key completions from registry
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
             key_completions = {
@@ -313,7 +300,7 @@ class CLIController(BaseController):
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
                 mt.add_raw(
-                    f"[yellow]OBB{key}[/yellow]: {value['command']}",  # type: ignore[index]
+                    f"[yellow]OBB{key}[/yellow]: {value['command']}",
                     left_spacing=True,
                 )
 
@@ -344,7 +331,6 @@ class CLIController(BaseController):
 
     def call_exe(self, other_args: list[str]):
         """Process exe command."""
-        # Merge rest of string path to other_args and remove queue since it is a dir
         other_args += self.queue
 
         if not other_args:
@@ -392,7 +378,7 @@ class CLIController(BaseController):
         if ns_parser:
             if ns_parser.example:
                 routine_path = ASSETS_DIRECTORY / "routines" / "routine_example.openbb"
-                session.console.print(  # TODO: Point to docs when ready
+                session.console.print(
                     "[info]Executing an example, please visit our docs to learn how to create your own script.[/info]\n"
                 )
             elif ns_parser.file:
@@ -406,7 +392,6 @@ class CLIController(BaseController):
                     raw_lines = list(fp)
 
                 script_inputs = []
-                # Capture ARGV either as list if args separated by commas or as single value
                 if routine_args := ns_parser.routine_args:
                     pattern = r"\[(.*?)\]"
                     matches = re.findall(pattern, routine_args)
@@ -423,9 +408,6 @@ class CLIController(BaseController):
                     raw_lines=raw_lines, script_inputs=script_inputs
                 )
 
-                # If there err output is not an empty string then it means there was an
-                # issue in parsing the routine and therefore we don't want to feed it
-                # to the terminal
                 if err:
                     session.console.print(err)
                     return
@@ -440,7 +422,6 @@ class CLIController(BaseController):
 
                 if "export" in self.queue[0]:
                     export_path = self.queue[0].split(" ")[1]
-                    # If the path selected does not start from the user root, give relative location from root
                     if export_path[0] == "~":
                         export_path = export_path.replace(
                             "~", HOME_DIRECTORY.as_posix()
@@ -450,7 +431,6 @@ class CLIController(BaseController):
                             os.path.dirname(os.path.abspath(__file__)), export_path
                         )
 
-                    # Check if the directory exists
                     if os.path.isdir(export_path):
                         session.console.print(
                             f"Export data to be saved in the selected folder: '{export_path}'"
@@ -487,7 +467,6 @@ def handle_job_cmds(jobs_cmds: list[str] | None) -> list[str] | None:
             os.path.dirname(os.path.abspath(__file__)), export_path
         )
 
-    # Check if the directory exists
     if os.path.isdir(export_path):
         session.console.print(
             f"Export data to be saved in the selected folder: '{export_path}'"
@@ -500,7 +479,6 @@ def handle_job_cmds(jobs_cmds: list[str] | None) -> list[str] | None:
     return jobs_cmds
 
 
-# pylint: disable=unused-argument
 def run_cli(
     jobs_cmds: list[str] | None = None,
     test_mode=False,
@@ -525,29 +503,22 @@ def run_cli(
         t_controller.print_help()
 
     while ret_code:
-        # There is a command in the queue
         if t_controller.queue and len(t_controller.queue) > 0:
-            # If the command is quitting the menu we want to return in here
             if t_controller.queue[0] in ("q", "..", "quit"):
                 print_goodbye()
                 break
 
-            # Consume 1 element from the queue
             an_input = t_controller.queue[0]
             t_controller.queue = t_controller.queue[1:]
 
-            # Print the current location because this was an instruction and we want user to know what was the action
             if an_input and an_input.split(" ")[0] in t_controller.CHOICES_COMMANDS:
                 session.console.print(f"{get_flair_and_username()} / $ {an_input}")
 
-        # Get input command from user
         else:
             try:
-                # Get input from user using auto-completion
                 if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
-                    # Check if toolbar hint was enabled
                     if session.settings.TOOLBAR_HINT:
-                        an_input = session.prompt_session.prompt(  # type: ignore[union-attr]
+                        an_input = session.prompt_session.prompt(
                             f"{get_flair_and_username()} / $ ",
                             completer=t_controller.completer,
                             search_ignore_case=True,
@@ -565,13 +536,12 @@ def run_cli(
                             ),
                         )
                     else:
-                        an_input = session.prompt_session.prompt(  # type: ignore[union-attr]
+                        an_input = session.prompt_session.prompt(
                             f"{get_flair_and_username()} / $ ",
                             completer=t_controller.completer,
                             search_ignore_case=True,
                         )
 
-                # Get input from user without auto-completion
                 else:
                     an_input = input(f"{get_flair_and_username()} / $ ")
 
@@ -580,14 +550,12 @@ def run_cli(
                 break
 
         try:
-            # Process the input command
             t_controller.queue = t_controller.switch(an_input)
 
             if an_input in ("q", "quit", "..", "exit", "e"):
                 print_goodbye()
                 break
 
-            # Check if the user wants to reset application
             if an_input in ("r", "reset") or t_controller.update_success:
                 reset(t_controller.queue if t_controller.queue else [])
                 break
@@ -605,10 +573,6 @@ def run_cli(
             if similar_cmd:
                 an_input = similar_cmd[0]
                 if " " in an_input:  # pragma: no cover
-                    # Defensive — ``similar_cmd[0]`` is drawn from
-                    # ``controller_choices`` which are single tokens, so this
-                    # branch is unreachable in practice. Kept as a safety net
-                    # for callers who might inject multi-token choices.
                     candidate_input = (
                         f"{similar_cmd[0]} {' '.join(an_input.split(' ')[1:])}"
                     )
@@ -632,7 +596,7 @@ def insert_start_slash(cmds: list[str]) -> list[str]:
     return cmds
 
 
-def run_scripts(  # pylint: disable=R0917
+def run_scripts(
     path: Path,
     test_mode: bool = False,
     verbose: bool = False,
@@ -676,7 +640,6 @@ def run_scripts(  # pylint: disable=R0917
                 for i, arg in enumerate(routines_args):
                     templine = templine.replace(f"$ARGV[{i}]", arg)
                 lines.append(templine)
-        # Handle new testing arguments:
         elif special_arguments:
             lines = []
             for line in raw_lines:
@@ -693,7 +656,6 @@ def run_scripts(  # pylint: disable=R0917
         if test_mode and "exit" not in lines[-1]:
             lines.append("exit")
 
-        # Deals with the export with a path with "/" in it
         export_folder = ""
         if "export" in lines[0]:
             export_folder = lines[0].split("export ")[1].rstrip()
@@ -774,7 +736,6 @@ def run_routine(file: str, routines_args: str | None = None):
         )
 
 
-# pylint: disable=unused-argument
 def main(
     debug: bool,
     dev: bool,
@@ -871,8 +832,6 @@ def parse_args_and_run():
             "Run the CLI in testing mode. Also run this option and '-h' to see testing argument options."
         ),
     )
-    # The args -m, -f and --HistoryManager.hist_file are used only in reports menu
-    # by papermill and that's why they have suppress help.
     parser.add_argument(
         "-m",
         help=argparse.SUPPRESS,
@@ -898,8 +857,6 @@ def parse_args_and_run():
         sys.argv.insert(1, "--file")
     ns_parser, unknown = parser.parse_known_args()
 
-    # This ensures that if cli.py receives unknown args it will not start.
-    # Use -d flag if you want to see the unknown args.
     if unknown:
         if ns_parser.debug:
             session.console.print(unknown)

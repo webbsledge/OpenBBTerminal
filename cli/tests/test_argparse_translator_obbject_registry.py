@@ -7,8 +7,6 @@ from openbb_core.app.model.obbject import OBBject
 
 from openbb_cli.argparse_translator.obbject_registry import Registry
 
-# pylint: disable=redefined-outer-name, protected-access
-
 
 @pytest.fixture
 def registry():
@@ -90,9 +88,6 @@ def test_remove_last_obbject_by_default(registry, mock_obbject):
     assert not registry.obbjects
 
 
-# ── Tests for _get_by_key ───────────────────────────────────────────
-
-
 def test_get_by_key_found(registry, mock_obbject):
     """Test retrieving obbject by its register_key."""
     mock_obbject.extra = {"command": "test_command", "register_key": "my_data"}
@@ -117,9 +112,6 @@ def test_get_by_key_no_register_key(registry, mock_obbject):
     assert result is None
 
 
-# ── Tests for obbject_keys ──────────────────────────────────────────
-
-
 def test_obbject_keys_empty(registry):
     """Test obbject_keys returns empty list when registry is empty."""
     assert registry.obbject_keys == []
@@ -142,16 +134,10 @@ def test_obbject_keys_skips_without_key(registry):
     assert registry.obbject_keys == []
 
 
-# ── Tests for get with invalid type ─────────────────────────────────
-
-
 def test_get_invalid_type_raises(registry):
     """Test get raises ValueError for invalid arg type."""
     with pytest.raises(ValueError, match="Couldn't get"):
         registry.get(3.14)
-
-
-# ── Tests for all property edge cases ───────────────────────────────
 
 
 def test_all_empty_registry(registry):
@@ -181,7 +167,7 @@ def test_all_index_as_stack_order(registry):
     registry.register(obj2)
 
     all_items = registry.all
-    assert all_items[0]["command"] == "cmd2"  # most recent first
+    assert all_items[0]["command"] == "cmd2"
     assert all_items[1]["command"] == "cmd1"
 
 
@@ -201,7 +187,7 @@ def test_all_serializes_standard_params_dict(registry):
     obj._standard_params = {
         "symbol": "AAPL",
         "data": "ignored — explicit skip",
-        "empty": "",  # falsy → skipped
+        "empty": "",
         "limit": 10,
     }
     obj.results = []

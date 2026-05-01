@@ -5,9 +5,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import SecretStr
 
-# pylint: disable=redefined-outer-name, unused-argument
-
-
 MODULE = "openbb_cli.controllers.credentials_controller"
 
 
@@ -56,7 +53,6 @@ def mock_obb():
     """Mock the obb object with credentials."""
     with patch(f"{MODULE}.obb") as obb_mock:
         obb_mock.user.credentials = MagicMock()
-        # Set up a credential field
         obb_mock.user.credentials.__class__.model_fields = {
             "test_api_key": MagicMock(description="test provider"),
         }
@@ -74,7 +70,6 @@ class TestCredentialsController:
         ctrl.queue = []
         ctrl.update_completer = MagicMock()
 
-        # Generate command for test_api_key
         ctrl._CRED_COMMANDS = {
             "test_api_key": {
                 "command": "test_api_key",
@@ -126,7 +121,6 @@ class TestCredentialsController:
             }
         }
 
-        # Create a namespace that parse_simple_args would return
         ns = MagicMock()
         ns.value = "new_secret"
         ctrl.parse_simple_args = MagicMock(return_value=(ns, []))
@@ -191,6 +185,63 @@ class TestCredentialsController:
         ):
             CredentialsController(queue=["x"])
         super_init.assert_called_once_with(["x"])
-        # one generate per credential in _CRED_COMMANDS
         assert gen.call_count == len(CredentialsController._CRED_COMMANDS)
         update_completer.assert_called_once()
+
+
+def test_class_level_loop_builds_cred_commands_from_model_fields():
+    """Re-import the module with a populated ``credentials.model_fields`` so the
+    class-body loop (which derives ``_CRED_COMMANDS`` from the live credentials
+    class) is exercised. Without this, environments where no provider extensions
+    are installed leave the loop body uncovered.
+
+    Covers both branches of the provider derivation:
+    * ``description == name`` → suffix-stripping fallback
+    * ``description != name`` → keep description as the provider label
+    """
+    import importlib
+    import sys
+    from unittest.mock import MagicMock
+
+    import openbb
+
+    fmp_field = MagicMock()
+    fmp_field.description = "fmp_api_key"
+    polygon_field = MagicMock()
+    polygon_field.description = "Polygon API token"
+    bare_token_field = MagicMock()
+    bare_token_field.description = "tiingo_token"
+    plain_key_field = MagicMock()
+    plain_key_field.description = "alpaca_key"
+
+    fake_creds_class = type(
+        "FakeCredentials",
+        (),
+        {
+            "model_fields": {
+                "fmp_api_key": fmp_field,
+                "polygon_token": polygon_field,
+                "tiingo_token": bare_token_field,
+                "alpaca_key": plain_key_field,
+            }
+        },
+    )
+    fake_creds_instance = MagicMock()
+    fake_creds_instance.__class__ = fake_creds_class
+
+    fake_obb = MagicMock()
+    fake_obb.user.credentials = fake_creds_instance
+
+    original_obb = openbb.obb
+    openbb.obb = fake_obb
+    sys.modules.pop("openbb_cli.controllers.credentials_controller", None)
+    try:
+        mod = importlib.import_module("openbb_cli.controllers.credentials_controller")
+        cmds = mod.CredentialsController._CRED_COMMANDS
+        assert cmds["fmp_api_key"]["provider"] == "fmp"
+        assert cmds["polygon_token"]["provider"] == "Polygon API token"
+        assert cmds["tiingo_token"]["provider"] == "tiingo"
+        assert cmds["alpaca_key"]["provider"] == "alpaca"
+    finally:
+        openbb.obb = original_obb
+        sys.modules.pop("openbb_cli.controllers.credentials_controller", None)

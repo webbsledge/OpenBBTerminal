@@ -26,9 +26,7 @@ class HtmlOutput:
         if export:
             return
 
-        # Handle OBBject with interactive display preference
         if hasattr(data, "model_dump"):
-            # If interactive mode is enabled and backend is available, use PyWry
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
                     data.charting.table()
@@ -37,9 +35,7 @@ class HtmlOutput:
                     session.console.print(
                         f"[yellow]Interactive table not available: {e}[/yellow]"
                     )
-                    # Fall through to browser HTML
 
-            # Handle chart display if requested
             if chart:
                 try:
                     data.show()
@@ -49,14 +45,12 @@ class HtmlOutput:
                         f"[yellow]Chart not available, showing table instead: {e}[/yellow]"
                     )
 
-        # Handle OBBject - extract results manually
         if hasattr(data, "model_dump"):
             results = data.model_dump().get("results")
             if results is None:
                 session.console.print("[yellow]No results to display[/yellow]")
                 return
 
-            # Convert results to DataFrame
             if isinstance(results, pd.DataFrame):
                 df = results
             elif isinstance(results, list):
@@ -64,11 +58,9 @@ class HtmlOutput:
             elif isinstance(results, dict):
                 df = pd.DataFrame([results])
             else:
-                # Scalar - wrap in single-cell table
                 df = pd.DataFrame({"value": [results]})
         elif isinstance(data, pd.DataFrame):
             df = data
-            # Check if we should use interactive window for plain DataFrames
             if session.settings.USE_INTERACTIVE_DF and session.backend is not None:
                 try:
                     session.backend.send_table(
@@ -78,7 +70,6 @@ class HtmlOutput:
                     )
                     return
                 except Exception:  # noqa: S110
-                    # Fall through to browser HTML if PyWry fails
                     pass
         elif isinstance(data, pd.Series):
             df = data.to_frame()
@@ -87,10 +78,8 @@ class HtmlOutput:
         elif isinstance(data, (list, tuple)):
             df = pd.DataFrame(data)
         else:
-            # Scalar - wrap in single-cell table
             df = pd.DataFrame({"value": [data]})
 
-        # Generate HTML with basic styling
         html_content = f"""
 <!DOCTYPE html>
 <html>
@@ -137,13 +126,11 @@ class HtmlOutput:
 </html>
 """
 
-        # Create temporary HTML file
         with tempfile.NamedTemporaryFile(
             mode="w", delete=False, suffix=".html", encoding="utf-8"
         ) as f:
             f.write(html_content)
             temp_path = f.name
 
-        # Open in default browser
         webbrowser.open(f"file://{Path(temp_path).as_posix()}")
         session.console.print(f"[green]Opened table in browser: {temp_path}[/green]")

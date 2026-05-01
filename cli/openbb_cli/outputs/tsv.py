@@ -55,10 +55,7 @@ class TsvOutput:
             df.to_csv(sys.stdout, sep="\t", index=False)
             sys.stdout.flush()
             return
-        # OBBject-shaped payload that didn't yield a DataFrame (None / scalar
-        # results) should be silent — the caller saw a successful response.
         if hasattr(data, "model_dump"):
             return
-        # Raw scalar / unknown primitive: emit repr so pipelines see something.
         sys.stdout.write(f"{data!r}\n")
         sys.stdout.flush()

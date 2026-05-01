@@ -36,7 +36,7 @@ class Translator(Protocol):
     """
 
     _parser: argparse.ArgumentParser
-    func: Any  # callable with ``__name__`` (used for export filename generation)
+    func: Any
 
     @property
     def parser(self) -> argparse.ArgumentParser: ...
@@ -79,9 +79,6 @@ class Backend(Protocol):
     ) -> tuple[dict[str, Translator], dict[str, str]]: ...
 
 
-# ── LocalBackend (in-process obb) ----------------------------------
-
-
 class LocalBackend:
     """Backend backed by in-process ``openbb``.
 
@@ -96,7 +93,7 @@ class LocalBackend:
 
     def _ensure_obb(self) -> Any:
         if self._obb is None:
-            from openbb import obb  # type: ignore[import-not-found]
+            from openbb import obb
 
             self._obb = obb
         return self._obb
@@ -137,10 +134,7 @@ class LocalBackend:
         processor = ArgparseClassProcessor(
             target_class=target, reference=self.reference_paths
         )
-        return processor.translators, processor.paths  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
-
-
-# ── SpecBackend (HTTP dispatcher + spec doc) -----------------------
+        return processor.translators, processor.paths  # ty: ignore[invalid-return-type]
 
 
 class SpecBackend:
@@ -155,7 +149,6 @@ class SpecBackend:
     def __init__(self, spec_doc: dict[str, Any], dispatcher: Any) -> None:
         self._spec = spec_doc
         self._dispatcher = dispatcher
-        # Top-level router classification — only entries with no dot.
         self._top_level_routers: dict[str, str] = {
             name: kind
             for name, kind in spec_doc.get("routers", {}).items()
@@ -192,18 +185,14 @@ class SpecBackend:
     ) -> tuple[dict[str, Translator], dict[str, str]]:
         prefix = router + "."
         translators: dict[str, Translator] = {}
-        # Track sub-router names (one level of nesting under ``router``).
-        seen_sub: dict[str, int] = {}  # name -> max depth seen
+        seen_sub: dict[str, int] = {}
 
         for cmd_name, cmd_spec in self._spec.get("commands", {}).items():
             if not cmd_name.startswith(prefix):
                 continue
             tail = cmd_name[len(prefix) :]
-            # Use the qualified-name shape ``ArgparseClassProcessor`` produces:
-            # ``"{router}_{leaf}"`` with intermediate dots collapsed to ``_``.
             key = f"{router}_{tail.replace('.', '_')}"
             translators[key] = SpecTranslator(cmd_name, cmd_spec, self._dispatcher)
-            # Record any intermediate sub-routers (depth >= 1 below ``router``).
             parts = tail.split(".")
             for depth, segment in enumerate(parts[:-1], start=1):
                 seen_sub[segment] = max(seen_sub.get(segment, 0), depth)
@@ -222,12 +211,7 @@ class _CommandStub:
         self._meta = meta
 
     def model_dump(self) -> dict[str, Any]:
-        # Surface the static command metadata; runtime invocation goes through
-        # the dispatcher, not this stub.
         return {"command": self._command, **self._meta}
-
-
-# ── SpecTranslator (synchronous bridge to async HTTP dispatch) ------
 
 
 class SpecTranslator:
@@ -247,8 +231,6 @@ class SpecTranslator:
         self._spec = cmd_spec
         self._dispatcher = dispatcher
         self._parser = parser_from_command_spec(cmd_spec)
-        # Stub callable so ``translator.func.__name__`` works for export
-        # filename generation in BasePlatformController._generate_command_call.
         self.func = _NamedStub(command.replace(".", "_"))
 
     @property
@@ -265,8 +247,6 @@ class SpecTranslator:
             try:
                 return await self._dispatcher.dispatch(request)
             finally:
-                # The dispatcher is shared across the REPL session; aclose is
-                # only called when the session ends. Don't close here.
                 pass
 
         response = asyncio.run(_dispatch_and_close())

@@ -27,7 +27,6 @@ from typing import Any
 
 import httpx
 
-# OpenAPI primitive types we know how to translate to argparse types.
 _TYPE_MAP: dict[str, type] = {
     "string": str,
     "integer": int,
@@ -35,8 +34,6 @@ _TYPE_MAP: dict[str, type] = {
     "boolean": bool,
 }
 
-# Standard OpenAPI schema keys; anything else is a per-provider extension
-# (``fred``, ``fmp``, ``yfinance``, …) that we strip when reading the union.
 _OPENAPI_RESERVED_SCHEMA_KEYS = frozenset(
     {
         "type",
@@ -92,7 +89,6 @@ def _resolve_schema(schema: dict[str, Any]) -> tuple[type, list[Any], bool]:
         return (py_type, item_choices, True)
 
     if "const" in schema:
-        # Pinned single value — surface as a 1-element choice list.
         return (type(schema["const"]), [schema["const"]], False)
 
     py_type = _TYPE_MAP.get(schema.get("type", "string"), str)
@@ -137,7 +133,6 @@ def parameter_to_kwargs(param: dict[str, Any]) -> tuple[str, dict[str, Any]] | N
     schema = param.get("schema", {}) or {}
     py_type, enum_choices, is_list = _resolve_schema(schema)
     provider_choices = _provider_choices(schema)
-    # Merge provider-specific choices with the schema-level enum, preserving order.
     choices: list[Any] = list(enum_choices)
     for c in provider_choices:
         if c not in choices:
@@ -181,8 +176,6 @@ def build_parser_from_operation(op: dict[str, Any]) -> argparse.ArgumentParser:
         try:
             parser.add_argument(flag, **kwargs)
         except argparse.ArgumentError:
-            # Duplicate name across providers — argparse rejects on second add.
-            # Skip; the first wins (matches in-process ArgparseTranslator).
             continue
     return parser
 
@@ -337,10 +330,8 @@ def _parse_spec_text(text: str, *, content_type: str = "") -> dict[str, Any]:
         return json.loads(text)
     if "yaml" in content_type or "yml" in content_type:
         return _yaml_load(text)
-    # Heuristic: an OpenAPI YAML doc starts with ``openapi:`` (or ``swagger:``).
     if stripped[:8] in ("openapi:", "swagger:"):
         return _yaml_load(text)
-    # Last resort: try JSON, fall back to YAML.
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -348,14 +339,9 @@ def _parse_spec_text(text: str, *, content_type: str = "") -> dict[str, Any]:
 
 
 def _yaml_load(text: str) -> dict[str, Any]:
-    """Lazy YAML import — keeps the import graph light when JSON specs suffice."""
-    try:
-        import yaml  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise ImportError(
-            "PyYAML is required to parse YAML OpenAPI specs. "
-            "Install with: pip install pyyaml"
-        ) from exc
+    """Parse a YAML document. ``pyyaml`` is a hard runtime dependency."""
+    import yaml
+
     return yaml.safe_load(text)
 
 

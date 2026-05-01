@@ -182,10 +182,6 @@ def cli_fake_extension_installed(tmp_path_factory):
 
     try:
         _pip("install", "--no-deps", "-e", str(work))
-        # Editable install isn't visible to ``import`` in this interpreter
-        # (the `.pth` files were processed at startup); add the source dir
-        # so any in-process ``ExtensionLoader`` instantiated by tests can
-        # ``ep.load()`` it.
         if str(work) not in sys.path:
             sys.path.insert(0, str(work))
         _run_openbb_build()
@@ -229,10 +225,6 @@ def _combine_partial_coverage() -> None:
     here = Path(__file__).resolve().parent
     if not list(here.glob(".coverage.*")):
         return
-    # ``coverage combine`` merges the partials into the main data file and
-    # removes them. Any partial that survives (e.g. wrong format from a prior
-    # interpreter version) gets cleaned up explicitly so the working tree
-    # doesn't stay dirty across runs.
     with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
         subprocess.run(  # noqa: S603
             [sys.executable, "-m", "coverage", "combine"],
@@ -260,10 +252,6 @@ def run_in_obb(cli_fake_extension_installed):  # noqa: ARG001
     """
 
     def _run(snippet: str) -> dict:
-        # Strip the snippet's source-level indentation before splicing so the
-        # composed program is column-zero Python (otherwise the format()
-        # substitution leaves arbitrary leading whitespace and the child
-        # interpreter raises IndentationError before reaching the snippet).
         wrapper = textwrap.dedent("""\
             import json, sys
             from openbb import obb  # noqa: F401

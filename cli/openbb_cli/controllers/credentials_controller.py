@@ -12,8 +12,6 @@ from typing import Any, cast
 from openbb import obb as _obb_container
 from pydantic import SecretStr
 
-# Treat the dynamically-built ``obb`` container as ``Any`` so ty doesn't try to
-# resolve ``obb.user.credentials`` through its property descriptor.
 obb = cast(Any, _obb_container)
 
 from openbb_cli.controllers.base_controller import BaseController
@@ -37,11 +35,9 @@ class CredentialsController(BaseController):
     PATH = "/user/credentials/"
     CHOICES_GENERATION = True
 
-    # Build command metadata from obb.user.credentials model fields.
     _CRED_COMMANDS: dict[str, dict[str, Any]] = {}
     for _fname, _finfo in sorted(obb.user.credentials.__class__.model_fields.items()):
         _provider = _finfo.description or ""
-        # If the description is just the key name repeated, derive the provider instead
         if _provider == _fname:
             _provider = (
                 _fname.rsplit("_api_key", 1)[0]
@@ -67,7 +63,6 @@ class CredentialsController(BaseController):
     def print_help(self):
         """Print help."""
         spacing = 4
-        # Compute column width from the longest credential name
         max_name = max((len(c) for c in self._CRED_COMMANDS), default=20)
         col_width = max_name + spacing
 

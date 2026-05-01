@@ -7,8 +7,6 @@ from rich.text import Text
 
 from openbb_cli.config.console import Console
 
-# pylint: disable=redefined-outer-name, unused-argument, unused-variable, protected-access
-
 
 @pytest.fixture
 def mock_settings():
@@ -41,8 +39,8 @@ def test_print_without_panel(console, mock_settings):
 def test_blend_text():
     """Test blending text colors."""
     message = "Hello"
-    color1 = (255, 0, 0)  # Red
-    color2 = (0, 0, 255)  # Blue
+    color1 = (255, 0, 0)
+    color2 = (0, 0, 255)
     blended_text = Console._blend_text(message, color1, color2)
     assert isinstance(blended_text, Text)
     assert "Hello" in blended_text.plain
@@ -77,7 +75,6 @@ def test_print_panel_in_test_mode_strips_tags(capsys, console, mock_settings):
     mock_settings.TEST_MODE = True
     console.print(text="[info]hi[/info]", menu="Menu")
     out = capsys.readouterr().out.strip()
-    # Rich tags would have been stripped; payload still readable.
     assert "info" in out or "hi" in out
 
 

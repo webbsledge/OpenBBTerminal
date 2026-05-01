@@ -2,8 +2,6 @@
 
 import json
 
-# pylint: disable=redefined-outer-name
-
 
 class TestChangeLoggingSubApp:
     def test_sets_cli_sub_app(self, tmp_path):

@@ -4,8 +4,6 @@ import pytest
 
 from openbb_cli.config.menu_text import MenuText
 
-# pylint: disable=redefined-outer-name, protected-access
-
 
 @pytest.fixture
 def menu_text():
@@ -48,7 +46,7 @@ def test_format_cmd_name(menu_text):
 
 def test_format_cmd_description(menu_text):
     """Test truncation of long descriptions."""
-    long_description = "y" * 100  # Assuming CMD_DESCRIPTION_LENGTH is 65
+    long_description = "y" * 100
     formatted_description = menu_text._format_cmd_description("cmd", long_description)
     assert len(formatted_description) <= menu_text.CMD_DESCRIPTION_LENGTH
 
@@ -78,7 +76,7 @@ def test_get_providers_returns_non_standard_keys(menu_text, monkeypatch):
     import types
 
     fake_obb_mod = types.ModuleType("openbb")
-    fake_obb_mod.obb = type(  # type: ignore[attr-defined]
+    fake_obb_mod.obb = type(
         "Obb",
         (),
         {
@@ -114,10 +112,9 @@ def test_add_raw_with_left_spacing(menu_text):
 
 
 def test_get_providers_returns_empty_when_openbb_missing(menu_text, monkeypatch):
-    """Spec-driven REPL: ``openbb`` import fails → return [] (lines 60-62)."""
+    """Spec-driven REPL: ``openbb`` import fails → return []."""
     import sys
 
-    # Set ``sys.modules['openbb'] = None`` so ``import openbb`` raises ImportError.
     monkeypatch.setitem(sys.modules, "openbb", None)
     assert menu_text._get_providers("/whatever") == []
 
@@ -128,7 +125,7 @@ def test_add_cmd_emits_provider_tag(menu_text, monkeypatch):
     import types
 
     fake_obb_mod = types.ModuleType("openbb")
-    fake_obb_mod.obb = type(  # type: ignore[attr-defined]
+    fake_obb_mod.obb = type(
         "Obb",
         (),
         {
@@ -146,7 +143,6 @@ def test_add_cmd_emits_provider_tag(menu_text, monkeypatch):
 def test_add_menu_blanks_description_matching_path(menu_text):
     """``description == menu_path+name`` is blanked just like in ``add_cmd``."""
     menu_text.add_menu("settings", description="/test/pathsettings")
-    # Empty description path: the line should NOT include the noisy /test/path text.
     assert "/test/pathsettings" not in menu_text.menu_text
 
 

@@ -6,8 +6,6 @@ import pytest
 
 from openbb_cli.controllers.base_platform_controller import PlatformController, Session
 
-# pylint: disable=redefined-outer-name, protected-access, unused-argument, unused-variable
-
 
 @pytest.fixture
 def mock_session():
@@ -43,7 +41,6 @@ def test_command_generation(mock_session):
         name="test", parent_path=["parent"], translators=translators
     )
 
-    # Check if command function is correctly linked
     assert "test_command" in controller.translators
 
 
@@ -105,7 +102,6 @@ def test_intersect_data_processing_commands_unknown_data_passes_through(mock_ses
 
     ns_parser = MagicMock()
     ns_parser.data = "raw-data"
-    # spec=MagicMock has hasattr always True; this exercises the OBB-not-in-data branch.
     out = controller._intersect_data_processing_commands(ns_parser)
     assert out.data == "raw-data"
 
@@ -231,9 +227,6 @@ def test_generate_controller_call_creates_call_method(mock_session):
     controller.load_class.assert_called_once()
 
 
-# ── _generate_command_call generated method body ────────────────────
-
-
 def _make_command_call_test_setup(mock_session, command_returns):
     """Helper: produce a controller with a generated ``call_<name>`` and stubs."""
 
@@ -337,8 +330,6 @@ def test_generated_call_dict_result_is_dataframed(mock_session):
     ns.sheet_name = None
     controller.parse_known_args_and_warn.return_value = ns
     controller.call_cmd([])
-    # The dict result path uses print_rich_table directly (not output_adapter).
-    # Some console.print activity is expected.
     mock_session.console.print.assert_called()
 
 
@@ -355,7 +346,7 @@ def test_generated_call_export_branch_invokes_export_data(mock_session):
         mock_session, command_returns={"a": [1, 2], "b": [3, 4]}
     )
     ns = MagicMock()
-    ns.export = ["csv"]  # iterable for ``",".join(ns.export)`` inside source
+    ns.export = ["csv"]
     ns.chart = False
     ns.sheet_name = None
     controller.parse_known_args_and_warn.return_value = ns
@@ -363,9 +354,7 @@ def test_generated_call_export_branch_invokes_export_data(mock_session):
         patch(
             "openbb_cli.controllers.base_platform_controller.export_data"
         ) as export_data,
-        patch(
-            "openbb_cli.controllers.base_platform_controller.print_rich_table"
-        ),  # silence the rich-table call inside the dict branch
+        patch("openbb_cli.controllers.base_platform_controller.print_rich_table"),
     ):
         controller.call_cmd([])
     export_data.assert_called_once()
@@ -378,24 +367,19 @@ def test_generate_sub_controllers_skips_path_value_entries(mock_session):
     controller = PlatformController.__new__(PlatformController)
     controller._name = "test"
     controller.PATH = "/parent/test/"
-    # ``path`` is set in BaseController.__init__; bypass requires manual init.
     controller.path = ["parent", "test"]
     controller.translators = translators
     controller.paths = {"inner": "menu", "leaf": "path"}
     controller.CHOICES_COMMANDS = ["test_inner_command"]
     with patch.object(controller, "_generate_controller_call") as gen:
         controller._generate_sub_controllers()
-    # Only one call (for "inner"); "leaf" skipped.
     assert gen.call_count == 1
     assert gen.call_args[1]["name"] == "inner"
 
 
-# ── coverage closers — branches we couldn't otherwise hit ──────────
-
-
 def test_link_obbject_to_data_processing_commands_sets_choices(mock_session):
     """``_link_obbject_to_data_processing_commands`` writes ``OBBn`` + register_keys
-    onto every translator action with ``dest == "data"`` (lines 77-89)."""
+    onto every translator action with ``dest == "data"``."""
     translator = MagicMock()
     action = MagicMock()
     action.dest = "data"
@@ -417,7 +401,7 @@ def test_link_obbject_to_data_processing_commands_sets_choices(mock_session):
 
 
 def test_generated_call_register_key_already_taken_warns(mock_session):
-    """``register_key`` collision prints a yellow warning instead of overwriting (line 205)."""
+    """``register_key`` collision prints a yellow warning instead of overwriting."""
     from openbb_core.app.model.obbject import OBBject
 
     obbject = OBBject(results=[{"a": 1}])
@@ -439,7 +423,7 @@ def test_generated_call_register_key_already_taken_warns(mock_session):
 
 
 def test_generated_call_store_obbject_with_show_msg(mock_session):
-    """``store_obbject=True`` AND ``SHOW_MSG_OBBJECT_REGISTRY=True`` prints the cache notice (lines 222-226)."""
+    """``store_obbject=True`` AND ``SHOW_MSG_OBBJECT_REGISTRY=True`` prints the cache notice."""
     from openbb_core.app.model.obbject import OBBject
 
     obbject = OBBject(results=[{"a": 1}])
@@ -447,31 +431,23 @@ def test_generated_call_store_obbject_with_show_msg(mock_session):
         mock_session, command_returns=obbject
     )
     ns = MagicMock(export="", register_obbject=True, chart=False, sheet_name=None)
-    # ``register_key`` attribute absent so the collision branch is skipped.
     del ns.register_key
     controller.parse_known_args_and_warn.return_value = ns
     mock_session.max_obbjects_exceeded.return_value = False
     mock_session.obbject_registry.register.return_value = True
-    # ``mock_session.settings`` is a MagicMock (truthy by default); the code
-    # path requires both flags truthy. Set explicitly for clarity.
     mock_session.settings.SHOW_MSG_OBBJECT_REGISTRY = True
     mock_session.obbject_registry.obbjects = []
-    # Patch ``_link_obbject_to_data_processing_commands`` so it doesn't try to
-    # iterate translator parser actions on real parsers.
     controller._link_obbject_to_data_processing_commands = MagicMock()
     controller.update_completer = MagicMock()
-    # ``choices_default`` property short-circuits when CHOICES_GENERATION=False.
     controller.CHOICES_GENERATION = False
-    # Allow ``output_adapter.display`` to be a no-op so we don't blow up after.
     mock_session.output_adapter.display.side_effect = None
     controller.call_cmd([])
     msgs = [str(c) for c in mock_session.console.print.call_args_list]
-    # At least one print contained the cached-results notice.
     assert any(("Added" in m and "cached" in m) for m in msgs), f"calls={msgs!r}"
 
 
 def test_generated_call_display_error_falls_back_to_results(mock_session):
-    """When ``output_adapter.display`` raises, the fallback prints raw results (lines 242-249)."""
+    """When ``output_adapter.display`` raises, the fallback prints raw results."""
     from openbb_core.app.model.obbject import OBBject
 
     obbject = OBBject(results=[{"a": 1}])
@@ -488,7 +464,7 @@ def test_generated_call_display_error_falls_back_to_results(mock_session):
 
 
 def test_generated_call_non_obbject_non_dict_result_falls_through(mock_session):
-    """A scalar (non-OBBject, non-dict) result is printed via ``console.print`` (lines 257-258)."""
+    """A scalar (non-OBBject, non-dict) result is printed via ``console.print``."""
     controller, translator = _make_command_call_test_setup(
         mock_session, command_returns=42
     )
@@ -500,7 +476,7 @@ def test_generated_call_non_obbject_non_dict_result_falls_through(mock_session):
 
 
 def test_generated_call_sheet_name_list_unwrapped(mock_session):
-    """``sheet_name=['Foo']`` is unwrapped to ``'Foo'`` for ``export_data`` (line 263)."""
+    """``sheet_name=['Foo']`` is unwrapped to ``'Foo'`` for ``export_data``."""
     controller, translator = _make_command_call_test_setup(
         mock_session, command_returns={"a": [1, 2], "b": [3, 4]}
     )
@@ -517,12 +493,8 @@ def test_generated_call_sheet_name_list_unwrapped(mock_session):
 
 
 def test_generated_call_chart_export_extracts_fig(mock_session):
-    """``ns.chart=True`` + export → ``obbject.chart.fig`` is extracted into ``fig`` (lines 268-271)."""
+    """``ns.chart=True`` + export → ``obbject.chart.fig`` is extracted into ``fig``."""
 
-    # The OBBject branch routes through ``output_adapter.display`` and only
-    # falls into the export tail if ``df.empty`` evaluates as False. The
-    # generated method's ``df`` defaults to an empty pd.DataFrame so we need
-    # the dict path to populate it. Using a dict result keeps things simple.
     controller, translator = _make_command_call_test_setup(
         mock_session, command_returns={"a": [1, 2]}
     )
@@ -534,18 +506,12 @@ def test_generated_call_chart_export_extracts_fig(mock_session):
         ) as export_data,
         patch("openbb_cli.controllers.base_platform_controller.print_rich_table"),
     ):
-        # The dict-result path doesn't expose obbject.chart; line 268-271 are
-        # gated on ``ns.chart`` only, so the suppress(...) block runs and
-        # ``fig`` stays None when ``obbject`` doesn't have ``.chart``.
         controller.call_cmd([])
     export_data.assert_called_once()
 
 
 def test_generated_call_export_with_empty_df_warns(mock_session):
-    """When ``ns.export`` is set but the local ``df`` is empty, a yellow warning runs (line 282)."""
-    # The default branches (OBBject, list, dict) all populate df, so we use a
-    # scalar return — the local ``df`` defaults to ``pd.DataFrame()`` and stays
-    # empty so the ``elif export and df.empty`` branch triggers.
+    """When ``ns.export`` is set but the local ``df`` is empty, a yellow warning runs."""
     controller, translator = _make_command_call_test_setup(
         mock_session, command_returns="just-a-string"
     )
@@ -558,10 +524,10 @@ def test_generated_call_export_with_empty_df_warns(mock_session):
 
 def test_factory_translators_picked_up_from_class_attrs(mock_session):
     """When the factory stashes ``_factory_translators`` on the class, the
-    controller picks them up without ``platform_target`` or ``translators=`` (lines 84-87)."""
+    controller picks them up without ``platform_target`` or ``translators=``."""
     fake_translator = MagicMock()
     fake_translator._parser = MagicMock()
-    fake_translator._parser._actions = []  # ``_link_obbject_to_data_processing_commands`` reads this.
+    fake_translator._parser._actions = []
 
     Subclass = type(
         "FactoryWiredController",
@@ -578,14 +544,14 @@ def test_factory_translators_picked_up_from_class_attrs(mock_session):
 
 
 def test_legacy_platform_target_path_imports_obb(mock_session, monkeypatch):
-    """``platform_target=...`` falls back to the legacy ``obb`` walk (lines 91-97)."""
+    """``platform_target=...`` falls back to the legacy ``obb`` walk."""
     import sys
     import types
 
     fake_obb = MagicMock()
     fake_obb.reference = {"paths": {"/parent/x/quote": {"description": "q"}}}
     fake_module = types.ModuleType("openbb")
-    fake_module.obb = fake_obb  # type: ignore[attr-defined]
+    fake_module.obb = fake_obb
     monkeypatch.setitem(sys.modules, "openbb", fake_module)
 
     fake_processor = MagicMock()
@@ -612,7 +578,7 @@ def test_init_raises_when_no_source_provided(mock_session):
 def test_get_reference_paths_falls_back_to_local_backend_when_no_factory(
     mock_session, monkeypatch
 ):
-    """Without a factory backend, ``_get_reference_paths`` builds a LocalBackend (lines 389-391)."""
+    """Without a factory backend, ``_get_reference_paths`` builds a LocalBackend."""
     fake_backend = MagicMock()
     fake_backend.reference_paths = {"/x": {"description": "from local"}}
     monkeypatch.setattr(
@@ -621,7 +587,6 @@ def test_get_reference_paths_falls_back_to_local_backend_when_no_factory(
     controller = PlatformController(
         name="x", parent_path=["parent"], translators={"x_q": MagicMock()}
     )
-    # Ensure we exercise the LocalBackend branch by removing any factory backend.
     controller._factory_backend = None
     assert controller._get_reference_paths() == {"/x": {"description": "from local"}}
 
@@ -629,7 +594,7 @@ def test_get_reference_paths_falls_back_to_local_backend_when_no_factory(
 def test_get_reference_routers_falls_back_to_local_backend_when_no_factory(
     mock_session, monkeypatch
 ):
-    """Mirror of the previous test for ``reference_routers`` (lines 397-399)."""
+    """``_get_reference_routers`` falls back to ``LocalBackend`` when no factory is set."""
     fake_backend = MagicMock()
     fake_backend.reference_routers = {"/x/": {"description": "menu desc"}}
     monkeypatch.setattr(

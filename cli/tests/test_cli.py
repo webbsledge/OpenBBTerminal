@@ -10,8 +10,6 @@ from unittest.mock import MagicMock, patch
 
 from openbb_cli import cli
 
-# ── _build_dispatcher ───────────────────────────────────────────────
-
 
 def test_build_dispatcher_local_when_no_server():
     with patch("openbb_cli.dispatchers.LocalDispatcher") as ld:
@@ -27,9 +25,6 @@ def test_build_dispatcher_http_when_server():
         d = cli._build_dispatcher("http://api.local")
     factory.assert_called_once_with("http://api.local", headers=None)
     assert d is factory.return_value
-
-
-# ── main routing ────────────────────────────────────────────────────
 
 
 def test_main_dispatches_one_shot_when_command_given():
@@ -78,8 +73,6 @@ def test_main_help_exit_when_no_command(capsys):
 def test_main_passes_dev_debug_to_repl():
     with patch("openbb_cli.cli._launch_repl", return_value=0) as repl:
         cli.main(["-i", "--dev", "--debug"])
-    # ``_launch_repl(dev, debug, spec_path, server_url, headers)`` — all
-    # backend-source / headers args default to None for a bare ``-i``.
     repl.assert_called_once_with(True, True, None, None, None)
 
 
@@ -94,12 +87,7 @@ def test_launch_repl_imports_and_calls_legacy_launch(capsys):
     assert rc == 0
     assert "Loading..." in capsys.readouterr().out
     bs.assert_called_once()
-    # Legacy path delegates to ``launch(dev, debug)`` (no ``backend`` kwarg) so
-    # ``parse_args_and_run`` runs and re-parses sys.argv inside the controller.
     launch_.assert_called_once_with(False, False)
-
-
-# ── headers --------------------------------------------------------
 
 
 def test_parse_header_kv_equals_form():
@@ -149,7 +137,6 @@ def test_resolve_headers_merges_file_and_cli(tmp_path):
     header_file = tmp_path / "h.json"
     header_file.write_text('{"X-API-Key": "from-file", "X-Tenant": "shared"}')
     out = _resolve_headers(["X-API-Key=from-cli", "X-Trace=tid"], str(header_file))
-    # CLI ``--header`` overrides file-supplied entries with the same key.
     assert out == {
         "X-API-Key": "from-cli",
         "X-Tenant": "shared",
@@ -168,7 +155,7 @@ def test_resolve_headers_rejects_non_object_file(tmp_path, capsys):
     from openbb_cli.cli import _resolve_headers
 
     bad = tmp_path / "h.json"
-    bad.write_text("[1, 2]")  # array, not object
+    bad.write_text("[1, 2]")
     out = _resolve_headers([], str(bad))
     assert out is None
     err = capsys.readouterr().err
@@ -181,7 +168,7 @@ def test_resolve_headers_rejects_invalid_json(tmp_path, capsys):
     bad = tmp_path / "h.json"
     bad.write_text("not-json")
     assert _resolve_headers([], str(bad)) is None
-    assert "Expecting" in capsys.readouterr().err  # json error
+    assert "Expecting" in capsys.readouterr().err
 
 
 def test_main_threads_headers_to_one_shot(tmp_path):
@@ -252,11 +239,7 @@ def test_launch_repl_with_spec_uses_spec_backend(tmp_path):
         cli._launch_repl(False, False, str(spec_file), None)
     backend_arg = run_cli_.call_args[1]["backend"]
     assert backend_arg is not None
-    # SpecBackend reads ``routers`` from the spec doc.
     assert backend_arg.routers == {}
-
-
-# ── end-to-end through real obb ────────────────────────────────────
 
 
 def test_e2e_dispatches_real_command_to_stdout(run_in_obb):
@@ -296,7 +279,6 @@ def test_e2e_dispatch_failure_returns_nonzero(run_in_obb):
     assert result["rc"] == 1
     payload = json.loads(result["out"].strip())
     assert payload["ok"] is False
-    # openbb-core wraps user-raised exceptions in OpenBBError at the runner boundary.
     assert payload["error"]["type"] == "OpenBBError"
 
 
@@ -319,7 +301,7 @@ def test_e2e_batch_protocol_round_trip(run_in_obb):
             json.loads(line) for line in writer.getvalue().splitlines() if line
         ]}
     """)
-    assert result["rc"] == 1  # at least one failure (bomb)
+    assert result["rc"] == 1
     by_id = {line["id"]: line for line in result["lines"]}
     assert by_id["a"]["ok"] is True
     assert by_id["a"]["result"]["results"] == {"echo": "x"}

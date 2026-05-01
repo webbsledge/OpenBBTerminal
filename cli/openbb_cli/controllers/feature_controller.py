@@ -56,11 +56,8 @@ class FeatureController(BaseController):
         if session.obbject_registry.all:
             names = []
             for idx, data in session.obbject_registry.all.items():
-                # Try to get register_key first - these are user-defined and should be clean
                 name = data.get("key", "")
 
-                # If no register_key, use the numeric index as the identifier
-                # Filenames can contain commas and special chars that break argument parsing
                 if not name:
                     name = str(idx)
 
@@ -77,7 +74,6 @@ class FeatureController(BaseController):
         Returns:
             The numeric index if found, None otherwise
         """
-        # Try as numeric index first
         try:
             idx = int(identifier)
             if idx in session.obbject_registry.all:
@@ -85,7 +81,6 @@ class FeatureController(BaseController):
         except ValueError:
             pass
 
-        # Search for register_key in metadata
         for idx, data in session.obbject_registry.all.items():
             if data.get("key") == identifier:
                 return idx
@@ -107,15 +102,10 @@ class FeatureController(BaseController):
         table_indices = self._get_table_indices()
         column_names = self._get_column_names()
 
-        # Create recursive column completions for multi-select commands
-        # Each column can be followed by another column or flags
         column_recursive: dict = {"--help": None, "-h": "--help"}
         if column_names:
             for col in column_names:
-                # Create a copy of column_recursive for each column
-                # This allows selecting multiple columns in sequence
                 column_recursive[col] = {"--help": None, "-h": "--help"}
-                # Add other columns as next possible completions
                 for next_col in column_names:
                     if next_col != col:
                         column_recursive[col][next_col] = {
@@ -123,7 +113,6 @@ class FeatureController(BaseController):
                             "-h": "--help",
                         }
 
-        # Create completions dictionary for all commands
         choices = {
             "list": {
                 "--help": None,
@@ -303,7 +292,6 @@ class FeatureController(BaseController):
                 "--help": None,
                 "-h": "--help",
             },
-            # Global commands
             "cls": None,
             "home": None,
             "h": None,
@@ -323,20 +311,17 @@ class FeatureController(BaseController):
 
     def print_help(self):
         """Print help."""
-        # Build current table info section if a table is selected
         current_table_info = ""
         if self.current_table is not None:
             try:
                 result = session.obbject_registry.get(self.current_table)
                 if result:
                     df = extract_dataframe(result)
-                    # Get register_key if available
                     metadata = session.obbject_registry.all.get(self.current_table, {})
                     table_name = metadata.get("key", "")
                     if not table_name:
                         table_name = f"Table {self.current_table}"
 
-                    # Build column list
                     col_list = list(df.columns)
                     col_names = ", ".join(col_list)
 
@@ -436,10 +421,8 @@ class FeatureController(BaseController):
         )
         ns_parser = self.parse_known_args_and_warn(parser, other_args)
         if ns_parser:
-            # Try to get the OBBject directly - registry supports both key and index
             result = session.obbject_registry.get(ns_parser.index)
 
-            # Also try as int index
             if result is None:
                 try:
                     idx = int(ns_parser.index)
@@ -448,14 +431,12 @@ class FeatureController(BaseController):
                     pass
 
             if result:
-                # Find the numeric index for this result
                 for idx, obj in enumerate(reversed(session.obbject_registry.obbjects)):
                     if obj.id == result.id:
                         self.current_table = idx
                         break
 
                 df = extract_dataframe(result)
-                # Get the display name
                 table_name = result.extra.get("register_key", "")
                 if not table_name:
                     table_name = f"Table {self.current_table}"
@@ -464,7 +445,6 @@ class FeatureController(BaseController):
                     f"[green]Selected table '{table_name}' "
                     f"with shape {df.shape}[/green]"
                 )
-                # Refresh completer with new column names
                 self.update_completer(self.choices_default)
             else:
                 session.console.print(
@@ -497,7 +477,6 @@ class FeatureController(BaseController):
                 f"Shape: {df.shape[0]} rows × {df.shape[1]} columns\n"
             )
 
-            # Create info dataframe
             info_data = []
             for col in df.columns:
                 info_data.append(
@@ -572,7 +551,6 @@ class FeatureController(BaseController):
             "The current table is available as 'df'. "
             'Examples: query "df.query(\'REF_AREA == \\"CHE\\"\')" or query "df.groupby(\'REF_AREA\').mean()"',
         )
-        # --save must be defined before expression since REMAINDER consumes everything
         parser.add_argument(
             "-s",
             "--save",
@@ -597,30 +575,21 @@ class FeatureController(BaseController):
             if result is None:
                 return
 
-            # Check if this is a SQLite-backed table
             from openbb_cli.controllers.utils import SQLiteTable
 
-            # Extract the actual data object
             data_obj = (
                 result.model_dump().get("results")
                 if hasattr(result, "model_dump")
                 else result
             )
 
-            # Join with spaces but preserve the structure from argparse
             query_str = " ".join(ns_parser.expression).strip()
 
-            # Try SQL query optimization for SQLite tables. Using isinstance in
-            # the if-condition narrows the type for the body without needing an
-            # `assert` (which is forbidden in production code).
             if isinstance(data_obj, SQLiteTable):
-                # Simple query patterns that can be pushed to SQL
                 sql_query = None
 
-                # Pattern: df[df['column'] operator value]
                 import re
 
-                # Match patterns like: df[df['COLUMN'] > 100]
                 simple_filter = re.match(
                     r"df\[df\[['\"](\w+)['\"]\]\s*([><=!]+)\s*([^\]]+)\]", query_str
                 )
@@ -630,20 +599,15 @@ class FeatureController(BaseController):
                     operator = simple_filter.group(2)
                     value = simple_filter.group(3).strip()
 
-                    # Convert operator to SQL
                     sql_operator = operator
                     if operator == "==":
                         sql_operator = "="
 
-                    # Build SQL WHERE clause
-                    # Handle string vs numeric values
                     if value.startswith(("'", '"')):
                         sql_value = value
                     else:
                         try:
-                            # Try to evaluate as a literal value
                             sql_value = str(ast.literal_eval(value))  # noqa: S307
-                            # Quote if it's a string result
                             if (
                                 not sql_value.replace(".", "")
                                 .replace("-", "")
@@ -656,7 +620,6 @@ class FeatureController(BaseController):
                     sql_query = f"{col_name} {sql_operator} {sql_value}"
 
                     try:
-                        # Execute SQL query directly on database
                         eval_result = data_obj.query(where=sql_query)
 
                         session.console.print(
@@ -681,23 +644,16 @@ class FeatureController(BaseController):
                             f"[yellow]SQL optimization failed: {sql_e}. Falling back to pandas.[/yellow]"
                         )
 
-            # Default: Use pandas evaluation (for non-SQLite or complex queries)
             df = extract_dataframe(result)
 
             try:
-                # Create namespace with df and all column names accessible directly
                 namespace = {"df": df, "pd": pd}
-                # Add each column as a direct variable for convenience
                 for col in df.columns:
                     namespace[col] = df[col]
 
-                # Try to execute the full expression
-                # This handles both simple queries and chained operations
                 eval_result = eval(query_str, namespace)  # noqa: S307
 
-                # Handle different output types
                 if isinstance(eval_result, pd.DataFrame):
-                    # Check if it's a filtered DataFrame (same columns as original)
                     if set(eval_result.columns) == set(df.columns) and len(
                         eval_result
                     ) != len(df):
@@ -724,18 +680,11 @@ class FeatureController(BaseController):
                         export=False,
                         chart=False,
                     )
-                elif isinstance(eval_result, (list, tuple, set)):
-                    result_df = pd.DataFrame({query_str: list(eval_result)})
-                    session.output_adapter.display(
-                        data=result_df,
-                        title="Result",
-                        export=False,
-                        chart=False,
-                    )
-                elif hasattr(eval_result, "__iter__") and not isinstance(
-                    eval_result, str
+                elif (
+                    isinstance(eval_result, (list, tuple, set))
+                    or hasattr(eval_result, "__iter__")
+                    and not isinstance(eval_result, str)
                 ):
-                    # Handle numpy arrays and other iterables
                     result_df = pd.DataFrame({query_str: list(eval_result)})
                     session.output_adapter.display(
                         data=result_df,
@@ -845,10 +794,8 @@ class FeatureController(BaseController):
             df = extract_dataframe(result)
 
             try:
-                # Handle datetime conversion specially
                 if "datetime" in ns_parser.dtype.lower():
                     df[ns_parser.column] = pd.to_datetime(df[ns_parser.column])
-                # Handle category with optional arguments
                 elif ns_parser.dtype.lower() == "category":
                     if ns_parser.categories:
                         df[ns_parser.column] = pd.Categorical(
@@ -859,10 +806,8 @@ class FeatureController(BaseController):
                     else:
                         df[ns_parser.column] = df[ns_parser.column].astype("category")
                 else:
-                    # Let pandas handle any dtype string
                     df[ns_parser.column] = df[ns_parser.column].astype(ns_parser.dtype)
 
-                # Store DataFrame directly - no conversion
                 result.results = df
                 session.console.print(
                     f"[green]Changed column '{ns_parser.column}' to type '{df[ns_parser.column].dtype}'[/green]"
@@ -905,13 +850,11 @@ class FeatureController(BaseController):
             expr_str = " ".join(ns_parser.expression)
 
             try:
-                # Evaluate expression in context of dataframe
                 df[ns_parser.name] = df.eval(expr_str)
                 result.results = df
                 session.console.print(
                     f"[green]Added column '{ns_parser.name}' with expression: {expr_str}[/green]"
                 )
-                # Refresh completer after column added
                 self.update_completer(self.choices_default)
             except Exception as e:
                 session.console.print(f"[red]Error adding column: {str(e)}[/red]")
@@ -949,7 +892,6 @@ class FeatureController(BaseController):
                 session.console.print(
                     f"[green]Dropped column(s): {', '.join(ns_parser.columns)}[/green]"
                 )
-                # Refresh completer after column structure changed
                 self.update_completer(self.choices_default)
             except Exception as e:
                 session.console.print(f"[red]Error dropping column: {str(e)}[/red]")
@@ -991,7 +933,6 @@ class FeatureController(BaseController):
                 session.console.print(
                     f"[green]Renamed column '{ns_parser.old_name}' to '{ns_parser.new_name}'[/green]"
                 )
-                # Refresh completer after column name changed
                 self.update_completer(self.choices_default)
             except Exception as e:
                 session.console.print(f"[red]Error renaming column: {str(e)}[/red]")
@@ -1031,18 +972,14 @@ class FeatureController(BaseController):
             expr_str = " ".join(ns_parser.expression)
 
             try:
-                # Try eval first (for expressions like 'col1 + col2')
-                # If it contains pandas methods, use direct column access
                 if "." in expr_str and any(
                     method in expr_str
                     for method in ["astype", "str", "dt", "fillna", "replace"]
                 ):
-                    # For pandas methods, evaluate on the column itself
                     df[ns_parser.name] = eval(  # noqa: S307
                         f"df['{ns_parser.name}'].{expr_str}", {"df": df}
                     )
                 else:
-                    # For arithmetic expressions, use df.eval
                     df[ns_parser.name] = df.eval(expr_str)
                 result.results = df
                 session.console.print(
@@ -1108,7 +1045,6 @@ class FeatureController(BaseController):
                 )
                 return
 
-            # Resolve identifier (name or index) to numeric index
             table_idx = self._resolve_table_identifier(ns_parser.table)
 
             if table_idx is None:
@@ -1147,7 +1083,6 @@ class FeatureController(BaseController):
                         how=ns_parser.how,
                     )
                 else:
-                    # Default to index join
                     merged_df = pd.merge(
                         df_left,
                         df_right,
@@ -1202,27 +1137,22 @@ class FeatureController(BaseController):
                 return
             df = extract_dataframe(result)
 
-            # Create a new OBBject with copied data
             from copy import deepcopy
 
             new_result = deepcopy(result)
             new_result.results = df.copy()
-            # Set a unique ID for the copy
             import uuid
 
             new_result.id = str(uuid.uuid4())
-            # Store the name for reference
             new_result.extra["command"] = f"copy from table {self.current_table}"
             new_result.extra["register_key"] = ns_parser.name
 
-            # Register the new object
             if session.obbject_registry.register(new_result):
                 session.console.print(
                     f"[green]Copied table '{self.current_table}' to '{ns_parser.name}'[/green]"
                 )
             else:
                 session.console.print("[red]Failed to register copied table.[/red]")
-            # Refresh completer with new table index
             self.update_completer(self.choices_default)
 
     def call_save(self, other_args: list[str]):
@@ -1279,7 +1209,6 @@ class FeatureController(BaseController):
                 return
             df = extract_dataframe(result)
 
-            # Construct full path
             from pathlib import Path
 
             file_path = (
@@ -1294,7 +1223,6 @@ class FeatureController(BaseController):
                     df.to_json(file_path, orient="records", indent=2)
                     session.console.print(f"[green]Saved table to {file_path}[/green]")
                 elif ns_parser.filename.endswith((".xlsx", ".xls")):
-                    # Use existing save_to_excel which handles sheet exists prompt
                     from openbb_cli.controllers.utils import save_to_excel
 
                     sheet_name = (
@@ -1310,17 +1238,14 @@ class FeatureController(BaseController):
                         f"[green]Saved sheet '{sheet_name}' to {file_path}[/green]"
                     )
                 elif ns_parser.filename.endswith((".db", ".sqlite", ".sqlite3")):
-                    # Save to SQLite database
                     import sqlite3
 
                     table_name = ns_parser.table if ns_parser.table else "data"
 
-                    # Check if file exists to determine mode
                     file_exists = file_path.exists()
 
                     conn = sqlite3.connect(file_path)
                     try:
-                        # Check if table already exists
                         cursor = conn.cursor()
                         cursor.execute(
                             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -1328,7 +1253,6 @@ class FeatureController(BaseController):
                         )
                         table_exists = cursor.fetchone() is not None
 
-                        # Handle different modes
                         if table_exists:
                             if ns_parser.mode == "fail":
                                 session.console.print(
@@ -1340,7 +1264,6 @@ class FeatureController(BaseController):
                                     f"[yellow]Table '{table_name}' exists. Replacing...[/yellow]"
                                 )
                             elif ns_parser.mode == "append":
-                                # Get current row count for reporting
                                 quoted_tbl = '"' + table_name.replace('"', '""') + '"'
                                 cursor.execute(f"SELECT COUNT(*) FROM {quoted_tbl}")  # noqa: S608
                                 old_count = cursor.fetchone()[0]
@@ -1348,7 +1271,6 @@ class FeatureController(BaseController):
                                     f"[cyan]Appending {len(df)} rows to existing {old_count} rows...[/cyan]"
                                 )
 
-                        # Save DataFrame to SQLite
                         df.to_sql(
                             table_name,
                             conn,
@@ -1356,7 +1278,6 @@ class FeatureController(BaseController):
                             index=ns_parser.index,
                         )
 
-                        # Success messages
                         if table_exists and ns_parser.mode == "append":
                             cursor.execute(f"SELECT COUNT(*) FROM {quoted_tbl}")  # noqa: S608
                             new_count = cursor.fetchone()[0]
@@ -1398,7 +1319,6 @@ class FeatureController(BaseController):
         )
         ns_parser = self.parse_known_args_and_warn(parser, other_args)
         if ns_parser:
-            # Resolve identifier (name or index) to numeric index
             table_idx = self._resolve_table_identifier(ns_parser.index)
 
             if table_idx is None:
@@ -1412,7 +1332,6 @@ class FeatureController(BaseController):
                 if self.current_table == table_idx:
                     self.current_table = None
                 session.console.print(f"[green]Deleted table '{table_idx}'[/green]")
-                # Refresh completer after table removed
                 self.update_completer(self.choices_default)
             else:
                 session.console.print(

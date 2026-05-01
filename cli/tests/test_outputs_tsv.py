@@ -48,8 +48,6 @@ class TestTsvOutputDisplay:
         mock_obj = Mock()
         mock_obj.model_dump.return_value = {"results": 42}
         tsv_output.display(data=mock_obj)
-        # _to_dataframe returns None for scalar results → falls to repr branch
-        # but scalar in OBBject path returns None (handled separately).
         assert capsys.readouterr().out == ""
 
     def test_dataframe(self, tsv_output, capsys):
@@ -57,7 +55,7 @@ class TestTsvOutputDisplay:
         tsv_output.display(data=df)
         out = capsys.readouterr().out
         assert "col" in out
-        assert "\t" not in out.split("\n")[0] or "col" in out  # single column
+        assert "\t" not in out.split("\n")[0] or "col" in out
 
     def test_series(self, tsv_output, capsys):
         s = pd.Series([10, 20], name="vals")
@@ -91,7 +89,6 @@ class TestTsvOutputDisplay:
         df = pd.DataFrame({"a": [1, 2]})
         tsv_output.display(data=df)
         out = capsys.readouterr().out
-        # ANSI escape sequences begin with ESC [ — must not appear in TSV output.
         assert "\x1b[" not in out
 
 

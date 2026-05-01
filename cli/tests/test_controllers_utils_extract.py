@@ -8,10 +8,6 @@ import pytest
 
 from openbb_cli.controllers.utils import SQLiteTable, extract_dataframe
 
-# ---------------------------------------------------------------------------
-# SQLiteTable
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture()
 def sample_db(tmp_path):
@@ -54,14 +50,14 @@ class TestSQLiteTable:
         t = SQLiteTable(db_path=sample_db, table_name="prices", row_count=3)
         df1 = t.to_dataframe()
         df2 = t.to_dataframe()
-        assert df1 is df2  # same object from cache
+        assert df1 is df2
 
     def test_to_dataframe_no_cache(self, sample_db):
         t = SQLiteTable(db_path=sample_db, table_name="prices", row_count=3)
         df1 = t.to_dataframe(use_cache=False)
         df2 = t.to_dataframe(use_cache=False)
-        assert df1 is not df2  # distinct objects
-        assert t._cached_df is None  # cache was never set
+        assert df1 is not df2
+        assert t._cached_df is None
 
     def test_get_schema(self, sample_db):
         t = SQLiteTable(db_path=sample_db, table_name="prices")
@@ -98,11 +94,6 @@ class TestSQLiteTable:
         t = SQLiteTable(db_path=db_path, table_name="my table")
         df = t.to_dataframe()
         assert len(df) == 1
-
-
-# ---------------------------------------------------------------------------
-# extract_dataframe
-# ---------------------------------------------------------------------------
 
 
 class TestExtractDataframe:
@@ -155,10 +146,9 @@ class TestExtractDataframe:
 
     def test_non_obbject_passthrough_dict(self):
         data = {"a": [1, 2], "b": [3, 4]}
-        # plain dict has no model_dump → treated as raw results
         df = extract_dataframe(data)
         assert isinstance(df, pd.DataFrame)
-        assert len(df) == 1  # dict → single-row DataFrame
+        assert len(df) == 1
 
     def test_non_obbject_passthrough_list(self):
         data = [{"a": 1}, {"a": 2}]

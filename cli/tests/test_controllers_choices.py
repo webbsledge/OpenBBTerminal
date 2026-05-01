@@ -9,8 +9,6 @@ from openbb_cli.controllers.choices import (
     build_controller_choice_map,
 )
 
-# pylint: disable=redefined-outer-name, protected-access, unused-argument, unused-variable
-
 
 class MockController:
     """Mock controller class for testing."""
@@ -52,9 +50,6 @@ def test_build_command_choice_map(mock_controller):
         assert "opt2" in choice_map["test_command"]["--option"]
 
 
-# ── Tests for low-level helpers and edge cases ───────────────────────
-
-
 def test_get_command_func_unknown_command_raises():
     """``__get_command_func`` raises AttributeError when the command isn't registered."""
     from openbb_cli.controllers import choices as _choices
@@ -92,14 +87,14 @@ def test_get_argument_parser_rejects_function_without_parsers():
         CHOICES_COMMANDS = ["foo"]
 
         def call_foo(self, _):
-            return None  # no parse_* call inside
+            return None
 
     with pytest.raises(AssertionError, match="parse_simple_args"):
         _get_argument_parser(C(), "foo")
 
 
 def test_build_command_choice_map_skips_suppressed_actions():
-    """Actions with ``help=SUPPRESS`` are excluded from the choice map (line 304)."""
+    """Actions with ``help=SUPPRESS`` are excluded from the choice map."""
     from argparse import SUPPRESS
 
     from openbb_cli.controllers.choices import _build_command_choice_map
@@ -128,7 +123,6 @@ def test_build_command_choice_map_rejects_invalid_action():
     from openbb_cli.controllers.choices import _build_command_choice_map
 
     parser = ArgumentParser()
-    # Synthesize an action with three option_strings to exercise the raise.
     action = parser.add_argument("--a")
     action.option_strings = ["-a", "--alpha", "--alias"]
     with pytest.raises(AttributeError, match="Invalid argument_parser"):
@@ -145,9 +139,6 @@ def test_build_controller_choice_map_reraises_in_debug_mode(mock_controller):
         sess.settings.DEBUG_MODE = True
         with pytest.raises(Exception, match="On command : `test_command`"):
             build_controller_choice_map(mock_controller)
-
-
-# ── __mock_parse_known_args_and_warn — build all argument shapes ─────
 
 
 def _mock_parse():
@@ -229,9 +220,6 @@ def test_mock_parse_register_obbject_and_register_key_always_added():
     assert "--register_key" in optstrings
 
 
-# ── _get_argument_parser call_count assertion path ───────────────────
-
-
 def test_get_argument_parser_call_count_zero_raises():
     """A ``call_*`` fn that contains a parse-helper name but never invokes it raises AssertionError."""
     from openbb_cli.controllers.choices import _get_argument_parser
@@ -240,7 +228,6 @@ def test_get_argument_parser_call_count_zero_raises():
         CHOICES_COMMANDS = ["foo"]
 
         def call_foo(self, _other_args):
-            # Mention the name in code but don't actually call it.
             _ = "parse_simple_args"  # noqa: F841
 
     with pytest.raises(AssertionError, match="parse_simple_args"):
@@ -254,7 +241,6 @@ def test_get_argument_parser_call_count_two_raises():
     class C:
         CHOICES_COMMANDS = ["foo"]
 
-        # Real methods so ``patch.object`` can replace them.
         def parse_simple_args(self, parser, other_args):
             return None, None
 
@@ -262,8 +248,6 @@ def test_get_argument_parser_call_count_two_raises():
             return None
 
         def call_foo(self, other_args):
-            # Two distinct parsers so the mocks' inserted ``-h/--help``
-            # arguments don't collide.
             self.parse_simple_args(ArgumentParser(add_help=False), other_args)
             self.parse_known_args_and_warn(ArgumentParser(add_help=False), other_args)
 

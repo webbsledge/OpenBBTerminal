@@ -29,7 +29,7 @@ class LocalDispatcher:
     """
 
     def __init__(self) -> None:
-        from openbb import obb  # type: ignore[import-not-found]
+        from openbb import obb
 
         self._obb = obb
 

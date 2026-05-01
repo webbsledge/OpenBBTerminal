@@ -18,8 +18,8 @@ from openbb_cli.session import Session
 session = Session()
 
 
-def __mock_parse_known_args_and_warn(  # pylint: disable=R0917
-    controller,  # pylint: disable=unused-argument
+def __mock_parse_known_args_and_warn(
+    controller,
     parser: ArgumentParser,
     other_args: list[str],
     export_allowed: Literal[
@@ -292,14 +292,13 @@ def _get_argument_parser(
                 " - parse_known_args_and_warn\n"
             )
 
-    # pylint: disable=possibly-used-before-assignment
     return argument_parser
 
 
 def _build_command_choice_map(argument_parser: ArgumentParser) -> dict:
     """Build the choice map for a command."""
     choice_map: dict = {}
-    for action in argument_parser._actions:  # pylint: disable=protected-access
+    for action in argument_parser._actions:
         if action.help == SUPPRESS:
             continue
         if len(action.option_strings) == 1:

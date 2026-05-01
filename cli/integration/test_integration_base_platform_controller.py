@@ -9,8 +9,6 @@ from openbb_cli.controllers.base_platform_controller import (
     Session,
 )
 
-# pylint: disable=protected-access, unused-variable, redefined-outer-name
-
 
 @pytest.fixture
 def platform_controller():

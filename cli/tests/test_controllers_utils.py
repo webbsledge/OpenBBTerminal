@@ -22,8 +22,6 @@ from openbb_cli.controllers.utils import (
     welcome_message,
 )
 
-# pylint: disable=redefined-outer-name, unused-argument
-
 
 @pytest.fixture
 def mock_session():
@@ -154,7 +152,7 @@ def test_get_user_agent():
         ("0", "yellow"),
         ("0.0", "yellow"),
         ("no numbers here", ""),
-        ("abc 1 def 2", ""),  # two numbers → no color
+        ("abc 1 def 2", ""),
     ],
 )
 def test_return_colored_value(value, expected_color):
@@ -163,12 +161,8 @@ def test_return_colored_value(value, expected_color):
     if expected_color:
         assert f"[{expected_color}]" in result
     else:
-        # No color wrapper when 0 or multiple numbers
         assert "[green]" not in result
         assert "[red]" not in result
-
-
-# ── Tests for suppress_stdout ───────────────────────────────────────
 
 
 import sys
@@ -185,18 +179,12 @@ def test_suppress_stdout():
     assert sys.stderr is original_err
 
 
-# ── Tests for bootup ───────────────────────────────────────────────
-
-
 from openbb_cli.controllers.utils import bootup
 
 
 def test_bootup_runs_without_error(mock_session):
     """Test that bootup completes without raising."""
     bootup()
-
-
-# ── Tests for first_time_user ──────────────────────────────────────
 
 
 from openbb_cli.controllers.utils import first_time_user
@@ -219,9 +207,6 @@ def test_first_time_user_non_empty_env(mock_session, tmp_path):
     with patch("openbb_cli.controllers.utils.ENV_FILE_SETTINGS", env_file):
         result = first_time_user()
     assert result is False
-
-
-# --- Tests for parse_unknown_args_to_dict ---
 
 
 @pytest.mark.parametrize(
@@ -264,9 +249,6 @@ def test_parse_unknown_args_to_dict_missing_value(mock_session):
     mock_session.console.print.assert_called_once()
 
 
-# --- Tests for validate_register_key ---
-
-
 @pytest.mark.parametrize(
     "key, should_raise",
     [
@@ -284,9 +266,6 @@ def test_validate_register_key(key, should_raise):
             validate_register_key(key)
     else:
         assert validate_register_key(key) == key
-
-
-# --- Tests for check_file_type_saved ---
 
 
 def test_check_file_type_saved_valid(mock_session):
@@ -318,9 +297,6 @@ def test_check_file_type_saved_no_valid_types(mock_session):
     assert checker("anything.csv") == ""
 
 
-# ── compose_export_path ──────────────────────────────────────────────
-
-
 def test_compose_export_path_with_normal_directory(mock_session, tmp_path):
     """Builds ``<export_dir>/<timestamp>_<dir-segments>_<func>``."""
     from openbb_cli.controllers.utils import compose_export_path
@@ -342,12 +318,8 @@ def test_compose_export_path_collapses_openbb_cli_directory(mock_session, tmp_pa
     fake_root = tmp_path / "openbb_cli" / "controllers"
     fake_root.mkdir(parents=True)
     result = compose_export_path("foo", str(fake_root))
-    # Only "controllers" (last segment) appears, not "openbb_cli_controllers".
     assert "controllers_foo" in result.name
     assert "openbb_cli" not in result.name
-
-
-# ── ask_file_overwrite ───────────────────────────────────────────────
 
 
 def test_ask_file_overwrite_when_overwrite_setting_enabled(mock_session, tmp_path):
@@ -409,9 +381,6 @@ def test_ask_file_overwrite_missing_file(mock_session, tmp_path):
     assert ask_file_overwrite(f) == (False, True)
 
 
-# ── request ──────────────────────────────────────────────────────────
-
-
 def test_request_invalid_method_raises():
     """Unknown HTTP method raises ValueError."""
     from openbb_cli.controllers.utils import request
@@ -448,9 +417,6 @@ def test_request_preserves_user_supplied_user_agent(mock_session):
     assert headers["User-Agent"] == "custom"
 
 
-# ── system_clear ─────────────────────────────────────────────────────
-
-
 def test_system_clear_invokes_os_system():
     """``system_clear`` calls ``os.system`` with the cls/clear command."""
     from openbb_cli.controllers.utils import system_clear
@@ -458,9 +424,6 @@ def test_system_clear_invokes_os_system():
     with patch("openbb_cli.controllers.utils.os.system") as os_system:
         system_clear()
     os_system.assert_called_once_with("cls||clear")
-
-
-# ── save_to_excel ────────────────────────────────────────────────────
 
 
 def test_save_to_excel_creates_new_file(mock_session, tmp_path):
@@ -473,9 +436,6 @@ def test_save_to_excel_creates_new_file(mock_session, tmp_path):
     saved = tmp_path / "out.xlsx"
     save_to_excel(df, saved, sheet_name="Sheet1")
     assert saved.exists()
-
-
-# ── handle_obbject_display ───────────────────────────────────────────
 
 
 def test_handle_obbject_display_normal_path_uses_output_adapter(
@@ -579,7 +539,6 @@ def test_handle_obbject_display_export_with_data(
     export_data.assert_called_once()
     func_name = export_data.call_args[1]["func_name"]
     assert "equity" in func_name and "quote" in func_name
-    # Slashes / spaces / -- have been collapsed to underscores.
     assert "/" not in func_name
     assert " " not in func_name
 
@@ -647,9 +606,6 @@ def sample_df_helper():
     return pd.DataFrame({"x": [1, 2], "y": [3, 4]})
 
 
-# ── get_user_data_directory / get_data_files_for_completion ─────────
-
-
 def test_get_user_data_directory_returns_path_from_preferences(mock_session, tmp_path):
     """``get_user_data_directory`` reads ``session.user.preferences.data_directory``."""
     from openbb_cli.controllers.utils import get_user_data_directory
@@ -697,9 +653,6 @@ def test_get_data_files_for_completion_swallows_exceptions(mock_session):
         assert get_data_files_for_completion() == []
 
 
-# ── save_to_excel append/overlay branches ───────────────────────────
-
-
 def test_save_to_excel_appends_when_sheet_exists(mock_session, tmp_path):
     """When the target sheet already exists and the user picks ``a``, data is appended."""
     import pandas as pd
@@ -709,7 +662,6 @@ def test_save_to_excel_appends_when_sheet_exists(mock_session, tmp_path):
     df = pd.DataFrame({"a": [1, 2]})
     target = tmp_path / "out.xlsx"
     save_to_excel(df, target, sheet_name="Sheet1")
-    # Append branch: existing sheet + user selects 'a'.
     with patch("builtins.input", return_value="a"):
         save_to_excel(pd.DataFrame({"a": [3, 4]}), target, sheet_name="Sheet1")
     final = pd.read_excel(target, sheet_name="Sheet1")
@@ -731,9 +683,6 @@ def test_save_to_excel_overwrites_when_sheet_exists(mock_session, tmp_path):
     assert final["a"].iloc[0] == 10
 
 
-# ── remove_timezone_from_dataframe ──────────────────────────────────
-
-
 def test_remove_timezone_from_dataframe_strips_tz_aware_index(mock_session):
     """tz-aware datetime *index* is converted to date objects (no tzinfo).
 
@@ -749,11 +698,7 @@ def test_remove_timezone_from_dataframe_strips_tz_aware_index(mock_session):
         index=pd.to_datetime(["2024-01-01", "2024-01-02"], utc=True),
     )
     cleaned = remove_timezone_from_dataframe(df)
-    # Index is now an array of plain ``date`` objects with no tzinfo.
     assert getattr(cleaned.index[0], "tzinfo", None) is None
-
-
-# ── reset() ──────────────────────────────────────────────────────────
 
 
 def test_reset_failure_falls_back_to_print_goodbye(mock_session):
@@ -769,14 +714,11 @@ def test_reset_failure_falls_back_to_print_goodbye(mock_session):
     from types import ModuleType
     from unittest.mock import MagicMock, patch
 
-    # Snapshot the modules we know reset() will purge.
     purged_keys = [k for k in sys.modules if k.startswith("openbb_cli")]
     snapshot = {k: sys.modules[k] for k in purged_keys}
 
     from openbb_cli.controllers.utils import reset
 
-    # Pre-populate the dynamic import target so reset's ``from openbb_cli.controllers.cli_controller
-    # import main`` picks up our stub.
     stub = ModuleType("openbb_cli.controllers.cli_controller")
     stub.main = MagicMock(side_effect=RuntimeError("boom"))
     try:
@@ -786,13 +728,8 @@ def test_reset_failure_falls_back_to_print_goodbye(mock_session):
         goodbye.assert_called_once()
         mock_session.console.print.assert_called()
     finally:
-        # Restore every original module reset() purged so subsequent tests
-        # keep the same class identities they imported at top of file.
         for k, mod in snapshot.items():
             sys.modules[k] = mod
-
-
-# ── extract_dataframe ────────────────────────────────────────────────
 
 
 def test_extract_dataframe_from_obbject_with_list_results(mock_session):
@@ -882,9 +819,6 @@ def test_remove_timezone_from_dataframe_passthrough_for_naive(mock_session):
     df = pd.DataFrame({"ts": pd.to_datetime(["2024-01-01"])})
     cleaned = remove_timezone_from_dataframe(df)
     assert cleaned.equals(df) or cleaned["ts"].iloc[0] == df["ts"].iloc[0]
-
-
-# ── export_data ──────────────────────────────────────────────────────
 
 
 def test_export_data_writes_csv(mock_session, tmp_path):
@@ -1098,9 +1032,6 @@ def test_export_data_unknown_extension_warns(mock_session, tmp_path):
     assert any("Wrong export file" in c for c in calls)
 
 
-# ── print_rich_table ─────────────────────────────────────────────────
-
-
 def test_print_rich_table_returns_when_export_true(mock_session):
     """``export=True`` short-circuits without printing."""
     import pandas as pd
@@ -1164,7 +1095,6 @@ def test_print_rich_table_interactive_failure_falls_through(mock_session):
     mock_session.user.preferences.table_style = "dark"
     df = pd.DataFrame({"a": [1, 2]})
     print_rich_table(df)
-    # console.print invoked at least once for the fallback.
     mock_session.console.print.assert_called()
 
 
@@ -1220,18 +1150,14 @@ def test_print_rich_table_automatic_coloring_blanket_apply(mock_session):
     mock_session.console.print.assert_called()
 
 
-# ── coverage closers — utils.py edge branches ───────────────────────
-
-
 def test_parse_and_split_input_with_trailing_slash():
-    """An input ending with ``/`` triggers the empty-trailing-segment branch (line 350)."""
+    """An input ending with ``/`` triggers the empty-trailing-segment branch."""
     out = parse_and_split_input("foo/", custom_filters=[])
-    # Trailing empty segment is filtered out — final list contains 'foo' only.
     assert out == ["foo"]
 
 
 def test_print_rich_table_columns_keep_types(mock_session):
-    """``columns_keep_types`` skips coercion for listed columns (line 450)."""
+    """``columns_keep_types`` skips coercion for listed columns."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
@@ -1244,7 +1170,7 @@ def test_print_rich_table_columns_keep_types(mock_session):
 
 
 def test_print_rich_table_headers_as_pandas_index(mock_session):
-    """``headers`` passed as ``pd.Index`` exercises ``_get_headers`` index branch (lines 464, 467)."""
+    """``headers`` passed as ``pd.Index`` exercises ``_get_headers`` index branch."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
@@ -1257,7 +1183,7 @@ def test_print_rich_table_headers_as_pandas_index(mock_session):
 
 
 def test_print_rich_table_interactive_with_show_index_and_named_index(mock_session):
-    """Interactive path with ``show_index=True`` and named index hits lines 478-479."""
+    """Interactive path with ``show_index=True`` and named index."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
@@ -1270,7 +1196,7 @@ def test_print_rich_table_interactive_with_show_index_and_named_index(mock_sessi
 
 
 def test_print_rich_table_interactive_renames_blank_columns(mock_session):
-    """Interactive path renames empty-string column names to ``"  "`` (line 483)."""
+    """Interactive path renames empty-string column names to ``"  "``."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
@@ -1284,15 +1210,13 @@ def test_print_rich_table_interactive_renames_blank_columns(mock_session):
 
 
 def test_print_rich_table_rows_to_auto_color(mock_session):
-    """``rows_to_auto_color`` colors specified rows (lines 504-507)."""
+    """``rows_to_auto_color`` colors specified rows."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
 
     mock_session.settings.USE_INTERACTIVE_DF = False
     mock_session.backend = None
-    # Use object dtype + ``columns_keep_types`` so the upstream numeric coercion
-    # is skipped and string-colored values fit back into the column dtype.
     df = pd.DataFrame(
         {"a": ["1.0", "-2.0"], "b": ["3.0", "4.0"]},
         index=["r1", "r2"],
@@ -1308,7 +1232,7 @@ def test_print_rich_table_rows_to_auto_color(mock_session):
 
 
 def test_print_rich_table_tabulate_with_show_index_and_headers(mock_session):
-    """Tabulate path with ``show_index`` and custom ``headers`` exercises lines 518, 521-523."""
+    """Tabulate path with ``show_index`` and custom ``headers``."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import print_rich_table
@@ -1321,7 +1245,7 @@ def test_print_rich_table_tabulate_with_show_index_and_headers(mock_session):
 
 
 def test_remove_timezone_from_dataframe_strips_tz_columns(mock_session):
-    """A tz-aware datetime column is stripped to date-only (lines 774, 778)."""
+    """A tz-aware datetime column is stripped to date-only."""
     import pandas as pd
 
     from openbb_cli.controllers.utils import remove_timezone_from_dataframe
@@ -1339,11 +1263,9 @@ def test_remove_timezone_from_dataframe_strips_tz_columns(mock_session):
 def test_export_data_collapses_openbb_cli_filename_marker(
     mock_session, tmp_path, sample_df_helper
 ):
-    """A filename containing ``.OpenBB_openbb_cli`` is rewritten to ``OpenBBCLI`` (line 934)."""
+    """A filename containing ``.OpenBB_openbb_cli`` is rewritten to ``OpenBBCLI``."""
     from openbb_cli.controllers.utils import export_data
 
-    # compose_export_path uses dir_path's parent name. Pass a fake path containing
-    # ``.OpenBB`` in the 2nd-to-last segment so the assembled filename hits the marker.
     mock_session.user.preferences.export_directory = str(tmp_path)
     mock_session.user.preferences.overwrite_export = True
     fake_dir = tmp_path / ".OpenBB" / "openbb_cli"
@@ -1361,11 +1283,10 @@ def test_export_data_collapses_openbb_cli_filename_marker(
 def test_export_data_existing_file_collision_increments(
     mock_session, tmp_path, sample_df_helper
 ):
-    """Existing file + user declines overwrite → bumps the filename suffix (lines 945-946)."""
+    """Existing file + user declines overwrite → bumps the filename suffix."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
-    # Pre-populate a clashing file.
     (tmp_path / "preexisting.csv").write_text("col\n1")
     with patch(
         "openbb_cli.controllers.utils.ask_file_overwrite",
@@ -1377,7 +1298,6 @@ def test_export_data_existing_file_collision_increments(
             func_name="myfunc",
             df=sample_df_helper,
         )
-    # A second file ending with `_<n>.csv` should be created.
     csvs = list(tmp_path.glob("*.csv"))
     assert len(csvs) >= 2
 
@@ -1399,7 +1319,7 @@ def _seed_sqlite_table(target, df, name="data"):
 def test_export_data_sqlite_existing_table_overwrite(
     mock_session, tmp_path, sample_df_helper
 ):
-    """SQLite export with existing table + 'o' choice → ``if_exists='replace'`` (lines 1003-1009)."""
+    """SQLite export with existing table + 'o' choice → ``if_exists='replace'``."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
@@ -1413,7 +1333,6 @@ def test_export_data_sqlite_existing_table_overwrite(
             func_name="myfunc",
             df=sample_df_helper,
         )
-    # ``replace`` recreated the table with the DataFrame's schema.
     import sqlite3
 
     conn = sqlite3.connect(target)
@@ -1425,7 +1344,7 @@ def test_export_data_sqlite_existing_table_overwrite(
 def test_export_data_sqlite_existing_table_append(
     mock_session, tmp_path, sample_df_helper
 ):
-    """SQLite with 'a' choice appends to existing table (lines 1010-1011)."""
+    """SQLite with 'a' choice appends to existing table."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
@@ -1450,7 +1369,7 @@ def test_export_data_sqlite_existing_table_append(
 def test_export_data_sqlite_existing_table_new_name(
     mock_session, tmp_path, sample_df_helper
 ):
-    """SQLite with 'n' creates a new uniquely-named table (lines 1012-1026)."""
+    """SQLite with 'n' creates a new uniquely-named table."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
@@ -1478,7 +1397,7 @@ def test_export_data_sqlite_existing_table_new_name(
 def test_export_data_sqlite_invalid_choice_skips(
     mock_session, tmp_path, sample_df_helper
 ):
-    """SQLite with any other input skips the export (lines 1027-1029)."""
+    """SQLite with any other input skips the export."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
@@ -1497,11 +1416,11 @@ def test_export_data_sqlite_invalid_choice_skips(
 
 
 def test_handle_obbject_display_chart_with_export_extracts_dataframe(mock_session):
-    """``chart=True`` AND ``export=...`` triggers chart-fig + DataFrame extract (lines 1143-1144)."""
+    """``chart=True`` AND ``export=...`` triggers chart-fig + DataFrame extract."""
     from openbb_cli.controllers.utils import handle_obbject_display
 
     obbject = MagicMock()
-    obbject.chart = MagicMock()  # truthy → uses obbject.show
+    obbject.chart = MagicMock()
     obbject.results = MagicMock()
     obbject.extra = {"command": "/x"}
     mock_session.settings.USE_INTERACTIVE_DF = False
@@ -1518,9 +1437,6 @@ def test_handle_obbject_display_chart_with_export_extracts_dataframe(mock_sessio
     obbject.show.assert_called_once()
     extract.assert_called()
     export_data.assert_called_once()
-
-
-# ── SQLiteTable ──────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -1551,7 +1467,7 @@ def test_sqlite_table_init_stores_args(sqlite_db):
 
 
 def test_sqlite_table_quoted_name_escapes_quotes(sqlite_db):
-    """``_quoted_name`` doubles internal quotes and wraps in double-quotes (line 59)."""
+    """``_quoted_name`` doubles internal quotes and wraps in double-quotes."""
     from openbb_cli.controllers.utils import SQLiteTable
 
     tbl = SQLiteTable(db_path=str(sqlite_db), table_name='weird"name', row_count=0)
@@ -1559,14 +1475,13 @@ def test_sqlite_table_quoted_name_escapes_quotes(sqlite_db):
 
 
 def test_sqlite_table_to_dataframe_caches(sqlite_db):
-    """``to_dataframe`` loads from disk on first call and caches afterward (lines 70-83)."""
+    """``to_dataframe`` loads from disk on first call and caches afterward."""
     from openbb_cli.controllers.utils import SQLiteTable
 
     tbl = SQLiteTable(db_path=str(sqlite_db), table_name="rows", row_count=3)
     first = tbl.to_dataframe()
     assert len(first) == 3
     assert tbl._cached_df is not None
-    # Second call hits the cache (line 70-71).
     second = tbl.to_dataframe()
     assert second is tbl._cached_df
 
@@ -1582,7 +1497,7 @@ def test_sqlite_table_to_dataframe_no_cache(sqlite_db):
 
 
 def test_sqlite_table_get_schema_returns_pragma_rows(sqlite_db):
-    """``get_schema`` returns the PRAGMA table_info rows (lines 91-97)."""
+    """``get_schema`` returns the PRAGMA table_info rows."""
     from openbb_cli.controllers.utils import SQLiteTable
 
     tbl = SQLiteTable(db_path=str(sqlite_db), table_name="rows", row_count=3)
@@ -1592,7 +1507,7 @@ def test_sqlite_table_get_schema_returns_pragma_rows(sqlite_db):
 
 
 def test_sqlite_table_query_with_where_and_limit(sqlite_db):
-    """``query`` builds SQL with optional WHERE + LIMIT clauses (lines 109-119)."""
+    """``query`` builds SQL with optional WHERE + LIMIT clauses."""
     from openbb_cli.controllers.utils import SQLiteTable
 
     tbl = SQLiteTable(db_path=str(sqlite_db), table_name="rows", row_count=3)
@@ -1610,7 +1525,7 @@ def test_sqlite_table_query_no_filters(sqlite_db):
 
 
 def test_extract_dataframe_with_sqlite_table_lazy_loads(sqlite_db):
-    """``extract_dataframe`` materializes a ``SQLiteTable`` via ``to_dataframe`` (line 144)."""
+    """``extract_dataframe`` materializes a ``SQLiteTable`` via ``to_dataframe``."""
     from openbb_cli.controllers.utils import SQLiteTable, extract_dataframe
 
     tbl = SQLiteTable(db_path=str(sqlite_db), table_name="rows", row_count=3)
@@ -1621,28 +1536,23 @@ def test_extract_dataframe_with_sqlite_table_lazy_loads(sqlite_db):
     assert set(out.columns) == {"a", "b"}
 
 
-# ── parse_and_split_input with non-empty custom_filters ─────────────
-
-
 def test_parse_and_split_input_with_custom_filter():
-    """A non-None entry in ``custom_filters`` is appended to the regex (lines 327-329)."""
+    """A non-None entry in ``custom_filters`` is appended to the regex."""
     out = parse_and_split_input(
         "load AAPL/help", custom_filters=[r"\bload\s+\w+", None]
     )
-    # The custom filter swallows ``load AAPL`` so the split doesn't break it.
     assert any("load" in seg for seg in out)
 
 
 def test_export_data_sqlite_new_name_collision_loops(
     mock_session, tmp_path, sample_df_helper
 ):
-    """When 'n' is chosen and ``data_1`` already exists, the loop bumps to ``data_2`` (lines 1023-1024)."""
+    """When 'n' is chosen and ``data_1`` already exists, the loop bumps to ``data_2``."""
     from openbb_cli.controllers.utils import export_data
 
     mock_session.user.preferences.export_directory = str(tmp_path)
     mock_session.user.preferences.overwrite_export = True
     target = tmp_path / "out.db"
-    # Pre-create both ``data`` and ``data_1`` so the loop has to iterate.
     import sqlite3
 
     conn = sqlite3.connect(target)

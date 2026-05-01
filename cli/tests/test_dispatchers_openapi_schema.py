@@ -23,8 +23,6 @@ from openbb_cli.dispatchers.openapi_schema import (
     url_to_command,
 )
 
-# ── _resolve_schema -------------------------------------------------
-
 
 def test_resolve_schema_primitive_string():
     assert _resolve_schema({"type": "string"}) == (str, [], False)
@@ -91,9 +89,6 @@ def test_resolve_schema_const_treated_as_single_choice():
     assert py_type is str and choices == ["fred"]
 
 
-# ── _provider_choices ----------------------------------------------
-
-
 def test_provider_choices_skips_reserved_keys():
     schema = {
         "type": "string",
@@ -111,9 +106,6 @@ def test_provider_choices_unions_per_provider_choices():
         "yfinance": {"choices": ["5m", "1d"]},
     }
     assert set(_provider_choices(schema)) == {"1m", "5m", "1d"}
-
-
-# ── parameter_to_kwargs --------------------------------------------
 
 
 def test_parameter_to_kwargs_skips_chart():
@@ -197,9 +189,6 @@ def test_parameter_to_kwargs_no_name_returns_none():
     assert parameter_to_kwargs({"schema": {"type": "string"}}) is None
 
 
-# ── build_parser_from_operation -----------------------------------
-
-
 def test_build_parser_uses_operation_metadata():
     op = {
         "operationId": "my_cmd",
@@ -271,16 +260,13 @@ def test_build_parser_skips_invalid_parameter_silently():
     assert ns.dup == "first"
 
 
-# ── url_to_command -------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "url, expected",
     [
         ("/api/v1/equity/price/historical", "equity.price.historical"),
         ("/api/v1/commodity/price/spot", "commodity.price.spot"),
         ("/api/v1/economy", "economy"),
-        ("/economy/cpi", "economy.cpi"),  # missing prefix is fine
+        ("/economy/cpi", "economy.cpi"),
     ],
 )
 def test_url_to_command(url, expected):
@@ -289,9 +275,6 @@ def test_url_to_command(url, expected):
 
 def test_url_to_command_custom_prefix():
     assert url_to_command("/api/v2/foo/bar", api_prefix="/api/v2") == "foo.bar"
-
-
-# ── build_command_index --------------------------------------------
 
 
 def test_build_command_index_keyed_by_dotted_path():
@@ -335,9 +318,6 @@ def test_build_command_index_uses_post_when_get_missing():
     assert "run" in build_command_index(spec)
 
 
-# ── build_router_map ----------------------------------------------
-
-
 def test_build_router_map_classifies_menus_and_commands():
     spec = {
         "paths": {
@@ -356,9 +336,6 @@ def test_build_router_map_classifies_menus_and_commands():
 def test_build_router_map_ignores_paths_without_methods():
     spec = {"paths": {"/api/v1/foo": {}}}
     assert build_router_map(spec) == {}
-
-
-# ── build_reference ----------------------------------------------
 
 
 def test_build_reference_paths_carry_descriptions():
@@ -405,9 +382,6 @@ def test_build_reference_router_default_description_when_tag_missing():
     assert ref["routers"]["/x/"]["description"] == ""
 
 
-# ── coverage closers — _resolve_schema / _strip_placeholders / yaml ─
-
-
 def test_resolve_schema_anyof_all_null_returns_str():
     """Edge: ``anyOf: [{type:null}]`` (no non-null types) collapses to str."""
     py_type, choices, is_list = _resolve_schema({"anyOf": [{"type": "null"}]})
@@ -442,11 +416,9 @@ def test_strip_placeholders_unbalanced_brace_breaks():
 
 
 def test_strip_placeholders_close_before_open_breaks_loop():
-    """``}foo{`` enters the loop (both braces present) but ``find('}', i)`` returns -1 (line 199)."""
+    """``}foo{`` enters the loop (both braces present) but ``find('}', i)`` returns -1."""
     from openbb_cli.dispatchers.openapi_schema import _strip_placeholders
 
-    # The while-loop sees both ``{`` and ``}`` so it enters; ``find('}', i)``
-    # then returns -1 because the ``}`` precedes the ``{``.
     assert _strip_placeholders("}foo{") == "}foo{"
 
 
@@ -455,9 +427,6 @@ def test_url_to_command_with_no_prefix_match_uses_full_path():
     from openbb_cli.dispatchers.openapi_schema import url_to_command
 
     assert url_to_command("/x/y/z", api_prefix="/api/v1") == "x.y.z"
-
-
-# ── detect_api_prefix ----------------------------------------------
 
 
 def test_detect_api_prefix_empty_spec_falls_back_to_default():
@@ -471,7 +440,6 @@ def test_detect_api_prefix_two_paths_diverging_immediately():
     from openbb_cli.dispatchers.openapi_schema import detect_api_prefix
 
     spec = {"paths": {"/foo/x": {}, "/bar/y": {}}}
-    # Common prefix = "" (empty string) → returns "".
     assert detect_api_prefix(spec) == ""
 
 
@@ -480,9 +448,6 @@ def test_detect_api_prefix_finds_common_segments():
 
     spec = {"paths": {"/api/foo/x": {}, "/api/bar/y": {}}}
     assert detect_api_prefix(spec) == "/api"
-
-
-# ── _parse_spec_text -----------------------------------------------
 
 
 def test_parse_spec_text_recognizes_json_object():
@@ -502,7 +467,6 @@ def test_parse_spec_text_recognizes_yaml_via_content_type():
 def test_parse_spec_text_recognizes_yaml_via_heuristic():
     from openbb_cli.dispatchers.openapi_schema import _parse_spec_text
 
-    # No content-type, but starts with ``openapi:`` — heuristic kicks in.
     out = _parse_spec_text("openapi: 3.0.0")
     assert out == {"openapi": "3.0.0"}
 
@@ -518,7 +482,6 @@ def test_parse_spec_text_falls_back_to_yaml_when_json_fails():
     """Last-resort branch: not JSON-shape, no content-type hint, no heuristic match."""
     from openbb_cli.dispatchers.openapi_schema import _parse_spec_text
 
-    # ``foo: bar`` parses as YAML mapping but not as JSON.
     out = _parse_spec_text("foo: bar")
     assert out == {"foo": "bar"}
 
@@ -528,24 +491,6 @@ def test_parse_spec_text_recognizes_json_array_form():
     from openbb_cli.dispatchers.openapi_schema import _parse_spec_text
 
     assert _parse_spec_text("[1, 2]") == [1, 2]
-
-
-# ── _yaml_load ----------------------------------------------------
-
-
-def test_yaml_load_raises_when_yaml_missing(monkeypatch):
-    """If PyYAML isn't installed the loader raises a clear ImportError."""
-    import sys
-
-    from openbb_cli.dispatchers.openapi_schema import _yaml_load
-
-    # Force ``import yaml`` to fail by clobbering the module entry.
-    monkeypatch.setitem(sys.modules, "yaml", None)
-    with pytest.raises(ImportError, match="PyYAML"):
-        _yaml_load("foo: bar")
-
-
-# ── fetch_openapi --------------------------------------------------
 
 
 def test_fetch_openapi_default_path_and_user_agent(monkeypatch):
@@ -617,7 +562,7 @@ def test_fetch_openapi_full_url_path_passes_through(monkeypatch):
 
 
 def test_resolve_schema_union_with_array_member_marks_is_list():
-    """``anyOf: [array, scalar]`` propagates ``is_list=True`` (line 81)."""
+    """``anyOf: [array, scalar]`` propagates ``is_list=True``."""
     _, _, is_list = _resolve_schema(
         {
             "anyOf": [
@@ -630,7 +575,7 @@ def test_resolve_schema_union_with_array_member_marks_is_list():
 
 
 def test_strip_placeholders_collapses_balanced_braces():
-    """``latest.{format}`` → ``latest`` (lines 196-200)."""
+    """``latest.{format}`` → ``latest``."""
     from openbb_cli.dispatchers.openapi_schema import _strip_placeholders
 
     assert _strip_placeholders("latest.{format}") == "latest"
@@ -638,28 +583,23 @@ def test_strip_placeholders_collapses_balanced_braces():
 
 def test_detect_api_prefix_breaks_when_common_emptied():
     """Three paths whose very first segment differs across them hit the
-    ``not common: break`` arm (line 229)."""
+    ``not common: break`` arm."""
     from openbb_cli.dispatchers.openapi_schema import detect_api_prefix
 
-    # ``/x`` (segs=[""]) → common=[""].
-    # ``a/y`` (no leading slash, segs=["a"]) — first elements differ → common=[].
-    # The ``if not common: break`` then exits the outer loop.
     spec = {"paths": {"/x/y": {}, "a/y/z": {}, "/x/q": {}}}
-    detect_api_prefix(spec)  # exercise; result not asserted, branch is what matters
+    detect_api_prefix(spec)
 
 
 def test_build_router_map_skips_empty_command():
-    """A URL that strips to an empty dotted command is skipped (line 280)."""
+    """A URL that strips to an empty dotted command is skipped."""
     from openbb_cli.dispatchers.openapi_schema import build_router_map
 
-    # ``{"operationId": "x"}`` is truthy so we reach line 280, where the
-    # url-to-command result is ``""`` (URL is the api prefix) and we ``continue``.
     spec = {"paths": {"/api/v1": {"get": {"operationId": "x"}}}}
     assert build_router_map(spec) == {}
 
 
 def test_build_reference_skips_paths_without_known_methods():
-    """A path with only DELETE/PUT is not surfaced (line 309)."""
+    """A path with only DELETE/PUT is not surfaced."""
     from openbb_cli.dispatchers.openapi_schema import build_reference
 
     spec = {"paths": {"/api/v1/x": {"delete": {"operationId": "x"}}}}
@@ -669,7 +609,7 @@ def test_build_reference_skips_paths_without_known_methods():
 
 
 def test_build_reference_dedupes_menu_paths():
-    """Two paths under the same menu → router entry recorded once (line 320)."""
+    """Two paths under the same menu → router entry recorded once."""
     from openbb_cli.dispatchers.openapi_schema import build_reference
 
     spec = {

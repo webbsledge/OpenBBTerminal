@@ -14,11 +14,6 @@ from openbb_cli.session import Session
 
 session = Session()
 
-# ``OBBject`` lives in ``openbb_core`` whose import chain transitively pulls
-# in the entire ``openbb`` package (including its provider auto-build). Defer
-# the import so the spec-driven REPL path (``--spec`` / ``--server``) doesn't
-# pay it. Single-instance cache keeps the lookup cheap on the hot paths.
-
 
 @lru_cache(maxsize=1)
 def _OBBject() -> type:
@@ -52,12 +47,11 @@ class PlatformController(BaseController):
 
     CHOICES_GENERATION = True
 
-    # Populated by ``PlatformControllerFactory.create()`` when a Backend is in use.
     _factory_backend: Any = None
     _factory_translators: dict[str, Any] | None = None
     _factory_paths: dict[str, str] | None = None
 
-    def __init__(  # pylint: disable=too-many-positional-arguments
+    def __init__(
         self,
         name: str,
         parent_path: list[str],
@@ -71,8 +65,6 @@ class PlatformController(BaseController):
         super().__init__(queue)
         self._name = name
 
-        # Source 1: factory-injected via Backend (set on the class by
-        # PlatformControllerFactory.create).
         if (
             translators is None
             and platform_target is None
@@ -83,9 +75,7 @@ class PlatformController(BaseController):
                 paths = self._factory_paths
             self._translated_target = DummyTranslation()
         elif platform_target is not None:
-            # Source 2: legacy in-process obb walk. Lazy-import to avoid
-            # paying the openbb import cost when running spec-driven.
-            from openbb import obb  # type: ignore[import-not-found]
+            from openbb import obb
 
             from openbb_cli.argparse_translator.argparse_class_processor import (
                 ArgparseClassProcessor,
@@ -93,10 +83,9 @@ class PlatformController(BaseController):
 
             self._translated_target = ArgparseClassProcessor(
                 target_class=platform_target,
-                reference=obb.reference["paths"],  # type: ignore[index]  # ty: ignore[not-subscriptable]
+                reference=obb.reference["paths"],  # ty: ignore[not-subscriptable]
             )
         elif translators is not None:
-            # Source 3: direct translator injection (sub-controllers).
             self._translated_target = DummyTranslation()
         else:
             raise ValueError(
@@ -124,9 +113,8 @@ class PlatformController(BaseController):
     def _link_obbject_to_data_processing_commands(self):
         """Link data processing commands to OBBject registry."""
         for _, trl in self.translators.items():
-            for action in trl._parser._actions:  # pylint: disable=protected-access
+            for action in trl._parser._actions:
                 if action.dest == "data":
-                    # Generate choices by combining indexed and key-based choices
                     action.choices = [
                         "OBB" + str(i)
                         for i in range(len(session.obbject_registry.obbjects))
@@ -172,10 +160,6 @@ class PlatformController(BaseController):
                     if translator_name in self.CHOICES_COMMANDS:
                         self.CHOICES_COMMANDS.remove(translator_name)
 
-            # Create the sub controller as a new class. Propagate the
-            # factory backend so nested help-text lookups keep using the same
-            # source (spec-driven sub-menus shouldn't silently fall back to
-            # in-process obb).
             class_name = f"{self._name.capitalize()}{path.capitalize()}Controller"
             SubController = type(
                 class_name,
@@ -197,7 +181,6 @@ class PlatformController(BaseController):
     def _generate_commands(self):
         """Generate commands."""
         for name, translator in self.translators.items():
-            # Prepare the translator name to create a command call in the controller
             new_name = name.replace(f"{self._name}_", "")
 
             self._generate_command_call(name=new_name, translator=translator)
@@ -241,9 +224,7 @@ class PlatformController(BaseController):
                                     "[yellow]Maximum number of OBBjects reached. The oldest entry was removed.[yellow]"
                                 )
 
-                            # use the obbject to store the command so we can display it later on results
                             obbject.extra["command"] = f"{title} {' '.join(other_args)}"
-                            # if there is a registry key in the parser, store to the obbject
                             if (
                                 hasattr(ns_parser, "register_key")
                                 and ns_parser.register_key
@@ -262,15 +243,11 @@ class PlatformController(BaseController):
                                     )
 
                             if store_obbject:
-                                # store the obbject in the registry
                                 register_result = session.obbject_registry.register(
                                     obbject
                                 )
 
-                                # we need to force to re-link so that the new obbject
-                                # is immediately available for data processing commands
                                 self._link_obbject_to_data_processing_commands()
-                                # also update the completer
                                 self.update_completer(self.choices_default)
 
                                 if (
@@ -281,10 +258,8 @@ class PlatformController(BaseController):
                                         "Added `OBBject` to cached results."
                                     )
 
-                            # Get chart flag
                             chart = hasattr(ns_parser, "chart") and ns_parser.chart
 
-                            # Use output adapter for display
                             if not export:
                                 try:
                                     session.output_adapter.display(
@@ -297,7 +272,6 @@ class PlatformController(BaseController):
                                     session.console.print(
                                         f"[red]Display error: {e}[/red]"
                                     )
-                                    # Fallback: try to show raw results
                                     if hasattr(obbject, "model_dump"):
                                         results = obbject.model_dump().get("results")
                                         session.console.print(results)
@@ -316,7 +290,6 @@ class PlatformController(BaseController):
                         if sheet_name and isinstance(sheet_name, list):
                             sheet_name = sheet_name[0]
 
-                        # Get figure if chart was requested
                         fig = None
                         if hasattr(ns_parser, "chart") and ns_parser.chart:
                             from contextlib import suppress
@@ -339,10 +312,8 @@ class PlatformController(BaseController):
                     session.console.print(f"[red]{e}[/]\n")
                     return
 
-        # Bind the method to the class
         bound_method = MethodType(method, self)
 
-        # Update the wrapper and set the attribute
         bound_method = update_wrapper(
             partial(bound_method, translator=translator), method
         )
@@ -361,10 +332,8 @@ class PlatformController(BaseController):
                 queue=self.queue,
             )
 
-        # Bind the method to the class
         bound_method = MethodType(method, self)
 
-        # Update the wrapper and set the attribute
         bound_method = update_wrapper(
             partial(
                 bound_method,
@@ -433,7 +402,6 @@ class PlatformController(BaseController):
         if menu_description:
             return menu_description.split(".")[0].lower()
 
-        # If no description is found, return the sub menu commands
         return ", ".join(_get_sub_menu_commands())
 
     def print_help(self):

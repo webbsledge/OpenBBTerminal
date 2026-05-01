@@ -8,11 +8,6 @@ from openbb_cli.controllers.platform_controller_factory import (
     PlatformControllerFactory,
 )
 
-# pylint: disable=redefined-outer-name, unused-argument
-
-
-# ── Backend-driven construction ----------------------------------
-
 
 def _stub_backend(translators=None, paths=None):
     """Return a Mock that quacks like ``Backend.get_translators_for_path``."""
@@ -47,12 +42,8 @@ def test_create_controller_classifies_menus_and_commands():
     )
     factory = PlatformControllerFactory(backend=backend, router_name="test_router")
     ControllerClass = factory.create()
-    # Sub-router shows up as a menu.
     assert "settings" in ControllerClass.CHOICES_MENUS
-    # ``quote`` (no sub-prefix match) lands as a leaf command.
     assert "quote" in ControllerClass.CHOICES_COMMANDS
-    # ``settings_inner`` belongs to the ``settings`` sub-controller; the
-    # outer controller does not advertise it.
     assert all("settings" not in cmd for cmd in ControllerClass.CHOICES_COMMANDS)
 
 
@@ -67,9 +58,6 @@ def test_create_propagates_factory_attributes():
     assert ControllerClass._factory_backend is backend
     assert "test_x" in ControllerClass._factory_translators
     assert ControllerClass._factory_paths == {"settings": "subpath"}
-
-
-# ── Legacy ``platform_router=...`` form ---------------------------
 
 
 @pytest.fixture

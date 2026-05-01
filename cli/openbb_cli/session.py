@@ -30,14 +30,13 @@ class Session(metaclass=SingletonMeta):
     """
 
     def __init__(self) -> None:
-        self._obb_cached: Any = None  # populated lazily via ``_obb``
+        self._obb_cached: Any = None
         self._settings = Settings()
         self._style = Style(style=self._settings.RICH_STYLE, directory=None)
         self._console = Console(
             settings=self._settings, style=self._style.console_style
         )
         self._obbject_registry = Registry()
-        # Lazy slots — do not initialize here.
         self._prompt_session: Any = _UNSET
         self._backend: Any = _UNSET
         self._output_adapter: Any = _UNSET
@@ -52,12 +51,11 @@ class Session(metaclass=SingletonMeta):
         on first access.
         """
         if self._obb_cached is None:
-            from openbb import obb  # type: ignore[import-not-found]
+            from openbb import obb
 
             self._obb_cached = obb
-            # Apply the user-styles directory once obb is available.
             try:
-                directory = Path(obb.user.preferences.user_styles_directory)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+                directory = Path(obb.user.preferences.user_styles_directory)  # ty: ignore[unresolved-attribute]
                 self._style.apply(self._settings.RICH_STYLE, directory)
             except Exception:  # noqa: BLE001, S110 — best-effort styling, intentional
                 pass
@@ -66,7 +64,7 @@ class Session(metaclass=SingletonMeta):
     @property
     def user(self) -> User:
         """Get platform user."""
-        return self._obb.user  # type: ignore[union-attr]
+        return self._obb.user
 
     @property
     def settings(self) -> Settings:
@@ -163,8 +161,8 @@ class Session(metaclass=SingletonMeta):
 
             return Backend(
                 ChartingSettings(
-                    system_settings=self._obb.system,  # type: ignore[union-attr]
-                    user_settings=self._obb.user,  # type: ignore[union-attr]
+                    system_settings=self._obb.system,
+                    user_settings=self._obb.user,
                 )
             )
         except Exception:

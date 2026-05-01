@@ -9,8 +9,6 @@ from openbb_cli.controllers.script_parser import (
     parse_openbb_script,
 )
 
-# pylint: disable=import-outside-toplevel, unused-variable, line-too-long
-
 
 @pytest.mark.parametrize(
     "command, expected",
@@ -125,7 +123,7 @@ def test_date_keyword_next_friday_returns_a_future_date():
     """``$NEXTFRIDAY`` returns the next Friday's date (or today if Friday and equal)."""
     result = match_and_return_openbb_keyword_date("$NEXTFRIDAY")
     parsed = datetime.strptime(result, "%Y-%m-%d")
-    assert parsed.weekday() == 4  # 4 == Friday
+    assert parsed.weekday() == 4
 
 
 def test_date_keyword_relative_days_ago():
@@ -243,7 +241,6 @@ def test_parse_openbb_script_skips_reset_lines():
     error, script = parse_openbb_script(["reset", "echo done"])
     assert error == ""
     assert "done" in script
-    # 'reset' should not appear in the assembled script output.
     assert "/reset" not in script.split("/")[1] if "/" in script else True
 
 
@@ -296,65 +293,62 @@ def test_parse_openbb_script_with_routines_args_replaces_argv():
     assert "AAPL" in script
 
 
-# ── coverage closers — date branches, slicing edges, list expansion ─────
-
-
 def test_date_keyword_last_monday_when_today_is_tuesday(freezer):
-    """``$LASTMONDAY`` on a Tuesday returns the prior day (line 101 branch)."""
-    freezer.move_to("2024-01-09")  # Tuesday
+    """``$LASTMONDAY`` on a Tuesday returns the prior day."""
+    freezer.move_to("2024-01-09")
     result = match_and_return_openbb_keyword_date("$LASTMONDAY")
-    assert result == "2024-01-08"  # Monday
+    assert result == "2024-01-08"
 
 
 def test_date_keyword_next_december_when_today_is_january(freezer):
-    """``$NEXTDECEMBER`` from January resolves to **this year**'s December (line 121)."""
+    """``$NEXTDECEMBER`` from January resolves to **this year**'s December."""
     freezer.move_to("2024-01-15")
     result = match_and_return_openbb_keyword_date("$NEXTDECEMBER")
     assert result == "2024-12-01"
 
 
 def test_date_keyword_next_monday_when_today_is_tuesday(freezer):
-    """``$NEXTMONDAY`` on Tuesday resolves to next week's Monday (line 137 branch)."""
-    freezer.move_to("2024-01-09")  # Tuesday
+    """``$NEXTMONDAY`` on Tuesday resolves to next week's Monday."""
+    freezer.move_to("2024-01-09")
     result = match_and_return_openbb_keyword_date("$NEXTMONDAY")
-    assert result == "2024-01-15"  # Monday next week
+    assert result == "2024-01-15"
 
 
 def test_date_keyword_next_friday_when_today_is_monday(freezer):
-    """``$NEXTFRIDAY`` on Monday resolves to this week's Friday (line 132 branch)."""
-    freezer.move_to("2024-01-08")  # Monday (weekday=0)
+    """``$NEXTFRIDAY`` on Monday resolves to this week's Friday."""
+    freezer.move_to("2024-01-08")
     result = match_and_return_openbb_keyword_date("$NEXTFRIDAY")
-    assert result == "2024-01-12"  # Friday of the same week
+    assert result == "2024-01-12"
 
 
 def test_parse_openbb_script_string_var_index_zero():
-    """``$VAR[0]`` for a non-list string variable substitutes the whole string (line 259)."""
+    """``$VAR[0]`` for a non-list string variable substitutes the whole string."""
     error, script = parse_openbb_script(["$DATE = 2022-01-01", "echo $DATE[0]"])
     assert error == ""
     assert "2022-01-01" in script
 
 
 def test_parse_openbb_script_index_valid_nonzero():
-    """``$VAR[N]`` for a valid in-bounds N replaces with that element (line 281)."""
+    """``$VAR[N]`` for a valid in-bounds N replaces with that element."""
     error, script = parse_openbb_script(["$VAR = a,b,c", "echo $VAR[2]"])
     assert error == ""
     assert script == "/echo c"
 
 
 def test_parse_openbb_script_slice_yields_empty_returns_error():
-    """``$VAR[5:10]`` over a 2-elem list yields an empty slice → red error (line 322)."""
+    """``$VAR[5:10]`` over a 2-elem list yields an empty slice → red error."""
     error, _ = parse_openbb_script(["$VAR = a,b", "echo $VAR[5:10]"])
     assert "foreach loop cannot run" in error
 
 
 def test_parse_openbb_script_minus_nondigit_index_returns_error():
-    """``$VAR[-abc]`` (minus + non-digit) hits the inner non-digit branch (line 333)."""
+    """``$VAR[-abc]`` (minus + non-digit) hits the inner non-digit branch."""
     error, _ = parse_openbb_script(["$VAR = a,b", "echo $VAR[-abc]"])
     assert "not a value" in error
 
 
 def test_parse_openbb_script_list_var_plain_reference_joins():
-    """Plain ``$VAR`` reference where VAR is a list joins with comma (line 353)."""
+    """Plain ``$VAR`` reference where VAR is a list joins with comma."""
     error, script = parse_openbb_script(["$LIST = a,b,c", "echo $LIST"])
     assert error == ""
     assert script == "/echo a,b,c"

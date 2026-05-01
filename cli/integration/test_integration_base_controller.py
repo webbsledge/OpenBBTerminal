@@ -7,8 +7,6 @@ import pytest
 from openbb_cli.controllers.base_controller import BaseController
 from openbb_cli.session import Session
 
-# pylint: disable=unused-variable, redefined-outer-name
-
 
 class DummyController(BaseController):
     """Test controller for the BaseController."""
@@ -41,11 +39,11 @@ def test_check_path_valid(base_controller):
 def test_check_path_invalid(base_controller):
     """Test that check_path raises an error for an invalid path."""
     with pytest.raises(ValueError):
-        base_controller.PATH = "invalid_path"  # Missing leading '/'
+        base_controller.PATH = "invalid_path"
         base_controller.check_path()
 
     with pytest.raises(ValueError):
-        base_controller.PATH = "/invalid_path"  # Missing trailing '/'
+        base_controller.PATH = "/invalid_path"
         base_controller.check_path()
 
 
@@ -53,7 +51,6 @@ def test_check_path_invalid(base_controller):
 def test_parse_input(base_controller):
     """Test the parse_input method."""
     input_str = "/equity/price/help"
-    # Leading '/' prepends "home" to navigate to root first
     expected_output = ["home", "equity", "price", "help"]
     assert base_controller.parse_input(input_str) == expected_output, (
         "Input parsing failed"

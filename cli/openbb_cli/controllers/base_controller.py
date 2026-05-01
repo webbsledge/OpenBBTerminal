@@ -28,14 +28,10 @@ from openbb_cli.controllers.utils import (
 )
 from openbb_cli.session import Session
 
-# pylint: disable=C0301,C0302,R0902,global-statement,too-many-boolean-expressions
-# pylint: disable=R0912
-
 controllers: dict[str, Any] = {}
 session = Session()
 
 
-# TODO: We should try to avoid these global variables
 RECORD_SESSION = False
 SESSION_RECORDED = list()
 SESSION_RECORDED_NAME = ""
@@ -119,30 +115,24 @@ class BaseController(metaclass=ABCMeta):
     def update_completer(self, choices) -> None:
         """Update the completer with new choices."""
         if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
-            # Add file completions for load command
             from openbb_cli.controllers.utils import get_data_files_for_completion
 
             if "load" not in choices:
                 choices["load"] = {}
 
-            # Add file path completions for --file and -f flags
             data_files = get_data_files_for_completion()
             if data_files:
-                # Create completions for both --file and -f flags
                 file_completions = {file: None for file in data_files}
                 choices["load"]["--file"] = file_completions
                 choices["load"]["-f"] = file_completions
-            # Also add other load command flags
             choices["load"]["--sheet-name"] = None
             choices["load"]["--register_key"] = None
             choices["load"]["--help"] = None
             choices["load"]["-h"] = "--help"
 
-            # Add completions for results command with dynamic indices/keys
             if "results" not in choices:
                 choices["results"] = {}
 
-            # Get dynamic index and key completions from registry
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
             key_completions = {
@@ -196,7 +186,6 @@ class BaseController(metaclass=ABCMeta):
         if class_ins.PATH in controllers and arguments == 1:
             old_class = controllers[class_ins.PATH]
             old_class.queue = self.queue
-            # Refresh completer to get updated dynamic completions
             old_class.update_completer(old_class.choices_default)
             return old_class.menu()
         return class_ins(*args, **kwargs).menu()
@@ -222,19 +211,14 @@ class BaseController(metaclass=ABCMeta):
 
         Protects file paths with -f/--file flags from being split on '/'.
         """
-        # Protect file paths from being split by replacing them with placeholders
-        # Pattern matches: -f or --file followed by path ending in known extension,
-        # including any arguments after the file path
         file_flag = r"(\ -f |\ --file )"
         up_to = r".*?"
         known_extensions = (
             r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb|db|sqlite|sqlite3))"
         )
-        # Match everything from -f/--file through extension and arguments until / or end
         optional_args = r"(?:\ [^/]+)*?"
         file_path_pattern = f"({file_flag}{up_to}{known_extensions}{optional_args})"
 
-        # Find and replace file paths with placeholders
         placeholders: dict[str, str] = {}
         placeholder_count = 0
 
@@ -250,22 +234,16 @@ class BaseController(metaclass=ABCMeta):
             )
             placeholder_count += 1
 
-        # Now split on '/' - the placeholders protect file paths
-        # The original regex handles quoted strings
         commands = re.split(r"/(?=(?:[^\"']*[\"'][^\"']*[\"'])*[^\"']*$)", an_input)
 
-        # Restore placeholders in commands
         result = []
         for cmd in commands:
             cleaned = cmd.strip()
             if cleaned:
-                # Replace any placeholders back to original file paths
                 for placeholder, original in placeholders.items():
                     cleaned = cleaned.replace(placeholder, original)
                 result.append(cleaned)
 
-        # If the input started with '/', prepend "home" so switch()
-        # navigates to root first — but only if "home" isn't already first.
         if an_input.startswith("/") and (not result or result[0] != "home"):
             result.insert(0, "home")
 
@@ -284,24 +262,17 @@ class BaseController(metaclass=ABCMeta):
         if an_input and an_input != "reset":
             session.console.print()
 
-        # Empty command
         if len(actions) == 0:
             pass
 
-        # Navigation slash is being used first split commands
         elif len(actions) > 1:
-            # Absolute path is specified
             if not actions[0]:  # pragma: no cover
-                # Unreachable: ``parse_input`` filters out empty segments before
-                # returning. Kept as a defensive guard for direct callers.
                 actions[0] = "home"
 
-            # Add all instructions to the queue
             for cmd in actions[::-1]:
                 if cmd:
                     self.queue.insert(0, cmd)
 
-        # Single command fed, process
         else:
             try:
                 known_args, other_args = self.parser.parse_known_args(
@@ -313,7 +284,6 @@ class BaseController(metaclass=ABCMeta):
             if RECORD_SESSION:
                 SESSION_RECORDED.append(an_input)
 
-            # Redirect commands to their correct functions
             if known_args.cmd:
                 if known_args.cmd in ("..", "q"):
                     known_args.cmd = "quit"
@@ -363,7 +333,6 @@ class BaseController(metaclass=ABCMeta):
         self.queue.insert(0, "quit")
 
     def call_exit(self, _) -> None:
-        # Not sure how to handle controller loading here
         """Process exit cli command."""
         self.save_class()
         for _ in range(self.PATH.count("/")):
@@ -482,7 +451,6 @@ class BaseController(metaclass=ABCMeta):
                 )
                 return
 
-            # Check if title has a valid format
             title = " ".join(ns_parser.name) if ns_parser.name else ""
             pattern = re.compile(r"^[a-zA-Z0-9\s]+$")
             if not pattern.match(title):
@@ -522,7 +490,6 @@ class BaseController(metaclass=ABCMeta):
             prog="stop",
             description="Stop recording session into .openbb routine file",
         )
-        # This is only for auto-completion purposes
         _, _ = self.parse_simple_args(parser, other_args)
 
         if "-h" not in other_args and "--help" not in other_args:
@@ -548,7 +515,6 @@ class BaseController(metaclass=ABCMeta):
                     title_for_local_storage,
                 )
 
-                # If file already exists, add a timestamp to the name
                 if os.path.isfile(routine_file):
                     i = session.console.input(
                         "A local routine with the same name already exists, do you want to override it? (y/n): "
@@ -572,7 +538,6 @@ class BaseController(metaclass=ABCMeta):
                             f"[yellow]The routine name has been updated to '{new_name}'[/yellow]\n"
                         )
 
-                # Writing to file
                 Path(os.path.dirname(routine_file)).mkdir(parents=True, exist_ok=True)
 
                 with open(routine_file, "w") as file1:
@@ -586,14 +551,12 @@ class BaseController(metaclass=ABCMeta):
                         "\n\n",
                     ]
                     lines += [c + "\n" for c in SESSION_RECORDED[:-1]]
-                    # Writing data to a file
                     file1.writelines(lines)
 
                 session.console.print(
                     f"[green]Your routine has been recorded and saved here: {routine_file}[/green]\n"
                 )
 
-                # Clear session to be recorded again
                 RECORD_SESSION = False
                 SESSION_RECORDED = list()
 
@@ -721,11 +684,8 @@ class BaseController(metaclass=ABCMeta):
         if ns_parser and ns_parser.file:
             from openbb_core.app.model.obbject import OBBject
 
-            # Use the file path directly from parsed args
-            # parse_and_split_input already protects file paths from being split by '/'
             file_path_str = ns_parser.file
 
-            # Get the user data directory from settings
             user_data_dir = Path(session.user.preferences.data_directory)
             file_path = user_data_dir / file_path_str
 
@@ -734,23 +694,17 @@ class BaseController(metaclass=ABCMeta):
                 return
 
             try:
-                # Determine file type and load accordingly
                 file_ext = file_path.suffix.lower()
 
                 if file_ext == ".csv":
-                    # Load with no index column
                     df = pd.read_csv(file_path, index_col=None)
-                    # Drop any "Unnamed: 0" type columns that are just saved index artifacts
                     df = df.loc[:, ~df.columns.str.startswith("Unnamed:")]
 
-                    # Create OBBject with the loaded data
                     obbject = OBBject(results=df)
 
-                    # Store command in extra
                     command = f"/load -f {file_path_str}"
                     obbject.extra["command"] = command
 
-                    # Handle register key
                     if ns_parser.register_key:
                         if (
                             ns_parser.register_key
@@ -763,7 +717,6 @@ class BaseController(metaclass=ABCMeta):
                                 "The `OBBject` was kept without the key.[/yellow]"
                             )
 
-                    # Register and display
                     if session.max_obbjects_exceeded():
                         session.obbject_registry.remove()
                         session.console.print(
@@ -838,7 +791,6 @@ class BaseController(metaclass=ABCMeta):
                 elif file_ext in [".xlsx", ".xls"]:
                     sheet_name = ns_parser.sheet_name if ns_parser.sheet_name else 0
                     df = pd.read_excel(file_path, sheet_name=sheet_name, index_col=None)
-                    # Drop any "Unnamed: 0" type columns
                     df = df.loc[:, ~df.columns.str.startswith("Unnamed:")]
 
                     obbject = OBBject(results=df)
@@ -886,7 +838,6 @@ class BaseController(metaclass=ABCMeta):
                         )
 
                 elif file_ext in [".db", ".sqlite", ".sqlite3"]:
-                    # SQLite database - load all tables with lazy loading
                     import sqlite3
 
                     from openbb_cli.controllers.utils import SQLiteTable
@@ -894,7 +845,6 @@ class BaseController(metaclass=ABCMeta):
                     conn = sqlite3.connect(file_path)
                     try:
                         cursor = conn.cursor()
-                        # Get all table names
                         cursor.execute(
                             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
                         )
@@ -906,31 +856,25 @@ class BaseController(metaclass=ABCMeta):
                             )
                             return
 
-                        # Load each table as a separate OBBject with SQLiteTable wrapper
                         loaded_count = 0
                         for table_name in tables:
-                            # Get row count for metadata
                             quoted = '"' + table_name.replace('"', '""') + '"'
                             cursor.execute(f"SELECT COUNT(*) FROM {quoted}")  # noqa: S608
                             row_count = cursor.fetchone()[0]
 
-                            # Create SQLiteTable wrapper (lazy - no data loaded yet)
                             sqlite_table = SQLiteTable(
                                 db_path=str(file_path),
                                 table_name=table_name,
                                 row_count=row_count,
                             )
 
-                            # Create OBBject with SQLiteTable
                             obbject = OBBject(results=sqlite_table)
                             command = f"/load -f {file_path_str} --table {table_name}"
                             obbject.extra["command"] = command
 
-                            # Auto-generate register key: filename_tablename
-                            base_name = file_path.stem  # filename without extension
+                            base_name = file_path.stem
                             auto_key = f"{base_name}_{table_name}"
 
-                            # If user provided a key and this is the only table, use it
                             if ns_parser.register_key and len(tables) == 1:
                                 if (
                                     ns_parser.register_key
@@ -945,7 +889,6 @@ class BaseController(metaclass=ABCMeta):
                                         f"Using auto-generated key: {auto_key}[/yellow]"
                                     )
                                     obbject.extra["register_key"] = auto_key
-                            # Multiple tables or no user key - use auto key
                             elif auto_key not in session.obbject_registry.obbject_keys:
                                 obbject.extra["register_key"] = auto_key
                             else:
@@ -954,7 +897,6 @@ class BaseController(metaclass=ABCMeta):
                                     "The `OBBject` was kept without the key.[/yellow]"
                                 )
 
-                            # Register
                             if session.max_obbjects_exceeded():
                                 session.obbject_registry.remove()
                                 session.console.print(
@@ -963,7 +905,6 @@ class BaseController(metaclass=ABCMeta):
 
                             if session.obbject_registry.register(obbject):
                                 loaded_count += 1
-                                # Get schema info for display
                                 cursor.execute(f"PRAGMA table_info({table_name})")
                                 columns = [col[1] for col in cursor.fetchall()]
 
@@ -1029,7 +970,6 @@ class BaseController(metaclass=ABCMeta):
         try:
             ns_parser, l_unknown_args = parser.parse_known_args(other_args)
         except SystemExit:
-            # In case the command has required argument that isn't specified
             session.console.print("\n")
             return None, None
 
@@ -1045,7 +985,7 @@ class BaseController(metaclass=ABCMeta):
         return ns_parser, l_unknown_args
 
     @classmethod
-    def parse_known_args_and_warn(  # pylint: disable=R0917
+    def parse_known_args_and_warn(
         cls,
         parser: argparse.ArgumentParser,
         other_args: list[str],
@@ -1111,7 +1051,6 @@ class BaseController(metaclass=ABCMeta):
                 nargs="+",
             )
 
-            # If excel is an option, add the sheet name
             if export_allowed in [
                 "raw_data_only",
                 "raw_data_and_figures",
@@ -1166,24 +1105,15 @@ class BaseController(metaclass=ABCMeta):
             return None
 
         try:
-            # Determine the index of the routine arguments
             routine_args_index = next(
                 (
                     i + 1
                     for i, arg in enumerate(other_args)
                     if arg in ("-i", "--input")
-                    and "routine_args"
-                    in [
-                        action.dest
-                        for action in parser._actions  # pylint: disable=protected-access
-                    ]
+                    and "routine_args" in [action.dest for action in parser._actions]
                 ),
                 -1,
             )
-            # Collect indices whose values should NOT be comma-split because
-            # the provider may accept a comma-separated string (e.g. --symbol
-            # AAPL,MSFT).  Handles --flag value, --flag=value, -f value, and
-            # multi-value flags (nargs="+" / nargs="*" / nargs=N).
             no_split_indices: set[int] = set()
             if 0 <= routine_args_index < len(other_args):
                 no_split_indices.add(routine_args_index)
@@ -1191,38 +1121,31 @@ class BaseController(metaclass=ABCMeta):
             for i, arg in enumerate(other_args):
                 if not arg.startswith("-"):
                     continue
-                # Handle --flag=value by extracting the flag portion.
                 flag_part = arg.split("=", 1)[0] if "=" in arg else arg
-                for action in parser._actions:  # pylint: disable=protected-access
+                for action in parser._actions:
                     if flag_part in action.option_strings and action.nargs != 0:
                         if "=" in arg:
-                            # Value is embedded in the same token.
                             no_split_indices.add(i)
                         elif action.nargs in ("+", "*") or (
                             isinstance(action.nargs, int) and action.nargs > 1
                         ):
-                            # Multi-value flag: protect all consecutive
-                            # non-flag tokens after the flag.
                             j = i + 1
                             while j < len(other_args) and not other_args[j].startswith(
                                 "-"
                             ):
                                 no_split_indices.add(j)
                                 j += 1
-                        # Single-value flag: protect the next token.
                         elif i + 1 < len(other_args):
                             no_split_indices.add(i + 1)
                         break
 
-            # Split comma-separated arguments only for positional / unflagged values.
             other_args = [
                 part
                 for index, arg in enumerate(other_args)
                 for part in ([arg] if index in no_split_indices else arg.split(","))
             ]
 
-            # Check if the action has optional choices, if yes, remove them
-            for action in parser._actions:  # pylint: disable=protected-access
+            for action in parser._actions:
                 if getattr(action, "optional_choices", None):
                     action.choices = None
 
@@ -1237,8 +1160,6 @@ class BaseController(metaclass=ABCMeta):
                 )
 
         except SystemExit:
-            # In case the command has required argument that isn't specified
-
             return None
 
         if l_unknown_args:
@@ -1253,12 +1174,9 @@ class BaseController(metaclass=ABCMeta):
         an_input = "HELP_ME"
 
         while True:
-            # There is a command in the queue
             if self.queue and len(self.queue) > 0:
                 if self.queue[0] in ("q", "..", "quit"):
                     self.save_class()
-                    # Go back to the root in order to go to the right directory because
-                    # there was a jump between indirect menus
                     if custom_path_menu_above:
                         self.queue.insert(1, custom_path_menu_above)
 
@@ -1269,11 +1187,9 @@ class BaseController(metaclass=ABCMeta):
                         return ["help"]
                     return []
 
-                # Consume 1 element from the queue
                 an_input = self.queue[0]
                 self.queue = self.queue[1:]
 
-                # Print location because this was an instruction and we want user to know the action
                 if (
                     an_input
                     and an_input not in ("home", "help")
@@ -1283,16 +1199,13 @@ class BaseController(metaclass=ABCMeta):
                         f"{get_flair_and_username()} {self.PATH} $ {an_input}"
                     )
 
-            # Get input command from user
             else:
-                # Display help menu when entering on this menu from a level above
                 if an_input == "HELP_ME":
                     self.print_help()
 
                 try:
                     prompt_session = session.prompt_session
                     if prompt_session and settings.USE_PROMPT_TOOLKIT:
-                        # Check if toolbar hint was enabled
                         if settings.TOOLBAR_HINT:
                             an_input = prompt_session.prompt(
                                 f"{get_flair_and_username()} {self.PATH} $ ",
@@ -1316,19 +1229,15 @@ class BaseController(metaclass=ABCMeta):
                                 completer=self.completer,
                                 search_ignore_case=True,
                             )
-                    # Get input from user without auto-completion
                     else:
                         an_input = input(f"{get_flair_and_username()} {self.PATH} $ ")
 
                 except (KeyboardInterrupt, EOFError):
-                    # Exit in case of keyboard interrupt
                     an_input = "exit"
 
             try:
-                # Allow user to go back to root
                 an_input = "home" if an_input == "/" else an_input
 
-                # Process the input command
                 self.queue = self.switch(an_input)
 
             except SystemExit:
@@ -1347,11 +1256,6 @@ class BaseController(metaclass=ABCMeta):
                             f"{similar_cmd[0]} {' '.join(an_input.split(' ')[1:])}"
                         )
                         if candidate_input == an_input:  # pragma: no cover
-                            # Unreachable in practice — argparse only rejects
-                            # an_input when its first token isn't a valid
-                            # command, but ``similar_cmd[0]`` is drawn from
-                            # ``controller_choices``, so by definition it
-                            # cannot equal the rejected first token.
                             an_input = ""
                             self.queue = []
                             session.console.print("\n")

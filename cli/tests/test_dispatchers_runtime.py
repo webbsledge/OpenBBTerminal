@@ -17,8 +17,6 @@ from openbb_cli.dispatchers.runtime import (
     run_batch,
 )
 
-# ── parse_argv ──────────────────────────────────────────────────────
-
 
 def test_parse_argv_basic():
     req = parse_argv(["economy.gdp"])
@@ -59,9 +57,6 @@ def test_parse_argv_literal_eval_for_lists_and_dicts():
 def test_parse_argv_unexpected_positional():
     with pytest.raises(SystemExit):
         parse_argv(["cmd", "stray"])
-
-
-# ── run_argv ────────────────────────────────────────────────────────
 
 
 class _FakeDispatcher:
@@ -149,9 +144,6 @@ def test_run_batch_serializes_non_json_values_via_default_str():
     assert line["result"]["chart"] == "<fig>"
 
 
-# ── run_batch ───────────────────────────────────────────────────────
-
-
 def _ndjson(*requests: dict[str, Any]) -> str:
     return "\n".join(json.dumps(r) for r in requests) + "\n"
 
@@ -194,7 +186,7 @@ def test_run_batch_reports_request_parse_errors():
     reader = io.StringIO("not-json\n" + _ndjson({"id": "ok", "command": "ping"}))
     writer = io.StringIO()
     rc = run_batch(d, reader=reader, writer=writer, concurrency=1)
-    assert rc == 1  # at least one parse failure
+    assert rc == 1
     lines = [json.loads(ln) for ln in writer.getvalue().splitlines() if ln]
     types = {ln.get("error", {}).get("type") for ln in lines if not ln["ok"]}
     assert "RequestParseError" in types
@@ -222,9 +214,6 @@ def test_run_batch_default_concurrency_from_env(monkeypatch):
 
 def test_default_batch_concurrency_constant():
     assert DEFAULT_BATCH_CONCURRENCY > 0
-
-
-# ── parser ──────────────────────────────────────────────────────────
 
 
 def test_parser_interactive_flag():
