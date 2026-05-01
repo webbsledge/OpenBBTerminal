@@ -3,6 +3,7 @@
 import argparse
 import inspect
 import re
+import types
 from collections.abc import Callable
 from copy import deepcopy
 from typing import (
@@ -226,7 +227,14 @@ class ArgparseTranslator:
     def _get_action_type(
         self, param: inspect.Parameter
     ) -> Literal["store_true", "store"]:
-        """Return the argparse action type for the given parameter."""
+        """Return the argparse action type for the given parameter.
+
+        ``bool | int`` (PEP 604 syntax) produces ``types.UnionType``; the
+        legacy ``Union[bool, int]`` form produces ``typing.Union``. Accept
+        either origin so behavior is consistent across Python versions —
+        Python 3.11's ``get_type_hints`` keeps PEP 604 unions as
+        ``types.UnionType`` whereas later versions normalize to ``Union``.
+        """
         param_type = self.type_hints[param.name]
         origin = get_origin(param_type)
         args = get_args(param_type)
@@ -234,15 +242,7 @@ class ArgparseTranslator:
         if param_type is bool:
             return "store_true"
 
-        if origin is Union and bool in args:
-            return "store_true"
-
-        # Special case for Optional[bool] which is Union[bool, None].
-        # Defensive — the previous branch already catches any Union containing
-        # bool, so this duplicate-condition arm is never reached.
-        if (  # pragma: no cover
-            origin is Union and bool in args and type(None) in args
-        ):
+        if origin in (Union, types.UnionType) and bool in args:
             return "store_true"
 
         return "store"

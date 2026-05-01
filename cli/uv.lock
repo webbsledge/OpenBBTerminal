@@ -1738,6 +1738,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "prompt-toolkit" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
     { name = "rich" },
 ]
 
@@ -1769,6 +1770,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.1,<2.0.0" },
     { name = "pywry", marker = "extra == 'all'", specifier = ">=2.0.0" },
     { name = "pywry", marker = "extra == 'interactive'", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=14.0.0,<15.0.0" },
 ]
 provides-extras = ["charting", "interactive", "all"]
