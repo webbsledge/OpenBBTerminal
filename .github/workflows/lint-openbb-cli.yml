@@ -47,11 +47,11 @@ jobs:
         env:
           HEAD_REF: ${{ github.head_ref }}
 
-      - name: Install openbb-cli with all extras + dev group
+      - name: Install openbb-cli
         working-directory: cli
         run: |
           python -m pip install --upgrade pip uv
-          python -m uv pip install --system -e ".[all]" --group dev
+          python -m uv pip install --system -e ".[charting]" --group dev
 
       - name: Run ruff format / ruff check / ty on changed CLI files
         run: |

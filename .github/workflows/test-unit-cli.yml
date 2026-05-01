@@ -66,10 +66,10 @@ jobs:
           allow-prereleases: true
           cache: "pip"
 
-      - name: Install openbb-cli (with all extras) and dev deps
+      - name: Install openbb-cli
         run: |
           python -m pip install --upgrade pip uv
-          python -m uv pip install --system -e ".[all]" --group dev
+          python -m uv pip install --system -e ".[charting]" --group dev
 
       - name: Run unit tests
         run: |
