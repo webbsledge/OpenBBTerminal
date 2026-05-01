@@ -214,6 +214,36 @@ def cli_fake_extension_installed(tmp_path_factory):
             del sys.modules[mod_name]
         _restore_dir(pkg_snapshot, PACKAGE_DIR)
         _restore_dir(assets_snapshot, ASSETS_DIR)
+        _combine_partial_coverage()
+
+
+def _combine_partial_coverage() -> None:
+    """Merge ``.coverage.<host>.pid<N>.<rand>`` partials and erase them.
+
+    ``parallel = True`` in ``.coveragerc`` makes every subprocess (the
+    ``_run_openbb_build`` build call and every ``run_in_obb`` snippet) write a
+    uniquely-named partial. Without ``coverage combine`` they accumulate at
+    the repo root across runs. Run combine if any partial exists; otherwise
+    no-op so suites that don't use the subprocess path stay clean.
+    """
+    here = Path(__file__).resolve().parent
+    if not list(here.glob(".coverage.*")):
+        return
+    # ``coverage combine`` merges the partials into the main data file and
+    # removes them. Any partial that survives (e.g. wrong format from a prior
+    # interpreter version) gets cleaned up explicitly so the working tree
+    # doesn't stay dirty across runs.
+    with contextlib.suppress(subprocess.CalledProcessError, FileNotFoundError):
+        subprocess.run(  # noqa: S603
+            [sys.executable, "-m", "coverage", "combine"],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(here),
+        )
+    for partial in here.glob(".coverage.*"):
+        with contextlib.suppress(OSError):
+            partial.unlink()
 
 
 @pytest.fixture(scope="session")

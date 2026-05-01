@@ -240,8 +240,11 @@ def test_run_scripts_with_routines_args(tmp_path):
     script = tmp_path / "r.openbb"
     script.write_text("echo $ARGV[0]\necho $ARGV[1]\n")
     with patch.object(cli_controller, "run_cli") as run_cli_:
+        # ``output=False`` keeps test_mode on the no-write branch — otherwise
+        # ``run_scripts`` writes an empty output file under
+        # ``REPOSITORY_DIRECTORY/integration_test_output`` (the real repo root).
         cli_controller.run_scripts(
-            script, test_mode=True, routines_args=["AAPL", "MSFT"]
+            script, test_mode=True, output=False, routines_args=["AAPL", "MSFT"]
         )
     cmd = run_cli_.call_args[0][0][0]
     assert "AAPL" in cmd
@@ -256,7 +259,10 @@ def test_run_scripts_special_arguments_substitution(tmp_path):
     script.write_text("echo ${symbol=AAPL}\n")
     with patch.object(cli_controller, "run_cli") as run_cli_:
         cli_controller.run_scripts(
-            script, test_mode=True, special_arguments={"symbol": "TSLA"}
+            script,
+            test_mode=True,
+            output=False,
+            special_arguments={"symbol": "TSLA"},
         )
     cmd = run_cli_.call_args[0][0][0]
     assert "TSLA" in cmd
