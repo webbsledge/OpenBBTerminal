@@ -1323,7 +1323,7 @@ def test_fetch_openapi_falls_through_to_raise_when_landing_has_no_embedded(monke
 
 
 def test_fetch_openapi_swallows_initial_parse_error_and_scrapes_landing(monkeypatch):
-    """200 with unparseable body → fall through to landing-page scrape."""
+    """200 with unparsable body → fall through to landing-page scrape."""
     from openbb_cli.dispatchers import openapi_schema
 
     class _Bad:
@@ -1351,7 +1351,7 @@ def test_fetch_openapi_swallows_initial_parse_error_and_scrapes_landing(monkeypa
 
 
 def test_fetch_openapi_with_explicit_path_reparses_and_raises(monkeypatch):
-    """Explicit ``path`` + unparseable body re-raises after the initial swallow."""
+    """Explicit ``path`` + unparsable body re-raises after the initial swallow."""
     from openbb_cli.dispatchers import openapi_schema
 
     class _Bad:
