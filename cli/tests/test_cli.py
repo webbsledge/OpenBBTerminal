@@ -23,7 +23,9 @@ def test_build_dispatcher_http_when_server():
     with patch("openbb_cli.dispatchers.http.http_dispatcher_from_server") as factory:
         factory.return_value = MagicMock(name="http")
         d = cli._build_dispatcher("http://api.local")
-    factory.assert_called_once_with("http://api.local", headers=None)
+    factory.assert_called_once_with(
+        "http://api.local", headers=None, query_params=None, auth_hook=None
+    )
     assert d is factory.return_value
 
 
@@ -33,7 +35,10 @@ def test_main_dispatches_one_shot_when_command_given():
         patch("openbb_cli.dispatchers.runtime.run_argv", return_value=0) as ra,
         patch("openbb_cli.dispatchers.runtime.run_batch") as rb,
     ):
-        bd.return_value = MagicMock(name="dispatcher")
+        # Local backend has no _spec_doc attribute, so main() falls through
+        # to run_argv instead of the spec-aware dispatch path.
+        dispatcher = MagicMock(name="dispatcher", spec=["dispatch", "aclose"])
+        bd.return_value = dispatcher
         rc = cli.main(["economy.gdp", "--provider=oecd"])
     assert rc == 0
     ra.assert_called_once()
@@ -73,21 +78,84 @@ def test_main_help_exit_when_no_command(capsys):
 def test_main_passes_dev_debug_to_repl():
     with patch("openbb_cli.cli._launch_repl", return_value=0) as repl:
         cli.main(["-i", "--dev", "--debug"])
-    repl.assert_called_once_with(True, True, None, None, None)
+    # Positional args: dev, debug, spec_entries, server, headers, query_params,
+    # per_ns_headers, per_ns_query — followed by keyword global/per-ns hooks
+    # and initial_command. spec_entries is an empty list when no --spec given.
+    repl.assert_called_once_with(
+        True,
+        True,
+        [],
+        None,
+        None,
+        None,
+        {},
+        {},
+        global_auth_hook=None,
+        per_ns_auth_hooks={},
+        initial_command=[],
+    )
 
 
-def test_launch_repl_imports_and_calls_legacy_launch(capsys):
-    """_launch_repl prints Loading and goes through the legacy in-process path
-    when no spec / server is provided."""
+def test_launch_repl_calls_run_cli_with_no_queue_when_no_initial_command(capsys):
+    """``openbb -i`` (no extra args) goes straight to ``run_cli(None, backend=None)``,
+    bypassing the legacy ``parse_args_and_run`` argv re-parser that would
+    otherwise reject our outer ``-i`` flag with a usage error."""
     with (
         patch("openbb_cli.config.setup.bootstrap") as bs,
-        patch("openbb_cli.controllers.cli_controller.launch") as launch_,
+        patch("openbb_cli.controllers.cli_controller.run_cli") as run_cli_,
     ):
         rc = cli._launch_repl(False, False)
     assert rc == 0
     assert "Loading..." in capsys.readouterr().out
     bs.assert_called_once()
-    launch_.assert_called_once_with(False, False)
+    run_cli_.assert_called_once_with(None, backend=None)
+
+
+def test_launch_repl_forwards_initial_command_to_run_cli():
+    """``openbb -i bill actions --congress 117`` enqueues the joined command
+    so the REPL runs it before prompting."""
+    with (
+        patch("openbb_cli.config.setup.bootstrap"),
+        patch("openbb_cli.controllers.cli_controller.run_cli") as run_cli_,
+    ):
+        cli._launch_repl(
+            False, False, initial_command=["bill", "actions", "--congress", "117"]
+        )
+    run_cli_.assert_called_once_with(["bill actions --congress 117"], backend=None)
+
+
+def test_launch_repl_forces_rich_interactive_defaults():
+    """Even if the user's env file left ``OPENBB_TEST_MODE=True`` or
+    ``OUTPUT_MODE=tsv``, ``-i`` flips them so colors render and the
+    interactive DataFrame viewer is enabled."""
+    from openbb_cli.controllers.cli_controller import session
+
+    session.settings.OUTPUT_MODE = "tsv"
+    session.settings.USE_INTERACTIVE_DF = False
+    session.settings.TEST_MODE = True
+
+    with (
+        patch("openbb_cli.config.setup.bootstrap"),
+        patch("openbb_cli.controllers.cli_controller.run_cli"),
+    ):
+        cli._launch_repl(False, False)
+
+    assert session.settings.OUTPUT_MODE == "rich"
+    assert session.settings.USE_INTERACTIVE_DF is True
+    assert session.settings.TEST_MODE is False
+
+
+def test_apply_interactive_defaults_overrides_each_field():
+    """Direct unit test for the helper, independent of the REPL launch path."""
+    from types import SimpleNamespace
+
+    settings = SimpleNamespace(
+        OUTPUT_MODE="tsv", USE_INTERACTIVE_DF=False, TEST_MODE=True
+    )
+    cli._apply_interactive_defaults(settings)
+    assert settings.OUTPUT_MODE == "rich"
+    assert settings.USE_INTERACTIVE_DF is True
+    assert settings.TEST_MODE is False
 
 
 def test_parse_header_kv_equals_form():
@@ -204,7 +272,8 @@ def test_main_threads_headers_to_one_shot(tmp_path):
         )
     one_shot.assert_called_once()
     args = one_shot.call_args.args
-    assert args[0] == str(spec_file)
+    # spec_entries is now [(name, path)] — single unnamed → [(None, str(path))]
+    assert args[0] == [(None, str(spec_file))]
     assert args[1] == [
         "fxs.list.counterparties",
         "--format",
@@ -236,7 +305,7 @@ def test_launch_repl_with_spec_uses_spec_backend(tmp_path):
         patch("openbb_cli.config.setup.bootstrap"),
         patch("openbb_cli.controllers.cli_controller.run_cli") as run_cli_,
     ):
-        cli._launch_repl(False, False, str(spec_file), None)
+        cli._launch_repl(False, False, [(None, str(spec_file))], None)
     backend_arg = run_cli_.call_args[1]["backend"]
     assert backend_arg is not None
     assert backend_arg.routers == {}
@@ -307,3 +376,326 @@ def test_e2e_batch_protocol_round_trip(run_in_obb):
     assert by_id["a"]["result"]["results"] == {"echo": "x"}
     assert by_id["b"]["ok"] is False
     assert by_id["b"]["error"]["type"] == "OpenBBError"
+
+
+# --- Multi-spec resolution ---
+
+
+def test_parse_spec_arg_named():
+    assert cli._parse_spec_arg("congress=path.spec") == ("congress", "path.spec")
+
+
+def test_parse_spec_arg_unnamed():
+    assert cli._parse_spec_arg("path.spec") == (None, "path.spec")
+
+
+def test_parse_spec_arg_strips_whitespace():
+    assert cli._parse_spec_arg("  congress = path.spec  ") == ("congress", "path.spec")
+
+
+def test_parse_spec_arg_rejects_empty_name():
+    import pytest
+
+    with pytest.raises(ValueError, match="malformed"):
+        cli._parse_spec_arg("=path")
+
+
+def test_parse_spec_arg_rejects_empty_path():
+    import pytest
+
+    with pytest.raises(ValueError, match="malformed"):
+        cli._parse_spec_arg("name=")
+
+
+def test_resolve_spec_entries_cli_overrides_config(monkeypatch):
+    monkeypatch.delenv("OPENBB_SPEC_PATH", raising=False)
+    out = cli._resolve_spec_entries(
+        ["a=foo.spec"],
+        config_specs={"b": {"path": "bar.spec"}},
+    )
+    assert out == [("a", "foo.spec")]
+
+
+def test_resolve_spec_entries_uses_toml_specs_table_when_no_cli(monkeypatch):
+    monkeypatch.delenv("OPENBB_SPEC_PATH", raising=False)
+    out = cli._resolve_spec_entries(
+        [],
+        config_specs={"alpha": {"path": "a"}, "beta": "b"},
+    )
+    assert sorted(out) == [("alpha", "a"), ("beta", "b")]
+
+
+def test_resolve_spec_entries_falls_back_to_legacy_single_spec(monkeypatch):
+    monkeypatch.delenv("OPENBB_SPEC_PATH", raising=False)
+    out = cli._resolve_spec_entries(
+        [], config_specs=None, config_single_spec="legacy.spec"
+    )
+    assert out == [(None, "legacy.spec")]
+
+
+def test_resolve_spec_entries_env_var_last_resort(monkeypatch):
+    monkeypatch.setenv("OPENBB_SPEC_PATH", "env.spec")
+    out = cli._resolve_spec_entries([], config_specs=None)
+    assert out == [(None, "env.spec")]
+
+
+def test_resolve_spec_entries_returns_empty_when_no_source(monkeypatch):
+    monkeypatch.delenv("OPENBB_SPEC_PATH", raising=False)
+    assert cli._resolve_spec_entries([], config_specs=None) == []
+
+
+def test_resolve_spec_entries_rejects_missing_path_key():
+    import pytest
+
+    with pytest.raises(ValueError, match="missing required 'path'"):
+        cli._resolve_spec_entries([], config_specs={"x": {"headers": {}}})
+
+
+def test_resolve_spec_entries_rejects_mixed_named_and_unnamed():
+    import pytest
+
+    with pytest.raises(ValueError, match="every one must be NAME=PATH"):
+        cli._resolve_spec_entries(["bare.spec", "named=other.spec"], config_specs=None)
+
+
+# --- Per-namespace token splitting ---
+
+
+def test_split_scoped_token_recognizes_declared_namespace():
+    assert cli._split_scoped_token("congress:Authorization=Bearer x", {"congress"}) == (
+        "congress",
+        "Authorization=Bearer x",
+    )
+
+
+def test_split_scoped_token_returns_global_for_undeclared_prefix():
+    """``Authorization: Bearer xxx`` must NOT be misread as a namespace prefix."""
+    assert cli._split_scoped_token(
+        "Authorization: Bearer xxx", {"congress", "nyfed"}
+    ) == (None, "Authorization: Bearer xxx")
+
+
+def test_split_scoped_token_handles_no_colon():
+    assert cli._split_scoped_token("KEY=VAL", {"ns"}) == (None, "KEY=VAL")
+
+
+def test_split_per_namespace_partitions_correctly():
+    global_, per_ns = cli._split_per_namespace(
+        [
+            "Authorization=global",
+            "congress:api_key=cg",
+            "nyfed:X-Header=nf",
+            "another_global=x",
+        ],
+        {"congress", "nyfed"},
+    )
+    assert global_ == ["Authorization=global", "another_global=x"]
+    assert per_ns["congress"] == ["api_key=cg"]
+    assert per_ns["nyfed"] == ["X-Header=nf"]
+
+
+def test_merge_dicts_right_biased():
+    out = cli._merge_dicts({"a": "1", "b": "2"}, {"b": "X", "c": "3"})
+    assert out == {"a": "1", "b": "X", "c": "3"}
+
+
+def test_merge_dicts_returns_none_when_all_empty():
+    assert cli._merge_dicts(None, None) is None
+    assert cli._merge_dicts({}, None) is None
+
+
+# --- Per-namespace auth resolver ---
+
+
+def test_resolve_per_ns_auth_merges_toml_and_cli_tokens():
+    per_h, per_q = cli._resolve_per_ns_auth(
+        per_ns_h_tokens={"congress": ["Authorization=cli-bearer"]},
+        per_ns_q_tokens={"congress": ["api_key=cli-key"]},
+        namespaces={"congress"},
+        config_specs={
+            "congress": {
+                "headers": {"X-Tenant": "toml-tenant"},
+                "query": {"format": "json"},
+            }
+        },
+    )
+    assert per_h == {
+        "congress": {"X-Tenant": "toml-tenant", "Authorization": "cli-bearer"}
+    }
+    assert per_q == {"congress": {"format": "json", "api_key": "cli-key"}}
+
+
+def test_resolve_per_ns_auth_rejects_malformed_query_token(capsys):
+    per_h, per_q = cli._resolve_per_ns_auth(
+        per_ns_h_tokens={},
+        per_ns_q_tokens={"congress": ["no_equals_here"]},
+        namespaces={"congress"},
+        config_specs=None,
+    )
+    assert per_h is None and per_q is None
+    err = capsys.readouterr().err
+    assert "must be 'KEY=VALUE'" in err
+
+
+# --- Auth-hook resolver ---
+
+
+def test_resolve_auth_hooks_loads_global_and_per_ns(monkeypatch):
+    import sys
+    import types
+
+    mod = types.ModuleType("openbb_cli_test_hooks_mod")
+
+    def global_hook(ctx):
+        return None
+
+    def congress_hook(ctx):
+        return None
+
+    mod.global_hook = global_hook
+    mod.congress_hook = congress_hook
+    monkeypatch.setitem(sys.modules, "openbb_cli_test_hooks_mod", mod)
+
+    config = {
+        "auth-hook": "openbb_cli_test_hooks_mod:global_hook",
+        "specs": {
+            "congress": {
+                "path": "/x.spec",
+                "auth-hook": "openbb_cli_test_hooks_mod:congress_hook",
+            },
+            "nyfed": {"path": "/y.spec"},  # no per-ns hook → global applies
+        },
+    }
+    g, per_ns = cli._resolve_auth_hooks(config, namespaces={"congress", "nyfed"})
+    assert g is global_hook
+    assert per_ns == {"congress": congress_hook}
+
+
+def test_resolve_auth_hooks_returns_none_when_unconfigured():
+    g, per_ns = cli._resolve_auth_hooks({}, namespaces=set())
+    assert g is None
+    assert per_ns == {}
+
+
+def test_resolve_auth_hooks_underscore_alias_works(monkeypatch):
+    """Both ``auth-hook`` and ``auth_hook`` keys are honored."""
+    import sys
+    import types
+
+    mod = types.ModuleType("openbb_cli_test_hooks_underscore")
+
+    def hook(ctx):
+        return None
+
+    mod.hook = hook
+    monkeypatch.setitem(sys.modules, "openbb_cli_test_hooks_underscore", mod)
+    g, _ = cli._resolve_auth_hooks(
+        {"auth_hook": "openbb_cli_test_hooks_underscore:hook"}, namespaces=set()
+    )
+    assert g is hook
+
+
+# --- Multi-spec dispatcher building ---
+
+
+def test_build_spec_dispatcher_single_unnamed_returns_http_dispatcher(tmp_path):
+    """Backward compat: one unnamed spec → flat HttpDispatcher, no namespacing."""
+    from openbb_cli.dispatchers.http import HttpDispatcher
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    spec_path = tmp_path / "single.spec"
+    write_spec(
+        spec_path,
+        {
+            "version": SPEC_VERSION,
+            "base_url": "http://upstream",
+            "api_prefix": "/api/v1",
+            "commands": {"x": {"url_path": "/api/v1/x", "method": "get"}},
+        },
+    )
+    d = cli._build_spec_dispatcher([(None, str(spec_path))], None, None)
+    assert isinstance(d, HttpDispatcher)
+
+
+def test_build_spec_dispatcher_multi_returns_multi_spec(tmp_path):
+    """Multiple named specs → MultiSpecDispatcher with per-namespace HTTP dispatchers."""
+    from openbb_cli.dispatchers.multi import MultiSpecDispatcher
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    a = tmp_path / "a.spec"
+    b = tmp_path / "b.spec"
+    for path in (a, b):
+        write_spec(
+            path,
+            {
+                "version": SPEC_VERSION,
+                "base_url": "http://x",
+                "api_prefix": "/api/v1",
+                "commands": {"foo": {"url_path": "/api/v1/foo", "method": "get"}},
+            },
+        )
+    d = cli._build_spec_dispatcher([("alpha", str(a)), ("beta", str(b))], None, None)
+    assert isinstance(d, MultiSpecDispatcher)
+    assert set(d._dispatchers) == {"alpha", "beta"}
+
+
+def test_build_spec_dispatcher_passes_per_ns_auth(tmp_path):
+    """Per-namespace headers/query and hooks land on the matching dispatcher."""
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    spec = tmp_path / "x.spec"
+    write_spec(
+        spec,
+        {
+            "version": SPEC_VERSION,
+            "base_url": "http://x",
+            "api_prefix": "/api/v1",
+            "commands": {"foo": {"url_path": "/api/v1/foo", "method": "get"}},
+        },
+    )
+
+    def hook_a(ctx):
+        return None
+
+    def hook_b(ctx):
+        return None
+
+    d = cli._build_spec_dispatcher(
+        [("a", str(spec)), ("b", str(spec))],
+        headers={"X-Global": "g"},
+        query_params={"q": "g"},
+        per_ns_headers={"a": {"X-A": "a"}},
+        per_ns_query={"b": {"qb": "v"}},
+        global_auth_hook=hook_a,
+        per_ns_auth_hooks={"b": hook_b},
+    )
+    a = d._dispatchers["a"]
+    b = d._dispatchers["b"]
+    # Per-ns headers merged with global; namespace passed through
+    assert a._headers == {"X-Global": "g", "X-A": "a"}
+    assert a._namespace == "a"
+    # Per-ns query merged with global on b
+    assert b._query_params == {"q": "g", "qb": "v"}
+    # Hook overridden per-ns; a falls back to global
+    assert a._auth_hook is hook_a
+    assert b._auth_hook is hook_b
+
+
+def test_build_spec_dispatcher_multi_rejects_unnamed_entry(tmp_path):
+    """Defensive: passing an unnamed entry into the multi branch is a programmer error."""
+    import pytest
+
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    spec = tmp_path / "x.spec"
+    write_spec(
+        spec,
+        {
+            "version": SPEC_VERSION,
+            "base_url": "http://x",
+            "api_prefix": "/api/v1",
+            "commands": {},
+        },
+    )
+    with pytest.raises(ValueError, match="missing namespace"):
+        cli._build_spec_dispatcher([("a", str(spec)), (None, str(spec))], None, None)

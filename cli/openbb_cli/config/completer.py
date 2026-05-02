@@ -17,20 +17,27 @@ NestedDict = Mapping[str, Any | set[str] | None | Completer]
 class WordCompleter(Completer):
     """Simple autocompletion on a list of words.
 
-    :param words: List of words or callable that returns a list of words.
-    :param ignore_case: If True, case-insensitive completion.
-    :param meta_dict: Optional dict mapping words to their meta-text. (This
-        should map strings to strings or formatted text.)
-    :param WORD: When True, use WORD characters.
-    :param sentence: When True, don't complete by comparing the word before the
-        cursor, but by comparing all the text before the cursor. In this case,
-        the list of words is just a list of strings, where each string can
-        contain spaces. (Can not be used together with the WORD option.)
-    :param match_middle: When True, match not only the start, but also in the
-                         middle of the word.
-    :param pattern: Optional compiled regex for finding the word before
-        the cursor to complete. When given, use this regex pattern instead of
-        default one (see document._FIND_WORD_RE)
+    Parameters
+    ----------
+    words : list[str] or callable
+        List of words or a callable returning a list of words.
+    ignore_case : bool
+        When ``True``, complete case-insensitively.
+    meta_dict : Mapping[str, AnyFormattedText], optional
+        Maps words to their meta-text (strings or formatted text).
+    WORD : bool
+        When ``True``, use WORD characters.
+    sentence : bool
+        When ``True``, don't complete by comparing the word before the
+        cursor, but by comparing all the text before the cursor. In this
+        case, the list of words is just a list of strings, where each
+        string can contain spaces. Cannot be used together with ``WORD``.
+    match_middle : bool
+        When ``True``, match not only the start of the word but also its
+        middle.
+    pattern : re.Pattern[str], optional
+        Compiled regex for finding the word before the cursor to complete.
+        When supplied, used instead of the default ``document._FIND_WORD_RE``.
     """
 
     def __init__(
@@ -108,8 +115,7 @@ class WordCompleter(Completer):
 
 
 class NestedCompleter(Completer):
-    """Completer which wraps around several other completers, and calls any the
-    one that corresponds with the first word of the input.
+    """Completer wrapping several others, dispatching by the input's first word.
 
     By combining multiple `NestedCompleter` instances, we can achieve multiple
     hierarchical levels of autocompletion. This is useful when `WordCompleter`

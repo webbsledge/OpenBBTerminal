@@ -173,9 +173,10 @@ class BaseController(metaclass=ABCMeta):
             raise ValueError("Path must begin with a '/' character.")
         if path[-1] != "/":
             raise ValueError("Path must end with a '/' character.")
-        if not re.match("^[a-z/]*$", path):
+        if not re.match(r"^[a-z0-9_\-/]*$", path):
             raise ValueError(
-                "Path must only contain lowercase letters and '/' characters."
+                "Path must only contain lowercase letters, digits, '_', '-', "
+                "and '/' characters."
             )
 
     def load_class(self, class_ins, *args, **kwargs):
@@ -253,7 +254,7 @@ class BaseController(metaclass=ABCMeta):
         """Process and dispatch input.
 
         Returns
-        ----------
+        -------
         List[str]
             list of commands in the queue to execute
         """
@@ -1011,7 +1012,7 @@ class BaseController(metaclass=ABCMeta):
             Add a --limit flag with this number default
 
         Returns
-        ----------
+        -------
         ns_parser:
             Namespace with parsed arguments
         """

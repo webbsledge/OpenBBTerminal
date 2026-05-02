@@ -1,4 +1,4 @@
-"""This module contains functions to build the choice map for the controllers."""
+"""Functions to build the choice map for the controllers."""
 
 from argparse import SUPPRESS, ArgumentParser
 from collections.abc import Callable
@@ -234,12 +234,13 @@ def __patch_controller_functions(controller):
     for patcher in patcher_list:
         patched_function_list.append(patcher.start())
 
-    yield patched_function_list
-
-    if not session.settings.DEBUG_MODE:
-        rich.stop()
-    for patcher in patcher_list:
-        patcher.stop()
+    try:
+        yield patched_function_list
+    finally:
+        if not session.settings.DEBUG_MODE:
+            rich.stop()
+        for patcher in patcher_list:
+            patcher.stop()
 
 
 def _get_argument_parser(

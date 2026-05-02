@@ -288,14 +288,27 @@ def test_spec_translator_execute_func_dispatches_and_returns_result():
     assert dispatched_request.params == {"x": "v"}
 
 
-def test_spec_translator_execute_func_drops_none_params():
+def test_spec_translator_execute_func_drops_none_and_unknown_params():
+    """``None`` values are dropped, AND params not declared in the spec are
+    stripped — ``parse_known_args_and_warn`` injects CLI-internal flags
+    (``export``, ``help``, ``register_obbject``, …) onto the namespace and
+    those would otherwise leak onto the upstream URL as query params.
+    """
     response = MagicMock(ok=True, result=[], error=None)
     dispatcher = MagicMock()
     dispatcher.dispatch = AsyncMock(return_value=response)
-    trl = _trl("x.y", dispatcher)
-    trl.execute_func(argparse.Namespace(x=None, y="kept"))
+    trl = _trl("foo.bar", dispatcher)
+    trl.execute_func(
+        argparse.Namespace(
+            x="kept",
+            y=None,
+            export="",
+            help=False,
+            register_obbject=True,
+        )
+    )
     params = dispatcher.dispatch.call_args.args[0].params
-    assert params == {"y": "kept"}
+    assert params == {"x": "kept"}
 
 
 def test_spec_translator_execute_func_raises_on_dispatch_failure():
@@ -328,3 +341,117 @@ def test_named_stub_call_raises():
     stub = _NamedStub("x")
     with pytest.raises(RuntimeError, match="execute_func"):
         stub()
+
+
+# --- SpecTranslator multi-provider rejection ---
+
+
+def _multi_provider_translator(dispatcher: Any) -> SpecTranslator:
+    """Translator for a multi-provider command: ``cboe`` accepts ``use_cache``,
+    ``intrinio`` accepts ``source``, both share ``symbol``."""
+    return SpecTranslator(
+        "equity.price.quote",
+        {
+            "method": "get",
+            "url_path": "/api/equity/price/quote",
+            "description": "Q",
+            "providers": ["cboe", "intrinio"],
+            "parameters": [
+                {
+                    "name": "provider",
+                    "in": "query",
+                    "type": "string",
+                    "is_list": False,
+                    "required": True,
+                    "choices": ["cboe", "intrinio"],
+                    "default": None,
+                    "help": None,
+                    "providers": [],
+                },
+                {
+                    "name": "symbol",
+                    "in": "query",
+                    "type": "string",
+                    "is_list": False,
+                    "required": True,
+                    "default": None,
+                    "choices": [],
+                    "help": None,
+                    "providers": [],
+                },
+                {
+                    "name": "use_cache",
+                    "in": "query",
+                    "type": "boolean",
+                    "is_list": False,
+                    "required": False,
+                    "default": True,
+                    "choices": [],
+                    "help": None,
+                    "providers": ["cboe"],
+                },
+                {
+                    "name": "source",
+                    "in": "query",
+                    "type": "string",
+                    "is_list": False,
+                    "required": False,
+                    "default": None,
+                    "choices": [],
+                    "help": None,
+                    "providers": ["intrinio"],
+                },
+            ],
+        },
+        dispatcher,
+    )
+
+
+def test_spec_translator_dispatches_when_provider_flags_match():
+    response = MagicMock(ok=True, result={}, error=None)
+    dispatcher = MagicMock()
+    dispatcher.dispatch = AsyncMock(return_value=response)
+    trl = _multi_provider_translator(dispatcher)
+    trl.execute_func(
+        argparse.Namespace(provider="cboe", symbol="AAPL", use_cache=False)
+    )
+    params = dispatcher.dispatch.call_args.args[0].params
+    assert params == {"provider": "cboe", "symbol": "AAPL", "use_cache": False}
+
+
+def test_spec_translator_rejects_flag_not_valid_for_chosen_provider():
+    """``--source`` is intrinio-only; passing it with ``--provider cboe`` raises."""
+    import pytest
+
+    dispatcher = MagicMock()
+    dispatcher.dispatch = AsyncMock()
+    trl = _multi_provider_translator(dispatcher)
+    with pytest.raises(
+        RuntimeError, match=r"flags not valid for provider='cboe'.*--source"
+    ):
+        trl.execute_func(
+            argparse.Namespace(provider="cboe", symbol="AAPL", source="iex")
+        )
+    dispatcher.dispatch.assert_not_called()
+
+
+def test_spec_translator_no_validation_when_provider_unset():
+    """If the user didn't supply ``--provider``, validation is skipped (server reports)."""
+    response = MagicMock(ok=True, result={}, error=None)
+    dispatcher = MagicMock()
+    dispatcher.dispatch = AsyncMock(return_value=response)
+    trl = _multi_provider_translator(dispatcher)
+    # No provider in namespace → validation skipped
+    trl.execute_func(argparse.Namespace(symbol="AAPL", use_cache=True))
+    dispatcher.dispatch.assert_called_once()
+
+
+def test_spec_translator_no_validation_for_non_multi_provider_command():
+    """Single-provider commands: no validation, even if a stray flag is passed."""
+    response = MagicMock(ok=True, result={}, error=None)
+    dispatcher = MagicMock()
+    dispatcher.dispatch = AsyncMock(return_value=response)
+    trl = _trl("foo.bar", dispatcher)  # no providers list
+    # Only declared param ``x`` is forwarded; no provider validation kicks in
+    trl.execute_func(argparse.Namespace(x="v"))
+    dispatcher.dispatch.assert_called_once()

@@ -116,11 +116,19 @@ class Session(metaclass=SingletonMeta):
     def output_adapter(self) -> Any:
         """Output adapter selected by ``settings.OUTPUT_MODE``.
 
-        Default is ``tsv`` — line-oriented plain text safe for shell pipelines.
-        Other modes (``rich``, ``json``, ``html``) are opt-in via the setting.
+        Rebuilt whenever ``OUTPUT_MODE`` changes so ``/settings/ output json``
+        takes effect immediately — caching froze the adapter to whatever was
+        active at first access. Adapter construction is cheap (a single
+        class instantiation), so re-checking the mode on every access is
+        a good tradeoff for live-updateable settings.
         """
-        if self._output_adapter is _UNSET:
+        mode = getattr(self._settings, "OUTPUT_MODE", "tsv")
+        if (
+            self._output_adapter is _UNSET
+            or getattr(self._output_adapter, "_mode", None) != mode
+        ):
             self._output_adapter = self._build_output_adapter()
+            self._output_adapter._mode = mode
         return self._output_adapter
 
     def _build_output_adapter(self) -> Any:
@@ -150,7 +158,10 @@ class Session(metaclass=SingletonMeta):
             from openbb_cli.config.completer import CustomFileHistory
             from openbb_cli.config.constants import HIST_FILE_PROMPT
 
-            return PromptSession(history=CustomFileHistory(str(HIST_FILE_PROMPT)))
+            return PromptSession(
+                history=CustomFileHistory(str(HIST_FILE_PROMPT)),
+                complete_while_typing=True,
+            )
         except Exception:
             return None
 

@@ -725,12 +725,15 @@ def test_method_call_class_invokes_load_class():
     assert ctrl.queue == ["after"]
 
 
-def test_method_call_command_emits_table_via_backend():
-    """The bound ``method_call_command`` closure prints a rich table from the
-    backend's command-target."""
+def test_method_call_command_legacy_emits_table_via_backend():
+    """LocalBackend path: top-level command-typed routers dump
+    ``backend.get_command_target(name).model_dump()`` as a rich table.
+    Selected when the backend lacks ``_spec``/``_dispatcher`` (i.e. is a
+    LocalBackend over in-process ``obb``).
+    """
     from openbb_cli.controllers import cli_controller
 
-    backend = MagicMock()
+    backend = MagicMock(spec=["routers", "get_command_target"])
     backend.routers = {"coverage": "command"}
     backend.get_command_target.return_value = MagicMock(
         model_dump=lambda: {"a": 1, "b": 2}
@@ -744,6 +747,54 @@ def test_method_call_command_emits_table_via_backend():
         ctrl.call_coverage([])
     prt.assert_called_once()
     backend.get_command_target.assert_called_once_with("coverage")
+
+
+def test_method_call_command_spec_dispatches_via_translator():
+    """SpecBackend path: top-level command-typed routers dispatch through a
+    ``SpecTranslator`` so ``--help`` prints help and arg parsing/dispatch
+    actually invokes the upstream API. Selected when the backend exposes
+    ``_spec`` and ``_dispatcher``.
+    """
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/law/{congress}",
+        "method": "get",
+        "description": "Returns laws.",
+        "parameters": [
+            {"name": "congress", "in": "path", "type": "integer", "required": True},
+            {"name": "limit", "in": "query", "type": "integer", "required": False},
+        ],
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock()
+    fake_translator.parser = MagicMock()
+    fake_translator.execute_func.return_value = {"results": [{"id": 1}, {"id": 2}]}
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch(
+            "openbb_cli.backend.SpecTranslator", return_value=fake_translator
+        ) as st_cls,
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law(["--congress", "117", "--limit", "1"])
+
+    st_cls.assert_called_once_with("law", cmd_spec, backend._dispatcher)
+    fake_translator.execute_func.assert_called_once()
+    fake_session.output_adapter.display.assert_called_once()
+    backend.get_command_target.assert_not_called()
 
 
 def test_call_exe_no_example_no_file_returns():
@@ -1164,3 +1215,391 @@ def test_parse_args_and_run_unknown_args_with_debug_prints(monkeypatch):
     msgs = [str(c) for c in sess.console.print.call_args_list]
     assert any("--bogus-arg" in m for m in msgs)
     main_mock.assert_called_once()
+
+
+# --- _params_to_completions ---
+
+
+def test_params_to_completions_with_choices_emits_value_dict():
+    from openbb_cli.controllers.cli_controller import _params_to_completions
+
+    out = _params_to_completions([{"name": "side", "choices": ["buy", "sell"]}])
+    assert out["--side"] == {"buy": None, "sell": None}
+    assert out["--help"] is None
+    assert out["-h"] == "--help"
+
+
+def test_params_to_completions_without_choices_uses_none():
+    from openbb_cli.controllers.cli_controller import _params_to_completions
+
+    out = _params_to_completions([{"name": "symbol"}])
+    assert out["--symbol"] is None
+
+
+def test_params_to_completions_skips_nameless_params():
+    """Defensive: params lacking a ``name`` are dropped, not crashed."""
+    from openbb_cli.controllers.cli_controller import _params_to_completions
+
+    out = _params_to_completions([{}, {"name": "ok"}])
+    assert "--ok" in out
+
+
+def test_params_to_completions_handles_none_input():
+    from openbb_cli.controllers.cli_controller import _params_to_completions
+
+    out = _params_to_completions(None)
+    assert "--help" in out
+    assert "-h" in out
+
+
+# --- method_call_command_spec error paths ---
+
+
+def test_method_call_command_spec_warns_on_missing_command_in_spec():
+    """When the spec doesn't carry the router, print a red error and return."""
+    from openbb_cli.controllers import cli_controller
+
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {}}  # NO 'law' entry
+    backend._dispatcher = MagicMock()
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law([])
+
+    msg = fake_session.console.print.call_args.args[0]
+    assert "Command not found in spec" in msg
+
+
+def test_method_call_command_spec_skips_when_arg_parse_fails():
+    """``parse_known_args_and_warn`` returning falsy short-circuits."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/law",
+        "method": "get",
+        "description": "L",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock(parser=MagicMock())
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=None,  # signals parse failed
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law(["--bad"])
+    fake_translator.execute_func.assert_not_called()
+
+
+def test_method_call_command_spec_surfaces_dispatch_errors():
+    """An exception from ``execute_func`` becomes a red console message."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/law",
+        "method": "get",
+        "description": "L",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock(parser=MagicMock())
+    fake_translator.execute_func.side_effect = RuntimeError("server timeout")
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law([])
+
+    msg = fake_session.console.print.call_args.args[0]
+    assert "server timeout" in msg
+
+
+def test_method_call_command_spec_renders_list_payload_as_table():
+    """A list result lands as a DataFrame with one row per item."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/law",
+        "method": "get",
+        "description": "L",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock(parser=MagicMock())
+    fake_translator.execute_func.return_value = [{"id": 1}, {"id": 2}]
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law([])
+
+    df_arg = fake_session.output_adapter.display.call_args.args[0]
+    assert len(df_arg) == 2
+
+
+def test_method_call_command_spec_renders_scalar_payload_as_value_table():
+    """A scalar result falls into ``DataFrame({'value': [scalar]})``."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/law",
+        "method": "get",
+        "description": "L",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock(parser=MagicMock())
+    fake_translator.execute_func.return_value = "scalar-result"
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_law([])
+
+    df_arg = fake_session.output_adapter.display.call_args.args[0]
+    assert "value" in df_arg.columns
+
+
+# --- Hybrid menu/leaf routing (router has both a menu and a leaf command) ---
+
+
+def test_hybrid_menu_or_leaf_with_args_dispatches_command():
+    """A router that's both a menu AND a leaf: passing args runs the leaf,
+    not the menu navigation."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/bill",
+        "method": "get",
+        "description": "Bills",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"bill": "menu"}
+    backend._spec = {"commands": {"bill": cmd_spec}}
+    backend._dispatcher = MagicMock()
+    backend.get_translators_for_path.return_value = ({}, {})
+
+    fake_translator = MagicMock(parser=MagicMock())
+    fake_translator.execute_func.return_value = {"k": "v"}
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_bill(["--limit", "5"])
+
+    fake_translator.execute_func.assert_called_once()
+
+
+def test_hybrid_menu_or_leaf_without_args_navigates_into_menu():
+    """No args → fall through to the legacy menu navigation (load_class)."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "url_path": "/bill",
+        "method": "get",
+        "description": "Bills",
+        "parameters": [],
+    }
+    backend = MagicMock()
+    backend.routers = {"bill": "menu"}
+    backend._spec = {"commands": {"bill": cmd_spec}}
+    backend._dispatcher = MagicMock()
+    backend.get_translators_for_path.return_value = ({}, {})
+
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.load_class = MagicMock(return_value=["after"])
+        ctrl.queue = ["before"]
+        ctrl.call_bill([])
+    ctrl.load_class.assert_called_once()
+
+
+# --- Spec-driven completions map ---
+
+
+def test_spec_command_completions_walks_command_routers():
+    """When the backend exposes a spec doc, completion choices come from
+    each command router's parameters."""
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {
+        "parameters": [
+            {"name": "congress", "choices": ["117", "118"]},
+            {"name": "limit"},
+        ]
+    }
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+
+    completions = ctrl._spec_command_completions()
+    assert "law" in completions
+    assert "--congress" in completions["law"]
+    assert completions["law"]["--congress"] == {"117": None, "118": None}
+    assert completions["law"]["--limit"] is None
+
+
+def test_spec_command_completions_skips_router_not_in_controller_choices():
+    """A router whose name isn't in ``controller_choices`` is skipped (defensive
+    case for backends that surface a router which controller init filtered out)."""
+    from openbb_cli.controllers import cli_controller
+
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {"law": {"parameters": []}}}
+    backend._dispatcher = MagicMock()
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        # Strip ``law`` from controller_choices to simulate the edge case
+        ctrl.controller_choices = [c for c in ctrl.controller_choices if c != "law"]
+    assert ctrl._spec_command_completions() == {}
+
+
+def test_spec_command_completions_skips_router_missing_from_spec():
+    """A router in ``backend.routers`` but absent from ``spec.commands`` is skipped."""
+    from openbb_cli.controllers import cli_controller
+
+    backend = MagicMock()
+    backend.routers = {"law": "command"}
+    backend._spec = {"commands": {}}  # no entry for ``law``
+    backend._dispatcher = MagicMock()
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+    assert ctrl._spec_command_completions() == {}
+
+
+def test_spec_command_completions_returns_empty_when_no_spec():
+    """No ``_spec`` on the backend → empty completion map (LocalBackend path)."""
+    from openbb_cli.controllers import cli_controller
+
+    backend = MagicMock(spec=["routers", "get_command_target"])
+    backend.routers = {}
+    with (
+        patch.object(cli_controller, "session", MagicMock()),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+    assert ctrl._spec_command_completions() == {}
+
+
+def test_print_help_command_router_uses_reference_path_description():
+    """A top-level command-typed router pulls its description from
+    ``backend.reference_paths`` and shows the first sentence (lowercased)."""
+    from openbb_cli.controllers import cli_controller
+
+    captured: list[tuple[str, str]] = []
+
+    class _MT:
+        menu_text = ""
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def __getattr__(self, _):
+            def _record(*args, **kwargs):
+                name = args[0] if args else kwargs.get("name", "")
+                captured.append((name, kwargs.get("description", "")))
+
+            return _record
+
+    with (
+        patch.object(cli_controller, "session") as sess,
+        patch.object(cli_controller, "MenuText", _MT),
+        patch.object(cli_controller, "DATA_PROCESSING_ROUTERS", set()),
+        patch.object(cli_controller, "NON_DATA_ROUTERS", set()),
+    ):
+        sess.obbject_registry.obbjects = []
+        sess.obbject_registry.all = {}
+        ctrl = cli_controller.CLIController.__new__(cli_controller.CLIController)
+        ctrl.PATH = "/"
+        backend = _stub_backend(routers={"law": "command"})
+        backend.reference_paths = {
+            "/law": {"description": "Returns active laws. Multiple sentences."}
+        }
+        ctrl._backend = backend
+        ctrl.update_runtime_choices = MagicMock()
+        ctrl.print_help()
+    descriptions = [d for n, d in captured if n == "law"]
+    assert descriptions
+    assert descriptions[0] == "returns active laws"

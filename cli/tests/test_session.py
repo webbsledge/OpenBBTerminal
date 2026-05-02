@@ -9,9 +9,18 @@ from openbb_cli.session import _UNSET, Session
 
 
 def _fresh_session() -> Session:
-    """Return a Session that's not the cached singleton from a prior test."""
+    """Return a Session that's not the cached singleton from a prior test.
+
+    Settings load from the user's ``~/.openbb_platform/.cli.env`` env file,
+    which can leave ``OPENBB_OUTPUT_MODE`` set from prior interactive runs.
+    Explicitly reset to the documented baseline so tests are deterministic.
+    """
     Session._instances.pop(Session, None)
-    return Session()
+    s = Session()
+    s.settings.OUTPUT_MODE = "tsv"
+    s.settings.USE_INTERACTIVE_DF = False
+    s._output_adapter = _UNSET
+    return s
 
 
 @pytest.fixture
@@ -91,11 +100,23 @@ def test_output_adapter_default_is_tsv(session):
     assert isinstance(session.output_adapter, TsvOutput)
 
 
-def test_output_adapter_cached(session):
-    """Subsequent accesses return the cached instance."""
+def test_output_adapter_cached_when_mode_unchanged(session):
+    """Subsequent accesses return the same instance when ``OUTPUT_MODE`` is stable."""
     a1 = session.output_adapter
     a2 = session.output_adapter
     assert a1 is a2
+
+
+def test_output_adapter_rebuilds_on_mode_change(session):
+    """Changing ``OUTPUT_MODE`` via ``/settings/`` swaps the adapter — must
+    not stay frozen at first-access mode."""
+    from openbb_cli.outputs.json import JsonOutput
+    from openbb_cli.outputs.tsv import TsvOutput
+
+    session.settings.OUTPUT_MODE = "tsv"
+    assert isinstance(session.output_adapter, TsvOutput)
+    session.settings.OUTPUT_MODE = "json"
+    assert isinstance(session.output_adapter, JsonOutput)
 
 
 def test_backend_cached(session):

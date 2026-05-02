@@ -347,9 +347,10 @@ class PlatformController(BaseController):
         setattr(self, f"call_{name}", bound_method)
 
     def _get_reference_paths(self) -> dict[str, dict[str, Any]]:
-        """Return the reference path-description dict from the factory-injected
-        backend when present, otherwise fall back to a lazy ``LocalBackend`` over
-        in-process ``obb``.
+        """Return the reference path-description dict.
+
+        Pulls from the factory-injected backend when present, otherwise
+        falls back to a lazy ``LocalBackend`` over in-process ``obb``.
         """
         if self._factory_backend is not None:
             return self._factory_backend.reference_paths

@@ -23,9 +23,83 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from typing import Any
 
 import httpx
+
+PROVIDER_TAG_RE = re.compile(r"\s*\(provider:\s*([^)]+)\)\s*$")
+PROVIDER_SECTION_SPLIT_RE = re.compile(r";\s*\n\s*")
+
+
+def parse_provider_sections(text: str) -> tuple[set[str], bool]:
+    r"""Split an OpenBB-merged help string and return ``(tagged_providers, has_untagged)``.
+
+    OpenBB Platform concatenates per-provider help into one description.
+    Sections are separated by ``;\\n    `` and each tagged with ``(provider:
+    <comma-list>)`` — except sections shared across every provider, which
+    have no tag. Returns the union of providers named in any tag and a
+    boolean indicating whether at least one section was untagged (meaning
+    the parameter applies to every provider, not just the tagged set).
+    """
+    tagged: set[str] = set()
+    has_untagged = False
+    for raw_section in PROVIDER_SECTION_SPLIT_RE.split(text):
+        section = raw_section.strip()
+        if not section:
+            continue
+        match = PROVIDER_TAG_RE.search(section)
+        if match is None:
+            has_untagged = True
+            continue
+        for p in match.group(1).split(","):
+            name = p.strip().lower()
+            if name:
+                tagged.add(name)
+    return tagged, has_untagged
+
+
+def param_provider_membership(
+    schema: dict[str, Any],
+    description: str | None,
+    providers_set: set[str],
+) -> list[str]:
+    """Return the providers a parameter belongs to, or ``[]`` if shared by all.
+
+    Detection priority:
+
+    1. Parse ``description`` for ``(provider: ...)`` tags. A section
+       without any tag means the parameter is genuinely shared — return
+       ``[]``. Otherwise return the union of tagged providers (intersected
+       with the operation's declared provider list to avoid drift).
+    2. Fall back to schema-level per-provider extension keys
+       (``{"intrinio": {...}}``) for params whose description carries no
+       sections.
+    3. Last resort: schema ``title`` naming a single provider, used when
+       the param is single-provider and lacks both per-provider keys and
+       a tagged description.
+    """
+    providers_lower = {p.lower(): p for p in providers_set}
+    if description:
+        tagged, has_untagged = parse_provider_sections(description)
+        if has_untagged:
+            return []
+        if tagged:
+            return [providers_lower[t] for t in tagged if t in providers_lower]
+    keys = [
+        k
+        for k, v in schema.items()
+        if k in providers_set
+        and k not in _OPENAPI_RESERVED_SCHEMA_KEYS
+        and isinstance(v, dict)
+    ]
+    if keys:
+        return keys
+    title = schema.get("title")
+    if isinstance(title, str) and title.lower() in providers_lower:
+        return [providers_lower[title.lower()]]
+    return []
+
 
 _TYPE_MAP: dict[str, type] = {
     "string": str,
@@ -58,6 +132,228 @@ _OPENAPI_RESERVED_SCHEMA_KEYS = frozenset(
         "pattern",
     }
 )
+
+
+def resolve_ref(spec: dict[str, Any], ref: str) -> dict[str, Any]:
+    """Resolve a local OpenAPI ``$ref`` JSON pointer against ``spec``.
+
+    Pointers like ``"#/components/parameters/foo"`` resolve to the
+    referenced object. Only local document refs (``#/...``) are supported;
+    external refs are left untouched and resolve to ``{}``.
+    """
+    if not ref.startswith("#/"):
+        return {}
+    node: Any = spec
+    for raw_part in ref[2:].split("/"):
+        part = raw_part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(node, dict) or part not in node:
+            return {}
+        node = node[part]
+    return node if isinstance(node, dict) else {}
+
+
+def deref_parameter(spec: dict[str, Any], param: dict[str, Any]) -> dict[str, Any]:
+    """Resolve a parameter that may be a ``$ref``.
+
+    Congress.gov, for example, inlines every parameter as
+    ``{"$ref": "#/components/parameters/limit"}``. Recurses in case the
+    resolved object is itself a ``$ref``. Also resolves any ``$ref`` inside
+    the parameter's ``schema``.
+    """
+    seen: set[str] = set()
+    while "$ref" in param:
+        ref = param["$ref"]
+        if ref in seen:
+            return {}
+        seen.add(ref)
+        param = resolve_ref(spec, ref) or {}
+    schema = param.get("schema")
+    if isinstance(schema, dict) and "$ref" in schema:
+        param = {**param, "schema": resolve_ref(spec, schema["$ref"]) or schema}
+    return param
+
+
+def deref_schema(
+    spec: dict[str, Any],
+    node: Any,
+    seen: frozenset[str] | None = None,
+    max_depth: int = 32,
+) -> Any:
+    """Recursively expand every ``$ref`` inside an OpenAPI schema fragment.
+
+    Cycle-safe (a self-referential schema like a tree node ``Comment`` whose
+    ``children`` is ``[Comment, ...]`` would otherwise recurse forever) — when
+    we re-enter a ``$ref`` already on the resolution stack, that branch is
+    replaced by ``{"$ref": ref}`` so consumers can see the cycle without it
+    blowing the stack. ``max_depth`` is a belt-and-braces cap.
+    """
+    if max_depth <= 0:
+        return node
+    if seen is None:
+        seen = frozenset()
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str):
+            if ref in seen:
+                return {"$ref": ref}
+            target = resolve_ref(spec, ref)
+            if not target:
+                return node
+            return deref_schema(spec, target, seen | {ref}, max_depth - 1)
+        return {k: deref_schema(spec, v, seen, max_depth - 1) for k, v in node.items()}
+    if isinstance(node, list):
+        return [deref_schema(spec, v, seen, max_depth - 1) for v in node]
+    return node
+
+
+_SUCCESS_PRIORITY = ("200", "2XX", "201", "default")
+_JSON_CONTENT_TYPES = ("application/json", "application/vnd.api+json")
+
+
+def _deref_response(spec: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    if "$ref" in response:
+        return resolve_ref(spec, response["$ref"]) or {}
+    return response
+
+
+def extract_response_schema(
+    spec: dict[str, Any], operation: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Pull the primary success-response JSON schema for an operation.
+
+    Convenience accessor returning a single schema for the common case —
+    callers wanting the full ``{status: {content_type: schema}}`` matrix
+    (multiple success codes, ``text/csv`` alongside JSON, etc.) should use
+    ``extract_response_schemas`` instead. Tries ``200`` → ``2XX`` → ``201``
+    → ``default`` and ``application/json`` → first content type within
+    that response.
+    """
+    responses = operation.get("responses") or {}
+    response: dict[str, Any] | None = None
+    for key in _SUCCESS_PRIORITY:
+        candidate = responses.get(key)
+        if isinstance(candidate, dict):
+            response = _deref_response(spec, candidate)
+            break
+    if response is None:
+        for value in responses.values():
+            if isinstance(value, dict):
+                response = _deref_response(spec, value)
+                break
+    if response is None:
+        return None
+    content = response.get("content") or {}
+    media: dict[str, Any] | None = None
+    for ct in _JSON_CONTENT_TYPES:
+        candidate = content.get(ct)
+        if isinstance(candidate, dict):
+            media = candidate
+            break
+    if media is None:
+        for value in content.values():
+            if isinstance(value, dict) and "schema" in value:
+                media = value
+                break
+    if media is None:
+        return None
+    schema = media.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    return deref_schema(spec, schema)
+
+
+def extract_request_body_schema(
+    spec: dict[str, Any], operation: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Pull the primary request-body JSON schema for an operation.
+
+    POST/PUT endpoints — common across OpenBB Platform's econometrics /
+    technical / quantitative / charting routes — declare their input shape
+    here, NOT in ``parameters[]``. Without this, ``__schema__`` would only
+    show the query-string subset and miss the actual body fields the user
+    must POST. Tries ``application/json`` → first content type. Returns
+    the fully-dereferenced schema dict, or ``None`` for body-less ops.
+    """
+    rb = operation.get("requestBody")
+    if not isinstance(rb, dict):
+        return None
+    if "$ref" in rb:
+        rb = resolve_ref(spec, rb["$ref"]) or {}
+    content = rb.get("content") or {}
+    media: dict[str, Any] | None = None
+    for ct in _JSON_CONTENT_TYPES:
+        candidate = content.get(ct)
+        if isinstance(candidate, dict):
+            media = candidate
+            break
+    if media is None:
+        for value in content.values():
+            if isinstance(value, dict) and "schema" in value:
+                media = value
+                break
+    if media is None:
+        return None
+    schema = media.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    return deref_schema(spec, schema)
+
+
+def extract_request_body_schemas(
+    spec: dict[str, Any], operation: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Return the request-body schema per content type as ``{ct: schema}``.
+
+    Mirrors ``extract_response_schemas`` for the request side — captures the
+    full content-type matrix when an endpoint accepts both ``application/json``
+    and (e.g.) ``application/x-www-form-urlencoded`` or ``multipart/form-data``.
+    Each schema is fully dereferenced (cycle-safe).
+    """
+    out: dict[str, dict[str, Any]] = {}
+    rb = operation.get("requestBody")
+    if not isinstance(rb, dict):
+        return out
+    if "$ref" in rb:
+        rb = resolve_ref(spec, rb["$ref"]) or {}
+    content = rb.get("content") or {}
+    for content_type, media in content.items():
+        if not isinstance(media, dict):
+            continue
+        schema = media.get("schema")
+        if isinstance(schema, dict):
+            out[content_type] = deref_schema(spec, schema)
+    return out
+
+
+def extract_response_schemas(
+    spec: dict[str, Any], operation: dict[str, Any]
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Return every response schema as ``{status_code: {content_type: schema}}``.
+
+    Captures multi-status responses (``200``, ``400``, ``422``, ``default``)
+    and multi-media responses (``application/json``, ``text/csv``, ...) so
+    callers can introspect the full surface — which matters for servers like
+    OpenBB Platform that publish CSV alongside JSON for the same endpoint
+    and document distinct error shapes for ``422`` validation failures vs
+    ``500`` server errors. Each schema is fully dereferenced (cycle-safe).
+    """
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    responses = operation.get("responses") or {}
+    for status, response in responses.items():
+        if not isinstance(response, dict):
+            continue
+        deref_resp = _deref_response(spec, response)
+        content = deref_resp.get("content") or {}
+        per_content: dict[str, dict[str, Any]] = {}
+        for content_type, media in content.items():
+            if not isinstance(media, dict):
+                continue
+            schema = media.get("schema")
+            if isinstance(schema, dict):
+                per_content[content_type] = deref_schema(spec, schema)
+        if per_content:
+            out[status] = per_content
+    return out
 
 
 def _resolve_schema(schema: dict[str, Any]) -> tuple[type, list[Any], bool]:
@@ -298,6 +594,8 @@ def build_reference(
         if isinstance(t, dict) and t.get("name")
     }
 
+    router_map = build_router_map(spec, api_prefix=api_prefix)
+
     paths_out: dict[str, dict[str, Any]] = {}
     routers_out: dict[str, dict[str, Any]] = {}
     for url, methods in spec.get("paths", {}).items():
@@ -307,19 +605,20 @@ def build_reference(
         parts = [p for p in url.strip("/").split("/") if p]
         if parts[: len(prefix_parts)] == prefix_parts:
             parts = parts[len(prefix_parts) :]
-        cli_path = "/" + "/".join(parts)
-        paths_out[cli_path] = {
-            "description": (op.get("description") or op.get("summary") or "").strip(),
-        }
-        for i in range(1, len(parts)):
-            menu_path = "/" + "/".join(parts[:i]) + "/"
-            if menu_path in routers_out:
+        non_template = [p for p in parts if not (p.startswith("{") and p.endswith("}"))]
+        cli_path = "/" + "/".join(non_template)
+        op_desc = (op.get("description") or op.get("summary") or "").strip()
+        if cli_path not in paths_out or not paths_out[cli_path].get("description"):
+            paths_out[cli_path] = {"description": op_desc}
+        tags = op.get("tags") or []
+        tag_desc = tag_descriptions.get(tags[0]) if tags else ""
+        for i in range(1, len(non_template) + 1):
+            dotted = ".".join(non_template[:i])
+            if router_map.get(dotted) != "menu":
                 continue
-            tags = op.get("tags") or []
-            if tags and tags[0] in tag_descriptions:
-                routers_out[menu_path] = {"description": tag_descriptions[tags[0]]}
-            else:
-                routers_out[menu_path] = {"description": ""}
+            menu_path = "/" + "/".join(non_template[:i]) + "/"
+            if not routers_out.get(menu_path, {}).get("description"):
+                routers_out[menu_path] = {"description": tag_desc or ""}
     return {"paths": paths_out, "routers": routers_out}
 
 
@@ -345,21 +644,106 @@ def _yaml_load(text: str) -> dict[str, Any]:
     return yaml.safe_load(text)
 
 
+_EMBEDDED_SPEC_MARKERS: tuple[str, ...] = (
+    "var spec = ",
+    "const spec = ",
+    "let spec = ",
+    "window.spec = ",
+    '"spec":',
+    "spec:",
+)
+
+
+def _find_matching_brace(text: str, start: int) -> int | None:
+    """Return the index *after* the ``}`` that matches the ``{`` at ``start``.
+
+    Skips braces inside double-quoted strings. Returns ``None`` if the brace
+    is unbalanced.
+    """
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if escape:
+            escape = False
+            continue
+        if c == "\\":
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return None
+
+
+def _extract_embedded_spec(html: str) -> dict[str, Any] | None:
+    """Scan an HTML page for an embedded OpenAPI / Swagger spec.
+
+    Many APIs (api.congress.gov, FastAPI's redoc, some Swagger UI bootstraps)
+    don't expose a separate ``/openapi.json``: the spec is inlined into the
+    landing page as a JS variable. Try several common markers, balanced-brace
+    extract the JSON object, and verify it parses as an OpenAPI document.
+    """
+    for marker in _EMBEDDED_SPEC_MARKERS:
+        idx = 0
+        while True:
+            i = html.find(marker, idx)
+            if i < 0:
+                break
+            start = i + len(marker)
+            while start < len(html) and html[start] in " \t\r\n":
+                start += 1
+            end = _find_matching_brace(html, start)
+            if end is None:
+                idx = i + 1
+                continue
+            try:
+                obj = json.loads(html[start:end])
+            except json.JSONDecodeError:
+                idx = i + 1
+                continue
+            if isinstance(obj, dict) and ("openapi" in obj or "swagger" in obj):
+                return obj
+            idx = end
+    return None
+
+
 def fetch_openapi(
     base_url: str,
     *,
     timeout: float = 10.0,
     path: str | None = None,
     headers: dict[str, str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Fetch the OpenAPI spec at ``base_url`` and return the parsed dict.
 
-    By default tries ``{base_url}/openapi.json``. Override with ``path`` for
-    servers that publish under a different name (e.g. NY Fed's
-    ``/static/docs/markets-api.yml``). Both JSON and YAML payloads are
-    supported. ``headers`` (e.g. ``Authorization``) are merged with a
-    default ``User-Agent`` and sent with the request.
+    Resolution order:
+
+    1. Explicit ``path`` (or default ``/openapi.json``). If it returns a
+       parseable JSON/YAML body, use it.
+    2. If the user did not pass ``path``, fall back to fetching the landing
+       page at ``base_url`` and scraping for an embedded spec — many APIs
+       (api.congress.gov, certain Swagger UI bootstraps) inline the spec as
+       a JavaScript ``var spec = {...}`` variable instead of exposing a
+       separate document.
+
+    ``headers`` / ``query_params`` are sent on every fetch attempt — needed
+    for servers that gate the spec itself behind auth (Congress.gov requires
+    ``?api_key=...`` even on the landing page if scraped via the API host).
     """
+    explicit_path = path is not None
     full_url = (
         path
         if path and (path.startswith("http://") or path.startswith("https://"))
@@ -368,13 +752,45 @@ def fetch_openapi(
     merged_headers = {"User-Agent": "openbb-cli/1.0"}
     if headers:
         merged_headers.update(headers)
+
     response = httpx.get(
         full_url,
         timeout=timeout,
         follow_redirects=True,
         headers=merged_headers,
+        params=query_params or None,
     )
+    if response.status_code < 400:
+        try:
+            return _parse_spec_text(
+                response.text,
+                content_type=response.headers.get("content-type", ""),
+            )
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    if explicit_path:
+        response.raise_for_status()
+        return _parse_spec_text(
+            response.text,
+            content_type=response.headers.get("content-type", ""),
+        )
+
+    landing_url = base_url.rstrip("/") + "/"
+    landing = httpx.get(
+        landing_url,
+        timeout=timeout,
+        follow_redirects=True,
+        headers=merged_headers,
+        params=query_params or None,
+    )
+    landing.raise_for_status()
+    embedded = _extract_embedded_spec(landing.text)
+    if embedded is not None:
+        return embedded
+
     response.raise_for_status()
     return _parse_spec_text(
-        response.text, content_type=response.headers.get("content-type", "")
+        response.text,
+        content_type=response.headers.get("content-type", ""),
     )

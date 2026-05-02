@@ -71,7 +71,8 @@ class FeatureController(BaseController):
         Args:
             identifier: Either a register_key or numeric index
 
-        Returns:
+        Returns
+        -------
             The numeric index if found, None otherwise
         """
         try:

@@ -500,13 +500,14 @@ def test_fetch_openapi_default_path_and_user_agent(monkeypatch):
     captured: dict[str, object] = {}
 
     class _Resp:
+        status_code = 200
         text = '{"openapi": "3.0.0"}'
         headers = {"content-type": "application/json"}
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, *, timeout, follow_redirects, headers):
+    def fake_get(url, *, timeout, follow_redirects, headers, params=None):
         captured["url"] = url
         captured["headers"] = headers
         return _Resp()
@@ -524,13 +525,14 @@ def test_fetch_openapi_custom_path_appended(monkeypatch):
     captured: dict[str, object] = {}
 
     class _Resp:
+        status_code = 200
         text = "{}"
         headers = {"content-type": "application/json"}
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, *, timeout, follow_redirects, headers):
+    def fake_get(url, *, timeout, follow_redirects, headers, params=None):
         captured["url"] = url
         return _Resp()
 
@@ -546,13 +548,14 @@ def test_fetch_openapi_full_url_path_passes_through(monkeypatch):
     captured: dict[str, object] = {}
 
     class _Resp:
+        status_code = 200
         text = "{}"
         headers = {"content-type": "application/json"}
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, *, timeout, follow_redirects, headers):
+    def fake_get(url, *, timeout, follow_redirects, headers, params=None):
         captured["url"] = url
         return _Resp()
 
@@ -631,13 +634,14 @@ def test_fetch_openapi_merges_caller_headers(monkeypatch):
     captured: dict[str, object] = {}
 
     class _Resp:
+        status_code = 200
         text = "{}"
         headers = {"content-type": "application/json"}
 
         def raise_for_status(self):
             return None
 
-    def fake_get(url, *, timeout, follow_redirects, headers):
+    def fake_get(url, *, timeout, follow_redirects, headers, params=None):
         captured["headers"] = headers
         return _Resp()
 
@@ -645,3 +649,748 @@ def test_fetch_openapi_merges_caller_headers(monkeypatch):
     openapi_schema.fetch_openapi("http://h", headers={"Authorization": "Bearer x"})
     assert captured["headers"]["User-Agent"] == "openbb-cli/1.0"
     assert captured["headers"]["Authorization"] == "Bearer x"
+
+
+# --- Provider section parsing ---
+
+
+def test_parse_provider_sections_separates_tagged_from_untagged():
+    from openbb_cli.dispatchers.openapi_schema import parse_provider_sections
+
+    text = (
+        "Shared sentence with no tag.;\n    "
+        "FMP-only bit. (provider: fmp);\n    "
+        "Both intrinio and cboe. (provider: intrinio,cboe)"
+    )
+    tagged, has_untagged = parse_provider_sections(text)
+    assert tagged == {"fmp", "intrinio", "cboe"}
+    assert has_untagged is True
+
+
+def test_parse_provider_sections_all_tagged():
+    from openbb_cli.dispatchers.openapi_schema import parse_provider_sections
+
+    text = "X. (provider: cboe);\n    Y. (provider: fmp)"
+    tagged, has_untagged = parse_provider_sections(text)
+    assert tagged == {"cboe", "fmp"}
+    assert has_untagged is False
+
+
+def test_param_provider_membership_description_takes_priority():
+    """When the description has an untagged section, the param applies to ALL."""
+    from openbb_cli.dispatchers.openapi_schema import param_provider_membership
+
+    # Schema has explicit per-provider keys EXCLUDING intrinio,
+    # but the description has an untagged section → applies to all.
+    schema = {
+        "type": "string",
+        "cboe": {"x": 1},
+        "fmp": {"x": 1},
+    }
+    desc = "Shared description.;\n    Intrinio variant. (provider: intrinio)"
+    membership = param_provider_membership(
+        schema, desc, providers_set={"cboe", "fmp", "intrinio"}
+    )
+    # Untagged section signals "shared" → empty list
+    assert membership == []
+
+
+def test_param_provider_membership_returns_only_tagged_when_no_untagged():
+    """All sections tagged → return the union (intersected with declared providers)."""
+    from openbb_cli.dispatchers.openapi_schema import param_provider_membership
+
+    desc = "X. (provider: cboe);\n    Y. (provider: fmp,unknown_provider)"
+    membership = param_provider_membership(
+        {}, desc, providers_set={"cboe", "fmp", "intrinio"}
+    )
+    # unknown_provider drops out (not in declared set), order independent
+    assert sorted(membership) == ["cboe", "fmp"]
+
+
+def test_param_provider_membership_falls_back_to_schema_keys():
+    """No description tags → use per-provider schema extension keys."""
+    from openbb_cli.dispatchers.openapi_schema import param_provider_membership
+
+    schema = {
+        "type": "string",
+        "intrinio": {"choices": ["x"]},
+    }
+    membership = param_provider_membership(
+        schema, None, providers_set={"cboe", "intrinio"}
+    )
+    assert membership == ["intrinio"]
+
+
+def test_param_provider_membership_falls_back_to_title():
+    """Last resort: schema title naming a single provider."""
+    from openbb_cli.dispatchers.openapi_schema import param_provider_membership
+
+    schema = {"type": "boolean", "title": "cboe"}
+    membership = param_provider_membership(schema, None, providers_set={"cboe", "fmp"})
+    assert membership == ["cboe"]
+
+
+def test_param_provider_membership_returns_empty_for_neutral_param():
+    """A param with no signal at all (e.g. the ``provider`` discriminator) is shared."""
+    from openbb_cli.dispatchers.openapi_schema import param_provider_membership
+
+    schema = {"type": "string", "title": "Provider"}
+    membership = param_provider_membership(schema, None, providers_set={"cboe", "fmp"})
+    assert membership == []
+
+
+# --- Request body schema extraction ---
+
+
+def test_extract_request_body_schema_returns_inlined_json_schema():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    spec = {}
+    op = {
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"x": {"type": "integer"}},
+                    }
+                }
+            }
+        }
+    }
+    schema = extract_request_body_schema(spec, op)
+    assert schema == {"type": "object", "properties": {"x": {"type": "integer"}}}
+
+
+def test_extract_request_body_schema_dereferences_ref():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    spec = {
+        "components": {
+            "schemas": {
+                "Body": {"type": "object", "properties": {"y": {"type": "string"}}}
+            }
+        }
+    }
+    op = {
+        "requestBody": {
+            "content": {
+                "application/json": {"schema": {"$ref": "#/components/schemas/Body"}}
+            }
+        }
+    }
+    schema = extract_request_body_schema(spec, op)
+    assert schema["properties"]["y"]["type"] == "string"
+
+
+def test_extract_request_body_schema_returns_none_when_absent():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    assert extract_request_body_schema({}, {}) is None
+    assert extract_request_body_schema({}, {"requestBody": {}}) is None
+
+
+def test_extract_request_body_schemas_returns_per_content_type_map():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
+
+    op = {
+        "requestBody": {
+            "content": {
+                "application/json": {"schema": {"type": "object"}},
+                "application/x-www-form-urlencoded": {"schema": {"type": "object"}},
+            }
+        }
+    }
+    schemas = extract_request_body_schemas({}, op)
+    assert set(schemas) == {"application/json", "application/x-www-form-urlencoded"}
+
+
+# --- Embedded spec extraction & fetch_openapi fallback ---
+
+
+def test_find_matching_brace_returns_position_after_close():
+    from openbb_cli.dispatchers.openapi_schema import _find_matching_brace
+
+    text = '{"a": {"b": 1}, "c": 2}rest'
+    end = _find_matching_brace(text, 0)
+    assert text[:end] == '{"a": {"b": 1}, "c": 2}'
+
+
+def test_find_matching_brace_returns_none_when_unbalanced():
+    from openbb_cli.dispatchers.openapi_schema import _find_matching_brace
+
+    assert _find_matching_brace('{"a": 1', 0) is None
+
+
+def test_find_matching_brace_skips_braces_inside_strings():
+    from openbb_cli.dispatchers.openapi_schema import _find_matching_brace
+
+    text = '{"a": "{not-a-brace}"}'
+    end = _find_matching_brace(text, 0)
+    assert text[:end] == text  # whole thing
+
+
+def test_find_matching_brace_handles_escaped_quotes():
+    from openbb_cli.dispatchers.openapi_schema import _find_matching_brace
+
+    text = r'{"a": "with \"quote\""}rest'
+    end = _find_matching_brace(text, 0)
+    assert text[:end].endswith('"}')
+
+
+def test_find_matching_brace_returns_none_when_start_not_brace():
+    from openbb_cli.dispatchers.openapi_schema import _find_matching_brace
+
+    assert _find_matching_brace("no brace here", 0) is None
+
+
+def test_extract_embedded_spec_finds_var_form():
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = '<html><script>var spec = {"openapi": "3.0.0", "paths": {}};</script></html>'
+    spec = _extract_embedded_spec(html)
+    assert spec is not None
+    assert spec.get("openapi") == "3.0.0"
+
+
+def test_extract_embedded_spec_finds_window_form():
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = 'window.spec = {"openapi": "3.0.0"};'
+    spec = _extract_embedded_spec(html)
+    assert spec is not None
+
+
+def test_extract_embedded_spec_returns_none_when_object_unbalanced():
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = "var spec = {oops"
+    assert _extract_embedded_spec(html) is None
+
+
+def test_extract_embedded_spec_skips_non_openapi_objects():
+    """A JS object that parses but isn't an OpenAPI spec is rejected."""
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = 'var spec = {"unrelated": 1};'
+    assert _extract_embedded_spec(html) is None
+
+
+def test_extract_embedded_spec_returns_none_when_no_marker():
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    assert _extract_embedded_spec("<html>boring page</html>") is None
+
+
+def test_fetch_openapi_returns_parsed_json(monkeypatch):
+    from openbb_cli.dispatchers import openapi_schema
+
+    captured = {}
+
+    class _R:
+        status_code = 200
+        text = '{"openapi": "3.0.0", "paths": {}}'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return _R()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    spec = openapi_schema.fetch_openapi("https://api.example.com")
+    assert spec["openapi"] == "3.0.0"
+    assert captured["url"].endswith("/openapi.json")
+
+
+def test_fetch_openapi_falls_back_to_landing_for_embedded(monkeypatch):
+    """When ``/openapi.json`` doesn't parse, scrape the landing page for an embedded spec."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _R:
+        status_code = 404
+        text = "<html>not here</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            raise openapi_schema.httpx.HTTPStatusError(
+                "404", request=None, response=None
+            )
+
+    class _Landing:
+        status_code = 200
+        text = 'window.spec = {"openapi": "3.0.0", "paths": {}};'
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            pass
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return _R() if "openapi.json" in url else _Landing()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    spec = openapi_schema.fetch_openapi("https://h.example.com")
+    assert spec.get("openapi") == "3.0.0"
+    # Tried the JSON endpoint first, then the landing page
+    assert any("openapi.json" in u for u in calls)
+    assert any(u.endswith("h.example.com/") for u in calls)
+
+
+# --- Cycle / depth / fallback paths in deref + extractors ---
+
+
+def test_resolve_ref_returns_empty_for_non_local_refs():
+    from openbb_cli.dispatchers.openapi_schema import resolve_ref
+
+    assert resolve_ref({}, "https://other-host/spec#/X") == {}
+
+
+def test_resolve_ref_returns_empty_when_pointer_missing():
+    from openbb_cli.dispatchers.openapi_schema import resolve_ref
+
+    assert resolve_ref({"components": {}}, "#/components/schemas/Missing") == {}
+
+
+def test_deref_parameter_breaks_ref_cycle():
+    """A ``$ref`` cycle resolves to an empty dict instead of recursing forever."""
+    from openbb_cli.dispatchers.openapi_schema import deref_parameter
+
+    spec = {
+        "components": {
+            "parameters": {
+                "a": {"$ref": "#/components/parameters/b"},
+                "b": {"$ref": "#/components/parameters/a"},
+            }
+        }
+    }
+    out = deref_parameter(spec, {"$ref": "#/components/parameters/a"})
+    assert out == {}
+
+
+def test_deref_parameter_resolves_schema_ref():
+    from openbb_cli.dispatchers.openapi_schema import deref_parameter
+
+    spec = {"components": {"schemas": {"Limit": {"type": "integer", "minimum": 1}}}}
+    out = deref_parameter(
+        spec,
+        {"name": "limit", "schema": {"$ref": "#/components/schemas/Limit"}},
+    )
+    assert out["schema"]["type"] == "integer"
+
+
+def test_deref_schema_returns_node_when_max_depth_zero():
+    from openbb_cli.dispatchers.openapi_schema import deref_schema
+
+    sentinel = {"type": "object"}
+    assert deref_schema({}, sentinel, max_depth=0) is sentinel
+
+
+def test_deref_schema_marks_self_reference_with_ref_stub():
+    """A schema whose nested ref points back to itself returns ``{"$ref": ref}``."""
+    from openbb_cli.dispatchers.openapi_schema import deref_schema
+
+    spec = {
+        "components": {
+            "schemas": {
+                "Tree": {
+                    "type": "object",
+                    "properties": {"child": {"$ref": "#/components/schemas/Tree"}},
+                }
+            }
+        }
+    }
+    out = deref_schema(spec, {"$ref": "#/components/schemas/Tree"})
+    # The cycle is preserved as a $ref stub on the inner property
+    assert out["properties"]["child"] == {"$ref": "#/components/schemas/Tree"}
+
+
+def test_deref_schema_returns_node_when_ref_unresolvable():
+    """Unresolvable ``$ref`` returns the original node, not None."""
+    from openbb_cli.dispatchers.openapi_schema import deref_schema
+
+    node = {"$ref": "#/components/schemas/Missing"}
+    assert deref_schema({"components": {}}, node) == node
+
+
+def test_deref_schema_recurses_into_lists():
+    from openbb_cli.dispatchers.openapi_schema import deref_schema
+
+    spec = {"components": {"schemas": {"X": {"type": "string"}}}}
+    out = deref_schema(spec, [{"$ref": "#/components/schemas/X"}, "raw-string"])
+    assert out == [{"type": "string"}, "raw-string"]
+
+
+def test_deref_response_resolves_ref():
+    from openbb_cli.dispatchers.openapi_schema import _deref_response
+
+    spec = {"components": {"responses": {"OK": {"description": "ok", "content": {}}}}}
+    out = _deref_response(spec, {"$ref": "#/components/responses/OK"})
+    assert out["description"] == "ok"
+
+
+# --- extract_response_schema branches ---
+
+
+def test_extract_response_schema_falls_back_to_first_status():
+    """If no preferred status (200/2XX/201/default) matches, use the first response."""
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schema
+
+    op = {
+        "responses": {
+            "418": {"content": {"application/json": {"schema": {"type": "object"}}}}
+        }
+    }
+    schema = extract_response_schema({}, op)
+    assert schema == {"type": "object"}
+
+
+def test_extract_response_schema_falls_back_to_first_content_type():
+    """When no JSON content type is offered, the first content-type's schema is used."""
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schema
+
+    op = {
+        "responses": {"200": {"content": {"text/csv": {"schema": {"type": "string"}}}}}
+    }
+    schema = extract_response_schema({}, op)
+    assert schema == {"type": "string"}
+
+
+def test_extract_response_schema_returns_none_when_no_schema():
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schema
+
+    op = {"responses": {"200": {"content": {"application/json": {}}}}}
+    assert extract_response_schema({}, op) is None
+
+
+def test_extract_response_schema_returns_none_when_no_responses():
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schema
+
+    assert extract_response_schema({}, {}) is None
+
+
+# --- extract_request_body_schema branches ---
+
+
+def test_extract_request_body_schema_dereferences_request_body_ref():
+    """The whole ``requestBody`` may itself be a $ref."""
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    spec = {
+        "components": {
+            "requestBodies": {
+                "Body": {
+                    "content": {"application/json": {"schema": {"type": "object"}}}
+                }
+            }
+        }
+    }
+    op = {"requestBody": {"$ref": "#/components/requestBodies/Body"}}
+    schema = extract_request_body_schema(spec, op)
+    assert schema == {"type": "object"}
+
+
+def test_extract_request_body_schema_falls_back_to_first_content_type():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    op = {
+        "requestBody": {
+            "content": {"multipart/form-data": {"schema": {"type": "object"}}}
+        }
+    }
+    schema = extract_request_body_schema({}, op)
+    assert schema == {"type": "object"}
+
+
+def test_extract_request_body_schema_returns_none_when_schema_missing():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schema
+
+    op = {"requestBody": {"content": {"application/json": {}}}}
+    assert extract_request_body_schema({}, op) is None
+
+
+def test_extract_request_body_schemas_dereferences_top_level_ref():
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
+
+    spec = {
+        "components": {
+            "requestBodies": {
+                "B": {"content": {"application/json": {"schema": {"type": "object"}}}}
+            }
+        }
+    }
+    out = extract_request_body_schemas(
+        spec, {"requestBody": {"$ref": "#/components/requestBodies/B"}}
+    )
+    assert out == {"application/json": {"type": "object"}}
+
+
+def test_extract_request_body_schemas_skips_non_dict_media_entries():
+    """Defensive: a media entry that isn't a dict gets dropped."""
+    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
+
+    op = {
+        "requestBody": {
+            "content": {
+                "application/json": {"schema": {"type": "object"}},
+                "broken": "not-a-dict",
+            }
+        }
+    }
+    out = extract_request_body_schemas({}, op)
+    assert "application/json" in out
+    assert "broken" not in out
+
+
+# --- extract_response_schemas branches ---
+
+
+def test_extract_response_schemas_skips_non_dict_responses():
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schemas
+
+    op = {
+        "responses": {
+            "200": {"content": {"application/json": {"schema": {"type": "object"}}}},
+            "default": "not-a-dict",
+        }
+    }
+    out = extract_response_schemas({}, op)
+    assert "200" in out
+    assert "default" not in out
+
+
+# --- _extract_embedded_spec marker variants ---
+
+
+def test_extract_embedded_spec_skips_whitespace_after_marker():
+    """Whitespace and newlines between marker and ``{`` are tolerated."""
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = 'var spec =   \n   {"openapi": "3.0.0"};'
+    spec = _extract_embedded_spec(html)
+    assert spec is not None
+
+
+def test_extract_embedded_spec_continues_past_invalid_json_match():
+    """A marker followed by invalid JSON doesn't abort — keeps scanning."""
+    from openbb_cli.dispatchers.openapi_schema import _extract_embedded_spec
+
+    html = 'var spec = {bad-json};\nwindow.spec = {"openapi": "3.0.0"};'
+    spec = _extract_embedded_spec(html)
+    assert spec is not None
+    assert spec["openapi"] == "3.0.0"
+
+
+# --- fetch_openapi explicit path / landing fallback raise ---
+
+
+def test_fetch_openapi_explicit_path_calls_target_url(monkeypatch):
+    """An explicit ``path`` is honored — fetched URL is ``base_url + path``."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    captured: dict[str, str] = {}
+
+    class _R:
+        status_code = 200
+        text = '{"openapi": "3.0.0"}'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        captured["url"] = url
+        return _R()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    spec = openapi_schema.fetch_openapi("http://h", path="/static/openapi.yml")
+    assert spec["openapi"] == "3.0.0"
+    assert captured["url"].endswith("/static/openapi.yml")
+
+
+def test_fetch_openapi_raises_when_no_embedded_spec_and_landing_succeeds(monkeypatch):
+    """No-marker landing page → re-raise the original JSON-fetch error."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Bad:
+        status_code = 404
+        text = "<html>nope</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            raise openapi_schema.httpx.HTTPStatusError(
+                "404", request=None, response=None
+            )
+
+    class _Landing:
+        status_code = 200
+        text = "<html>boring</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        return _Bad() if "openapi.json" in url else _Landing()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    with pytest.raises(openapi_schema.httpx.HTTPStatusError):
+        openapi_schema.fetch_openapi("http://h")
+
+
+# --- parse_provider_sections empty section ---
+
+
+def test_parse_provider_sections_skips_empty_sections():
+    """Whitespace-only sections (after a trailing separator) are skipped."""
+    from openbb_cli.dispatchers.openapi_schema import parse_provider_sections
+
+    text = "Real. (provider: cboe);\n   ;\n    "
+    tagged, has_untagged = parse_provider_sections(text)
+    assert tagged == {"cboe"}
+    assert has_untagged is False
+
+
+def test_extract_response_schema_returns_none_when_no_schema_in_any_content_type():
+    """Content has entries but none expose a schema → None, not crash."""
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schema
+
+    op = {
+        "responses": {
+            "200": {
+                "content": {
+                    "text/csv": "not-a-dict",
+                    "application/x-protobuf": {},
+                }
+            }
+        }
+    }
+    assert extract_response_schema({}, op) is None
+
+
+def test_extract_response_schemas_skips_non_dict_media():
+    """Inside a per-content-type loop, non-dict media entries are dropped."""
+    from openbb_cli.dispatchers.openapi_schema import extract_response_schemas
+
+    op = {
+        "responses": {
+            "200": {
+                "content": {
+                    "application/json": {"schema": {"type": "object"}},
+                    "broken": "not-a-dict",
+                }
+            }
+        }
+    }
+    out = extract_response_schemas({}, op)
+    assert "application/json" in out["200"]
+    assert "broken" not in out["200"]
+
+
+def test_fetch_openapi_falls_through_to_raise_when_landing_has_no_embedded(monkeypatch):
+    """Landing page with no embedded spec re-raises the original openapi.json error."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _R:
+        status_code = 500
+        text = "internal"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            raise openapi_schema.httpx.HTTPStatusError(
+                "500", request=None, response=None
+            )
+
+    class _Landing:
+        status_code = 200
+        text = "<html>nothing useful</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        return _R() if "openapi.json" in url else _Landing()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    with pytest.raises(openapi_schema.httpx.HTTPStatusError):
+        openapi_schema.fetch_openapi("http://h")
+
+
+def test_fetch_openapi_swallows_initial_parse_error_and_scrapes_landing(monkeypatch):
+    """200 with unparseable body → fall through to landing-page scrape."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Bad:
+        status_code = 200
+        text = "{not-valid-json"  # leading { → JSON-only path → JSONDecodeError
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    class _Landing:
+        status_code = 200
+        text = 'window.spec = {"openapi": "3.0.0", "paths": {}};'
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        return _Bad() if "openapi.json" in url else _Landing()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    spec = openapi_schema.fetch_openapi("http://h")
+    assert spec.get("openapi") == "3.0.0"
+
+
+def test_fetch_openapi_with_explicit_path_reparses_and_raises(monkeypatch):
+    """Explicit ``path`` + unparseable body re-raises after the initial swallow."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Bad:
+        status_code = 200
+        text = "{not-valid-json"
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", lambda url, **kw: _Bad())
+    with pytest.raises((ValueError,)):  # JSONDecodeError is a ValueError subclass
+        openapi_schema.fetch_openapi("http://h", path="/custom.json")
+
+
+def test_fetch_openapi_final_parse_attempt_runs_when_landing_empty(monkeypatch):
+    """Initial parse fails, landing has no embedded spec, no explicit path:
+    re-attempt the original parse — which raises again, propagating the error."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Bad:
+        status_code = 200
+        text = "{not-valid-json"
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    class _Landing:
+        status_code = 200
+        text = "<html>nothing relevant</html>"
+        headers = {"content-type": "text/html"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kw):
+        return _Bad() if "openapi.json" in url else _Landing()
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
+    with pytest.raises((ValueError,)):
+        openapi_schema.fetch_openapi("http://h")

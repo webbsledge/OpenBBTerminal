@@ -50,6 +50,30 @@ env_file = str(ENV_FILE_SETTINGS)
 session = Session()
 
 
+def _params_to_completions(parameters: list[dict[str, Any]]) -> dict[str, Any]:
+    """Translate normalized spec parameters into a NestedCompleter dict.
+
+    Each parameter becomes ``--name: {choice1: None, choice2: None}`` when
+    the spec declares ``choices``, otherwise ``--name: None`` for free-form
+    values. ``--help`` / ``-h`` are appended so users can tab through to
+    the help flag.
+    """
+    out: dict[str, Any] = {}
+    for p in parameters or []:
+        name = p.get("name")
+        if not name:
+            continue
+        flag = f"--{name}"
+        choices_list = p.get("choices") or []
+        if choices_list:
+            out[flag] = {str(c): None for c in choices_list}
+        else:
+            out[flag] = None
+    out["--help"] = None
+    out["-h"] = "--help"
+    return out
+
+
 class CLIController(BaseController):
     """CLI Controller class.
 
@@ -111,41 +135,158 @@ class CLIController(BaseController):
                 controller, name, parent_path, target, self.queue
             )
 
-        def method_call_command(self, _, router: str):
-            """Call a top-level command-typed router (rare)."""
+        def method_call_command_legacy(self, _, router: str):
+            """Display the static command-target metadata for in-process ``obb``."""
             mdl = backend.get_command_target(router)
             df = pd.DataFrame.from_dict(mdl.model_dump(), orient="index")
             if isinstance(df.columns, pd.RangeIndex):
                 df.columns = [str(i) for i in df.columns]
             return print_rich_table(df, show_index=True)
 
+        def method_call_command_spec(self, other_args: list[str], router: str):
+            """Dispatch a top-level command-typed router via SpecBackend.
+
+            Builds a ``SpecTranslator`` for the leaf command, parses
+            ``other_args`` against its parser (so ``--help`` works), executes,
+            and renders the result. Without this, top-level leaves like
+            ``law`` for the Congress.gov spec would silently dump their spec
+            metadata instead of invoking the API.
+            """
+            from openbb_cli.backend import SpecTranslator
+
+            spec_doc: dict[str, Any] = getattr(backend, "_spec", {})
+            cmd_spec = spec_doc.get("commands", {}).get(router)
+            if cmd_spec is None:
+                session.console.print(f"[red]Command not found in spec: {router}[/red]")
+                return
+            translator = SpecTranslator(
+                router, cmd_spec, getattr(backend, "_dispatcher", None)
+            )
+            ns_parser = self.parse_known_args_and_warn(
+                parser=translator.parser,
+                other_args=other_args,
+                export_allowed="raw_data_only",
+            )
+            if not ns_parser:
+                return
+            try:
+                result = translator.execute_func(ns_parser)
+            except Exception as exc:  # noqa: BLE001 — surface dispatch errors to user
+                session.console.print(f"[red]error: {exc}[/red]")
+                return
+            payload = (
+                result.get("results", result) if isinstance(result, dict) else result
+            )
+            if isinstance(payload, dict):
+                df = pd.DataFrame([payload])
+            elif isinstance(payload, list):
+                df = pd.DataFrame(payload)
+            else:
+                df = pd.DataFrame({"value": [payload]})
+            session.output_adapter.display(df, title=f"/{router}")
+
+        is_spec_backend = hasattr(backend, "_spec") and hasattr(backend, "_dispatcher")
+        method_call_command: Any = (
+            method_call_command_spec if is_spec_backend else method_call_command_legacy
+        )
+
+        spec_commands: dict[str, Any] = (
+            getattr(backend, "_spec", {}).get("commands", {}) if is_spec_backend else {}
+        )
+
+        def method_call_menu_or_leaf(
+            self,
+            other_args: list[str],
+            controller,
+            name: str,
+            parent_path: list[str],
+            target,
+            router: str,
+        ):
+            """Hybrid for routers that have both a leaf path and nested commands.
+
+            Bare invocation (no args) opens the submenu — the user explores
+            sub-commands. Any args fall through to the leaf so e.g.
+            ``bill --limit 5`` lists the most-recent bills via ``/bill``
+            instead of pointlessly dropping into a submenu where every
+            sub-command needs a ``congress``/``billNumber`` you don't have yet.
+            """
+            if other_args:
+                method_call_command_spec(self, other_args, router)
+                return
+            self.queue = self.load_class(
+                controller, name, parent_path, target, self.queue
+            )
+
         for router, value in backend.routers.items():
             if router == "user":
                 continue
+
+            has_leaf = router in spec_commands
 
             if value == "menu":
                 pcf = PlatformControllerFactory(backend=backend, router_name=router)
                 DynamicController = pcf.create()
 
-                bound_method = MethodType(method_call_class, self)
-                bound_method = update_wrapper(
-                    partial(
-                        bound_method,
-                        controller=DynamicController,
-                        name=router,
-                        target=None,
-                        parent_path=self.path,
-                    ),
-                    method_call_class,
-                )
+                if has_leaf:
+                    bound_method = MethodType(method_call_menu_or_leaf, self)
+                    bound_method = update_wrapper(
+                        partial(
+                            bound_method,
+                            controller=DynamicController,
+                            name=router,
+                            target=None,
+                            parent_path=self.path,
+                            router=router,
+                        ),
+                        method_call_menu_or_leaf,
+                    )
+                else:
+                    bound_method = MethodType(method_call_class, self)
+                    bound_method = update_wrapper(
+                        partial(
+                            bound_method,
+                            controller=DynamicController,
+                            name=router,
+                            target=None,
+                            parent_path=self.path,
+                        ),
+                        method_call_class,
+                    )
             else:
                 bound_method = MethodType(method_call_command, self)
                 bound_method = update_wrapper(
                     partial(bound_method, router=router),
-                    method_call_command,
+                    method_call_command,  # ty: ignore[invalid-argument-type]
                 )
 
             setattr(self, f"call_{router}", bound_method)
+
+    def _spec_command_completions(self) -> dict[str, dict[str, Any]]:
+        """Build per-command completion choices from the SpecBackend's metadata.
+
+        Returns ``{command: {--flag: {choice: None, ...} | None}}``.
+        Includes both pure-command routers (``law``, ``treaty``) and hybrid
+        menu/leaf routers (``bill``, ``congress`` — they're menus by router
+        classification but the same name is also a leaf in ``spec.commands``,
+        so ``bill --limit 5`` should suggest the leaf's flags).
+        """
+        out: dict[str, dict[str, Any]] = {}
+        backend = getattr(self, "_backend", None)
+        if backend is None:
+            return out
+        spec_doc = getattr(backend, "_spec", None)
+        if not isinstance(spec_doc, dict):
+            return out
+        commands = spec_doc.get("commands", {})
+        for router in backend.routers:
+            if router not in self.controller_choices:
+                continue
+            cmd_spec = commands.get(router)
+            if not cmd_spec:
+                continue
+            out[router] = _params_to_completions(cmd_spec.get("parameters", []))
+        return out
 
     def update_runtime_choices(self):
         """Update runtime choices."""
@@ -153,6 +294,7 @@ class CLIController(BaseController):
 
         if session.prompt_session and session.settings.USE_PROMPT_TOOLKIT:
             choices: dict = {c: {} for c in self.controller_choices}
+            choices.update(self._spec_command_completions())
 
             self.ROUTINE_FILES = {
                 filepath.name: filepath
@@ -255,20 +397,31 @@ class CLIController(BaseController):
 
         platform_routers = self._backend.routers
         reference_routers = self._backend.reference_routers
+        reference_paths = self._backend.reference_paths
+
+        def _menu_description(router: str) -> str:
+            """Return the menu's reference description (tolerant of trailing slash)."""
+            for key in (f"{self.PATH}{router}/", f"{self.PATH}{router}"):
+                desc = reference_routers.get(key, {}).get("description") or ""
+                if desc:
+                    return desc.split(".")[0].lower()
+            return ""
+
+        def _command_description(router: str) -> str:
+            """Return the operation description for top-level command-typed routers."""
+            for key in (f"{self.PATH}{router}", f"{self.PATH}{router}/"):
+                desc = reference_paths.get(key, {}).get("description") or ""
+                if desc:
+                    return desc.split(".")[0].lower()
+            return ""
 
         for router, value in platform_routers.items():
             if router in NON_DATA_ROUTERS or router in DATA_PROCESSING_ROUTERS:
                 continue
             if value == "menu":
-                menu_description = (
-                    reference_routers.get(f"{self.PATH}{router}", {}).get("description")
-                ) or ""
-                mt.add_menu(
-                    name=router,
-                    description=menu_description.split(".")[0].lower(),
-                )
+                mt.add_menu(name=router, description=_menu_description(router))
             else:
-                mt.add_cmd(router)
+                mt.add_cmd(name=router, description=_command_description(router))
 
         if any(router in platform_routers for router in DATA_PROCESSING_ROUTERS):
             mt.add_info("\nAnalyze and process previously obtained data")
@@ -277,17 +430,9 @@ class CLIController(BaseController):
                 if router not in DATA_PROCESSING_ROUTERS:
                     continue
                 if value == "menu":
-                    menu_description = (
-                        reference_routers.get(f"{self.PATH}{router}", {}).get(
-                            "description"
-                        )
-                    ) or ""
-                    mt.add_menu(
-                        name=router,
-                        description=menu_description.split(".")[0].lower(),
-                    )
+                    mt.add_menu(name=router, description=_menu_description(router))
                 else:
-                    mt.add_cmd(router)
+                    mt.add_cmd(name=router, description=_command_description(router))
 
         mt.add_raw("\n")
         mt.add_info("Data manipulation and feature engineering")
@@ -703,7 +848,7 @@ def replace_dynamic(match: re.Match, special_arguments: dict[str, str]) -> str:
         The key value pairs to replace in the scripts
 
     Returns
-    ----------
+    -------
     str
         The new string
     """

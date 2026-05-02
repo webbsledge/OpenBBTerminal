@@ -61,7 +61,8 @@ class SQLiteTable:
         Args:
             use_cache: If True, return cached DataFrame if available
 
-        Returns:
+        Returns
+        -------
             DataFrame containing table data
         """
         if use_cache and self._cached_df is not None:
@@ -80,7 +81,8 @@ class SQLiteTable:
     def get_schema(self) -> list[tuple]:
         """Get table schema (column names and types).
 
-        Returns:
+        Returns
+        -------
             List of (column_name, type, notnull, default, pk) tuples
         """
         conn = sqlite3.connect(self.db_path)
@@ -98,7 +100,8 @@ class SQLiteTable:
             where: SQL WHERE clause (without WHERE keyword)
             limit: Maximum number of rows to return
 
-        Returns:
+        Returns
+        -------
             DataFrame with query results
         """
         sql = f"SELECT * FROM {self._quoted_name}"  # noqa: S608
@@ -123,7 +126,8 @@ def extract_dataframe(obbject) -> pd.DataFrame:
     Args:
         obbject: OBBject instance or other data
 
-    Returns:
+    Returns
+    -------
         DataFrame extracted from results
     """
     results = (
@@ -689,7 +693,7 @@ def check_file_type_saved(valid_types: list[str] | None = None):
             filenames to be saved separated with comma
 
         Returns
-        ----------
+        -------
         str
             valid filenames separated with comma
         """

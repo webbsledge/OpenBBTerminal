@@ -225,6 +225,91 @@ def build_parser() -> argparse.ArgumentParser:
             "to skip the OpenAPI fetch + parse on every call."
         ),
     )
+    mode.add_argument(
+        "--list-commands",
+        action="store_true",
+        help=(
+            "Print every spec-declared command as a JSON list of "
+            "``{name, method, url_path, description}`` rows. Equivalent "
+            "to dispatching the reserved command ``__commands__``."
+        ),
+    )
+    mode.add_argument(
+        "--describe",
+        metavar="COMMAND",
+        default=None,
+        help=(
+            "Print the full schema (parameters with type/required/default/"
+            "choices/help, plus method/url_path/description) for one "
+            "command as JSON. Equivalent to dispatching ``__schema__`` "
+            "with ``--name=COMMAND``."
+        ),
+    )
+    mode.add_argument(
+        "--print-config-template",
+        action="store_true",
+        help=(
+            "Print a documented TOML template covering every supported "
+            "config setting. Lines without a resolved value are commented "
+            "out, so dropping the output at "
+            "``~/.openbb_platform/openbb.toml`` is valid out of the box. "
+            "Currently-resolved values from the layered config are inlined "
+            "as live values."
+        ),
+    )
+    mode.add_argument(
+        "--show-config",
+        action="store_true",
+        help=(
+            "Print the merged TOML config — the result of layering "
+            "``pyproject.toml`` → user-global ``openbb.toml`` → project "
+            "``openbb.toml`` → ``--config`` — as JSON. Useful for debugging "
+            "which layer a given setting is coming from."
+        ),
+    )
+    parser.add_argument(
+        "--config",
+        metavar="PATH",
+        default=os.environ.get("OPENBB_CLI_CONFIG"),
+        help=(
+            "Load CLI configuration from a TOML file. Layered atop "
+            "``[tool.openbb-cli]`` in the nearest ``pyproject.toml``, "
+            "``~/.openbb_platform/openbb.toml`` (user-global), and any "
+            "``openbb.toml`` walking up from the working directory; CLI "
+            "flags and ``OPENBB_*`` env vars still win on conflict. Useful "
+            "for swapping between ``congress.toml`` / ``platform.toml`` / "
+            "``staging.toml`` without re-typing flags. (env: OPENBB_CLI_CONFIG)"
+        ),
+    )
+    parser.add_argument(
+        "--env-file",
+        metavar="PATH",
+        default=os.environ.get("OPENBB_CLI_ENV_FILE"),
+        help=(
+            "Path to a ``.env`` file to load into the process environment "
+            "before argparse runs — so ``OPENBB_SERVER_URL``, "
+            "``OPENBB_HTTP_QUERY_API_KEY``, etc. defined inside it populate "
+            "the corresponding flags. ``~/.openbb_platform/.env`` is always "
+            "tried as well (the canonical openbb-platform .env location); "
+            "real shell exports always beat both. "
+            "(env: OPENBB_CLI_ENV_FILE)"
+        ),
+    )
+    parser.add_argument(
+        "--batch-concurrency",
+        metavar="N",
+        type=int,
+        default=int(
+            os.environ.get("OPENBB_CLI_BATCH_CONCURRENCY", DEFAULT_BATCH_CONCURRENCY)
+        ),
+        help=(
+            "Maximum number of concurrent in-flight dispatches in --batch "
+            "mode. Higher values raise throughput against fast servers; "
+            "lower values give back-pressure when an upstream rate-limits. "
+            "(env: OPENBB_CLI_BATCH_CONCURRENCY, default: "
+            f"{DEFAULT_BATCH_CONCURRENCY})"
+        ),
+    )
     parser.add_argument(
         "--server",
         metavar="URL",
@@ -236,13 +321,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--spec",
-        metavar="PATH",
-        default=os.environ.get("OPENBB_SPEC_PATH"),
+        metavar="[NAME=]PATH",
+        action="append",
+        default=[],
         help=(
             "Use a precomputed .spec file (built via --generate-spec) instead "
-            "of fetching openapi.json. The spec carries the server URL it was "
-            "generated against, so --server is not required when using --spec. "
-            "(env: OPENBB_SPEC_PATH)"
+            "of fetching openapi.json. Repeatable: pass ``NAME=PATH`` to mount "
+            "each spec under its own namespace (``congress.bill``, "
+            "``nyfed.markets.ambs``). A single unnamed ``--spec PATH`` keeps the "
+            "flat (unprefixed) command surface. The spec carries the server URL "
+            "it was generated against, so --server is not required when using "
+            "--spec. (env: OPENBB_SPEC_PATH)"
         ),
     )
     parser.add_argument(
@@ -284,6 +373,30 @@ def build_parser() -> argparse.ArgumentParser:
             "Read additional headers from a JSON file (object of string "
             "values). Headers from --header take precedence on conflicts. "
             "(env: OPENBB_HEADER_FILE)"
+        ),
+    )
+    parser.add_argument(
+        "-Q",
+        "--query-param",
+        metavar="KEY=VALUE",
+        action="append",
+        default=[],
+        help=(
+            "Query parameter injected on every request (e.g. APIs that "
+            "authenticate via ``?api_key=...`` like https://api.congress.gov). "
+            "Repeatable. Also auto-loaded from any env var prefixed "
+            "``OPENBB_HTTP_QUERY_`` — ``OPENBB_HTTP_QUERY_API_KEY=xxx`` becomes "
+            "``?api_key=xxx``. CLI flag takes precedence over env."
+        ),
+    )
+    parser.add_argument(
+        "--query-param-file",
+        metavar="PATH",
+        default=os.environ.get("OPENBB_QUERY_PARAM_FILE"),
+        help=(
+            "Read additional query params from a JSON file (object of string "
+            "values). --query-param flags and ``OPENBB_HTTP_QUERY_*`` env vars "
+            "take precedence on conflicts. (env: OPENBB_QUERY_PARAM_FILE)"
         ),
     )
     parser.add_argument(

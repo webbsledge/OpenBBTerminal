@@ -445,7 +445,8 @@ class ArgparseTranslator:
         Args:
             parsed_args (Optional[argparse.Namespace], optional): The parsed arguments. Defaults to None.
 
-        Returns:
+        Returns
+        -------
             Any: The return value of the original function.
 
         """
@@ -473,7 +474,8 @@ class ArgparseTranslator:
         """
         Parse the arguments and executes the original function.
 
-        Returns:
+        Returns
+        -------
             Any: The return value of the original function.
         """
         parsed_args = self._parser.parse_args()
@@ -484,7 +486,8 @@ class ArgparseTranslator:
         """
         Wrap the original function with an argparse program.
 
-        Returns:
+        Returns
+        -------
             Callable: The original function wrapped with an argparse program.
         """
 

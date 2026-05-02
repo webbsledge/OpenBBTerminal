@@ -64,7 +64,7 @@ def match_and_return_openbb_keyword_date(keyword: str) -> str:  # noqa: PLR0911
         String with potential OpenBB keyword (e.g. 1MONTHAGO,LASTFRIDAY,3YEARSFROMNOW,NEXTTUESDAY)
 
     Returns
-    ----------
+    -------
         str: Date with format YYYY-MM-DD
     """
     now = datetime.now()

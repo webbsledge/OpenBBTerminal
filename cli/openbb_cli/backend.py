@@ -31,9 +31,7 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class Translator(Protocol):
-    """Per-command translator — matches the surface ``ArgparseTranslator`` exposes
-    that controllers actually touch.
-    """
+    """Per-command translator matching the ``ArgparseTranslator`` surface controllers touch."""
 
     _parser: argparse.ArgumentParser
     func: Any
@@ -68,10 +66,11 @@ class Backend(Protocol):
     def reference_routers(self) -> dict[str, dict[str, Any]]: ...
 
     def get_command_target(self, router: str) -> Any:
-        """Top-level command-typed router target (rare; used when ``routers[name]
-        == "command"``). For ``LocalBackend`` this is ``getattr(obb, router)``;
-        for ``SpecBackend`` it's a stub exposing ``model_dump()`` over the
-        command's response shape.
+        """Resolve a top-level command-typed router target.
+
+        Used when ``routers[name] == "command"``. ``LocalBackend`` returns
+        ``getattr(obb, router)``; ``SpecBackend`` returns a stub exposing
+        ``model_dump()`` over the command's response shape.
         """
 
     def get_translators_for_path(
@@ -230,7 +229,24 @@ class SpecTranslator:
         self._command = command
         self._spec = cmd_spec
         self._dispatcher = dispatcher
-        self._parser = parser_from_command_spec(cmd_spec)
+        self._parser = parser_from_command_spec(cmd_spec, prog=command)
+        self._param_names = {
+            p["name"] for p in (cmd_spec.get("parameters") or []) if p.get("name")
+        }
+        # Per-provider whitelist for multi-provider OpenBB commands. Used at
+        # ``execute_func`` time to drop flags that don't apply to the chosen
+        # provider — the eagerly-built ``self._parser`` accepts every flag so
+        # tab-completion and ``--help`` keep working without knowing which
+        # provider the user will pick.
+        self._params_by_provider: dict[str, set[str]] = {}
+        providers: list[str] = cmd_spec.get("providers") or []
+        for provider in providers:
+            self._params_by_provider[provider] = {
+                p["name"]
+                for p in (cmd_spec.get("parameters") or [])
+                if p.get("name")
+                and (not p.get("providers") or provider in p["providers"])
+            }
         self.func = _NamedStub(command.replace(".", "_"))
 
     @property
@@ -240,7 +256,28 @@ class SpecTranslator:
     def execute_func(self, parsed_args: argparse.Namespace) -> Any:
         from openbb_cli.dispatchers.protocol import Request
 
-        params = {k: v for k, v in vars(parsed_args).items() if v is not None}
+        # Only forward params declared in the spec. ``parse_known_args_and_warn``
+        # injects CLI-internal flags (``export``, ``help``, ``is_image``,
+        # ``register_key``, ``register_obbject``) onto the namespace; without
+        # this filter they leak onto the upstream URL as query params.
+        params = {
+            k: v
+            for k, v in vars(parsed_args).items()
+            if v is not None and k in self._param_names
+        }
+        # Multi-provider commands: reject flags that don't apply to the
+        # chosen provider. Without this, ``equity.price.quote --provider
+        # intrinio --use_cache true`` would silently send ``use_cache`` to
+        # an upstream that doesn't take it.
+        provider = params.get("provider")
+        if provider and provider in self._params_by_provider:
+            allowed = self._params_by_provider[provider]
+            stray = [k for k in params if k not in allowed and k != "provider"]
+            if stray:
+                raise RuntimeError(
+                    f"flags not valid for provider={provider!r}: "
+                    f"{', '.join('--' + s for s in stray)}"
+                )
         request = Request(command=self._command, params=params)
 
         async def _dispatch_and_close() -> Any:
@@ -258,8 +295,9 @@ class SpecTranslator:
 
 
 class _NamedStub:
-    """Callable with a ``__name__`` attribute. Body never runs — controllers
-    only ever introspect ``__name__`` for filename generation.
+    """Callable carrying a ``__name__`` attribute used by export-filename generation.
+
+    Body never runs — controllers only ever introspect ``__name__``.
     """
 
     def __init__(self, name: str) -> None:
