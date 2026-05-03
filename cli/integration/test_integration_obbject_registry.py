@@ -4,7 +4,7 @@ from openbb_core.app.model.obbject import OBBject
 
 from openbb_cli.argparse_translator.obbject_registry import Registry
 
-# ruff: noqa: disable=F841
+# ruff: noqa: F841
 
 
 def test_registry_operations():

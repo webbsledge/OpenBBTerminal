@@ -128,7 +128,7 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
     annotation text the caller writes after ``field_name:``.
     """
     if not isinstance(schema, dict):
-        # An unparseable fragment (e.g. a stale cycle marker) collapses to ``Any``.
+        # An unparsable fragment (e.g. a stale cycle marker) collapses to ``Any``.
         imports.add("from typing import Any")
         return "Any"
 
