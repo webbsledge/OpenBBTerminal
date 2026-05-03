@@ -1019,16 +1019,6 @@ class MethodDefinition:
             model_name=model_name,
             examples=examples,
         )
-        if doc:
-            indent = create_indent(2)
-            lines = doc.splitlines(True)
-            cleaned_lines = []
-            for line in lines:
-                if line.startswith(indent):
-                    cleaned_lines.append(line[len(indent) :])
-                else:
-                    cleaned_lines.append(line)
-            doc = "".join(cleaned_lines)
 
         code = (
             f'{create_indent(2)}"""{doc}{create_indent(2)}"""  # noqa: E501\n\n'
