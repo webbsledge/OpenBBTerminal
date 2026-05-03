@@ -279,6 +279,22 @@ def test_load_env_files_imports_dotenv_values(tmp_path, monkeypatch):
     assert "NULL_VALUE" not in os.environ
 
 
+def test_load_env_files_picks_up_user_global_env(tmp_path, monkeypatch):
+    """``USER_OPENBB_DIR/.env`` is added to the candidate list when present —
+    the user-global layer is what makes ``~/.openbb_platform/.env`` work
+    without any explicit path argument or env var."""
+    user_dir = tmp_path / "user"
+    user_dir.mkdir()
+    (user_dir / loader.USER_OPENBB_ENV_NAME).write_text(
+        "OPENBB_LOADER_USER_GLOBAL=present\n"
+    )
+    monkeypatch.setattr(loader, "USER_OPENBB_DIR", user_dir)
+    monkeypatch.delenv("OPENBB_LOADER_USER_GLOBAL", raising=False)
+    monkeypatch.delenv(loader.EXPLICIT_ENV_FILE_ENV, raising=False)
+    loader.load_env_files()
+    assert os.environ["OPENBB_LOADER_USER_GLOBAL"] == "present"
+
+
 # --- render_config_template with active values ---
 
 

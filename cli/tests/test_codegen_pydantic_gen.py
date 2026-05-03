@@ -958,9 +958,12 @@ def test_quick_schema_type_array_without_items_falls_back_to_any():
 
 
 def test_quick_schema_type_recurses_into_nested_array():
-    assert pg._quick_schema_type(
-        {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
-    ) == "list[list[str]]"
+    assert (
+        pg._quick_schema_type(
+            {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+        )
+        == "list[list[str]]"
+    )
 
 
 def test_quick_schema_type_renders_date_format():

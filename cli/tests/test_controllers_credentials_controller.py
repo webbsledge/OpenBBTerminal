@@ -85,6 +85,35 @@ class TestCredentialsController:
 
         assert hasattr(ctrl, "call_test_api_key")
 
+    def test_init_loop_runs_for_each_class_level_credential(
+        self, mock_cred_session, mock_obb, monkeypatch
+    ):
+        """Real ``__init__`` path: when the class-level ``_CRED_COMMANDS`` is
+        non-empty (the normal case for a populated install), the for-loop
+        body runs once per credential and registers the dynamic
+        ``call_<name>`` method. On Windows CI installs without provider
+        credentials the class dict is empty, so the loop body is skipped —
+        this test pins coverage by populating the class attribute itself."""
+        from openbb_cli.controllers.credentials_controller import (
+            CredentialsController,
+        )
+
+        # Patch the class attribute (not just the instance) so __init__ sees it.
+        monkeypatch.setattr(
+            CredentialsController,
+            "_CRED_COMMANDS",
+            {
+                "covered_api_key": {
+                    "command": "covered_api_key",
+                    "field_name": "covered_api_key",
+                    "provider": "covered",
+                }
+            },
+        )
+        with patch.object(CredentialsController, "update_completer"):
+            ctrl = CredentialsController(queue=[])
+        assert hasattr(ctrl, "call_covered_api_key")
+
     def test_print_help(self, mock_cred_session, mock_obb):
         from openbb_cli.controllers.credentials_controller import (
             CredentialsController,
