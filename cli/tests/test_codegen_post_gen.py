@@ -215,11 +215,14 @@ def test_data_schema_returns_response_when_results_field_is_not_dict():
     assert pg._data_schema({"response_schema": response}) == response
 
 
-def test_data_schema_returns_response_when_results_anyof_only_null():
-    """``results.anyOf`` with only null falls through to the top-level
-    response — anyOf alone isn't a structured envelope so nothing unwraps."""
+def test_data_schema_descends_through_results_anyof_envelope():
+    """``results.anyOf`` is a recognized envelope shape — even when the only
+    variant is ``null``, the envelope unwraps so codegen doesn't emit
+    ``results: Any`` as a real field on the parent class."""
     response = {"properties": {"results": {"anyOf": [{"type": "null"}]}}}
-    assert pg._data_schema({"response_schema": response}) == response
+    assert pg._data_schema({"response_schema": response}) == {
+        "anyOf": [{"type": "null"}]
+    }
 
 
 def test_data_schema_returns_top_level_when_no_results_field_multi_property():
@@ -269,6 +272,55 @@ def test_data_schema_unwraps_single_key_array_of_scalars():
         "properties": {"value": {"type": "string"}},
         "required": ["value"],
     }
+
+
+def test_data_schema_descends_into_single_array_among_scalar_siblings():
+    """Multi-property row with exactly one array property → descend to the
+    array's items, mirroring ``unpack_response``'s runtime behavior (which
+    extracts the single array as rows and treats the scalar siblings as
+    metadata). The Data class describes the row shape, not the wrapping
+    envelope.
+    """
+    response = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "properties": {
+                    "id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                }
+            }
+        },
+    }
+    out = pg._data_schema({"response_schema": response})
+    # Descended through ``items`` (single-property), then through ``tags``
+    # (single array among scalar siblings), then wrapped the scalar item
+    # schema as a ``{value: str}`` row.
+    assert out == {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+
+
+def test_data_schema_descends_oneOf_to_first_concrete_variant():
+    response = {
+        "type": "object",
+        "properties": {
+            "wrapper": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        {"properties": {"a": {"type": "string"}}},
+                        {"properties": {"b": {"type": "integer"}}},
+                    ]
+                },
+            }
+        },
+    }
+    out = pg._data_schema({"response_schema": response})
+    assert out.get("properties") == {"a": {"type": "string"}}
 
 
 def test_data_schema_keeps_array_with_non_dict_items():

@@ -148,7 +148,14 @@ def test_schema_to_type_ref_cycle_collapses_to_dict():
 # --- enum / const ---
 
 
-def test_schema_to_type_enum_emits_literal():
+def test_schema_to_type_enum_returns_primitive_not_literal():
+    """``enum`` resolves to the underlying primitive, not ``Literal[...]``.
+
+    openbb-core's DocstringGenerator strips ``Literal`` from union args via
+    ``get_origin(arg) is Literal: continue``, leaving ``Literal[...] | None``
+    rendered as the bogus ``Optional[None]``. Choices land in the description
+    instead — see ``_resolve_field_description``.
+    """
     imports: set[str] = set()
     out = pg.schema_to_type(
         {"type": "string", "enum": ["buy", "sell"]},
@@ -157,20 +164,46 @@ def test_schema_to_type_enum_emits_literal():
         nested_classes=[],
         imports=imports,
     )
-    assert out == "Literal['buy', 'sell']"
-    assert "from typing import Literal" in imports
+    assert out == "str"
+    assert "from typing import Literal" not in imports
 
 
-def test_schema_to_type_const_emits_single_literal():
+def test_schema_to_type_enum_infers_primitive_when_type_omitted():
+    """Spec authors sometimes omit ``type`` next to ``enum``; infer from values."""
     imports: set[str] = set()
     out = pg.schema_to_type(
-        {"const": "fred"},
+        {"enum": [1, 2, 3]},
+        parent_class_name="P",
+        field_name="n",
+        nested_classes=[],
+        imports=imports,
+    )
+    assert out == "int"
+
+
+def test_schema_to_type_const_returns_primitive_not_literal():
+    imports: set[str] = set()
+    out = pg.schema_to_type(
+        {"type": "string", "const": "fred"},
         parent_class_name="P",
         field_name="x",
         nested_classes=[],
         imports=imports,
     )
-    assert out == "Literal['fred']"
+    assert out == "str"
+
+
+def test_schema_to_type_const_infers_primitive_from_value():
+    """``const`` without an explicit ``type`` falls back to value inspection."""
+    imports: set[str] = set()
+    out = pg.schema_to_type(
+        {"const": 42},
+        parent_class_name="P",
+        field_name="x",
+        nested_classes=[],
+        imports=imports,
+    )
+    assert out == "int"
 
 
 # --- arrays ---
@@ -437,6 +470,8 @@ def test_generate_class_docstring_field_with_no_description_omits_body_line():
 
 
 def test_generate_class_handles_nested_object_via_separate_class():
+    """A plain nested object becomes its own ``BaseModel`` class so Pydantic
+    can recursively validate the runtime row."""
     schema = {
         "type": "object",
         "properties": {
@@ -574,10 +609,11 @@ def test_render_module_compiles_to_valid_python():
     try:
         exec(textwrap.dedent(rendered), mod.__dict__)  # noqa: S102 — controlled source
         Order = mod.Order
-        instance = Order(symbol="AAPL", side="buy")
+        instance = Order(symbol="AAPL", side="buy", details={"note": "x"})
         assert instance.symbol == "AAPL"
         assert instance.side == "buy"
         assert instance.qty == 1
+        assert instance.details.note == "x"
     finally:
         sys.modules.pop("generated_test_mod", None)
 
@@ -619,11 +655,12 @@ def test_python_string_literal_escapes_embedded_triple_quotes():
     assert out.count('"""') == 2  # only the opening and closing
 
 
-def test_generate_class_optional_field_emits_default_none_via_field():
-    """Optional field with no description gets ``Field(default=None)``."""
+def test_generate_class_optional_field_emits_default_none_with_empty_description():
+    """Optional field with no spec text emits ``description=''`` (not omitted) so
+    openbb-core's DocstringGenerator doesn't render the literal string ``"None"``."""
     schema = {"type": "object", "properties": {"x": {"type": "string"}}}
     cls = pg.generate_class(schema, class_name="C")
-    assert "x: str | None = Field(default=None)" in cls.source
+    assert "x: str | None = Field(default=None, description='')" in cls.source
 
 
 def test_generate_class_uses_triple_quoted_docstring_for_multiline():
@@ -754,6 +791,69 @@ def test_build_field_call_wraps_when_single_line_exceeds_budget():
     assert out.endswith(",\n    )")
 
 
+def test_field_falls_back_to_example_when_no_description():
+    """Schema with only ``example`` (no ``description``) gets ``"Example: <val>"``
+    so the rendered Field / docstring shows useful text instead of ``None``."""
+    schema = {
+        "type": "object",
+        "properties": {"auctionStatus": {"type": "string", "example": "Results"}},
+    }
+    cls = pg.generate_class(schema, class_name="C")
+    src = cls.source
+    assert "description='Example: Results.'" in src
+    # And the docstring section also picks up the example
+    block = src.split('"""')[1]
+    assert "Example: Results" in block
+
+
+def test_field_keeps_description_over_example_when_both_present():
+    schema = {
+        "type": "object",
+        "properties": {
+            "x": {"type": "string", "description": "Real description.", "example": "EX"}
+        },
+    }
+    cls = pg.generate_class(schema, class_name="C")
+    assert "Real description." in cls.source
+    assert "Example: EX" not in cls.source
+
+
+def test_optional_enum_field_emits_primitive_type_with_choices_in_description():
+    """Regression: ``{type: string, enum: [P, S], example: P}`` previously
+    rendered as ``Literal["P", "S"] | None``, which openbb-core's docstring
+    generator collapsed to the bogus ``Optional[None]``. We now emit
+    ``str | None`` and surface the choices in the description text."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "operationDirection": {
+                "type": "string",
+                "enum": ["P", "S"],
+                "example": "P",
+            }
+        },
+    }
+    cls = pg.generate_class(schema, class_name="Auction")
+    src = cls.source
+    assert "operationDirection: str | None" in src
+    assert "Literal" not in src
+    # Choices land in the description so the information isn't lost
+    assert "Choices: P, S" in src
+    assert "Example: P" in src
+
+
+def test_field_with_no_description_no_example_emits_empty_description():
+    """No spec text -> ``description=''``, not omitted. Empty string keeps
+    openbb-core's DocstringGenerator from rendering the literal ``"None"``."""
+    schema = {
+        "type": "object",
+        "properties": {"numDealers": {"type": "integer"}},
+    }
+    cls = pg.generate_class(schema, class_name="C")
+    assert "description=''" in cls.source
+    assert "None" not in cls.source.split("class C")[1].split("\n", 5)[0]
+
+
 def test_render_module_appends_period_to_docstring_summary():
     """Line 681: a docstring without trailing punctuation gets a period."""
     schema = {"type": "object", "properties": {"x": {"type": "integer"}}}
@@ -761,3 +861,118 @@ def test_render_module_appends_period_to_docstring_summary():
     rendered = pg.render_module(cls, module_docstring="No trailing period")
     first_line = rendered.split("\n", 1)[0]
     assert first_line == '"""No trailing period."""'
+
+
+# --- _enum_primitive ---
+
+
+def test_enum_primitive_infers_bool_when_all_values_boolean():
+    """``enum: [True, False]`` with no declared type → ``"bool"``."""
+    imports: set[str] = set()
+    assert pg._enum_primitive([True, False], None, imports) == "bool"
+
+
+def test_enum_primitive_infers_float_when_values_mix_int_and_float():
+    imports: set[str] = set()
+    assert pg._enum_primitive([1, 2.5, 3], None, imports) == "float"
+
+
+def test_enum_primitive_infers_str_when_all_values_string_no_declared_type():
+    """``enum: ["A", "B"]`` with no declared type → ``"str"``."""
+    imports: set[str] = set()
+    assert pg._enum_primitive(["A", "B"], None, imports) == "str"
+
+
+def test_enum_primitive_falls_back_to_any_for_mixed_unhandled_types():
+    """Heterogeneous enum (e.g. dicts) with no declared type → ``"Any"``."""
+    imports: set[str] = set()
+    out = pg._enum_primitive([{"x": 1}, "y"], None, imports)
+    assert out == "Any"
+    assert "from typing import Any" in imports
+
+
+# --- _build_field_call empty branch ---
+
+
+def test_build_field_call_returns_empty_when_no_metadata_to_emit():
+    """A required field with no description / alias yields no ``Field(...)``
+    so the caller drops the trailing ``=`` entirely."""
+    out = pg._build_field_call(
+        description=None,
+        default=None,
+        has_default=False,
+        required=True,
+        alias=None,
+        leading_width=10,
+    )
+    assert out == ""
+
+
+# --- _nested_object_breakout ---
+
+
+def test_nested_object_breakout_descends_into_oneof_variant():
+    """``{oneOf: [{properties: {...}}]}`` items expose their inner fields."""
+    prop = {
+        "items": {
+            "oneOf": [
+                {"properties": {"flag": {"type": "string"}, "id": {"type": "integer"}}}
+            ]
+        }
+    }
+    out = pg._nested_object_breakout(prop)
+    assert "flag (str)" in out
+    assert "id (int)" in out
+    assert out.startswith("Inner item fields:")
+
+
+def test_nested_object_breakout_handles_non_dict_inner_schema():
+    """A property whose inner schema is a stray scalar still names the field
+    in the breakout — it just can't render a type label for it."""
+    prop = {"properties": {"a": "not-a-dict", "b": {"type": "integer"}}}
+    out = pg._nested_object_breakout(prop)
+    assert "a, b (int)" in out
+
+
+def test_nested_object_breakout_returns_empty_for_primitive_field():
+    """No nested properties anywhere → no breakout to render."""
+    assert pg._nested_object_breakout({"type": "string"}) == ""
+
+
+# --- _quick_schema_type ---
+
+
+def test_quick_schema_type_returns_str_for_enum():
+    """An ``enum`` schema labels the field as ``str`` regardless of declared type."""
+    assert pg._quick_schema_type({"enum": ["A", "B"]}) == "str"
+
+
+def test_quick_schema_type_renders_array_with_inner_type():
+    assert pg._quick_schema_type({"type": "array", "items": {"type": "integer"}}) == (
+        "list[int]"
+    )
+
+
+def test_quick_schema_type_array_without_items_falls_back_to_any():
+    assert pg._quick_schema_type({"type": "array"}) == "list[Any]"
+
+
+def test_quick_schema_type_recurses_into_nested_array():
+    assert pg._quick_schema_type(
+        {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+    ) == "list[list[str]]"
+
+
+def test_quick_schema_type_renders_date_format():
+    assert pg._quick_schema_type({"type": "string", "format": "date"}) == "date"
+
+
+def test_quick_schema_type_renders_datetime_format():
+    assert pg._quick_schema_type({"type": "string", "format": "date-time"}) == (
+        "datetime"
+    )
+
+
+def test_quick_schema_type_unknown_type_falls_back_to_any():
+    """A schema with no ``type`` and no other handled keys collapses to ``Any``."""
+    assert pg._quick_schema_type({}) == "Any"

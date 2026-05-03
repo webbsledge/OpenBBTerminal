@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from openbb_cli.dispatchers._unpack import unpack_response
+import pytest
+
+from openbb_cli.dispatchers._unpack import safe_json_loads, unpack_response
 
 # --- list payloads ---
 
@@ -101,3 +103,30 @@ def test_unpack_response_returns_empty_when_payload_is_none():
     rows, metadata = unpack_response(None)
     assert rows == [{"value": None}]
     assert metadata == {}
+
+
+# --- safe_json_loads ---
+
+
+def test_safe_json_loads_parses_well_formed_payload_directly():
+    """Strict ``json.loads`` succeeds on the fast path — no rewrite triggered."""
+    assert safe_json_loads('{"a": 1, "b": [2, 3]}') == {"a": 1, "b": [2, 3]}
+
+
+def test_safe_json_loads_substitutes_bare_asterisk_with_null():
+    """NY Fed-style ``"foo": *`` sentinel becomes ``null`` so the rest of
+    the payload still parses instead of failing on the first asterisk."""
+    text = '{"a": 1, "b": *, "c": [{"d": *}], "e": "kept"}'
+    assert safe_json_loads(text) == {
+        "a": 1,
+        "b": None,
+        "c": [{"d": None}],
+        "e": "kept",
+    }
+
+
+def test_safe_json_loads_propagates_unfixable_errors():
+    """Genuinely malformed JSON (not just bare ``*``) still raises after
+    the sanitization fallback — the fallback isn't a magical rescue."""
+    with pytest.raises(ValueError):
+        safe_json_loads('{"a": ,}')

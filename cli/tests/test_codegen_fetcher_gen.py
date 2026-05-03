@@ -389,6 +389,65 @@ def test_data_schema_top_level_array_of_scalars_unwraps_to_value_field():
     }
 
 
+def test_data_schema_descends_into_single_array_among_scalar_siblings():
+    """Multi-property row with exactly one array property → descend into
+    the array's items, mirroring runtime ``unpack_response`` behavior
+    (single array among scalar siblings = the data, siblings = metadata).
+    The auction-shaped wrapper dissolves to the inner ``details`` shape.
+    """
+    response = {
+        "type": "object",
+        "properties": {
+            "ambs": {
+                "type": "object",
+                "properties": {
+                    "auctions": {
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "auctionStatus": {"type": "string"},
+                                "operationId": {"type": "string"},
+                                "operationDate": {"type": "string"},
+                                "details": {
+                                    "type": "array",
+                                    "items": {
+                                        "properties": {"flag": {"type": "string"}}
+                                    },
+                                },
+                            }
+                        },
+                    }
+                },
+            }
+        },
+    }
+    out = fg._data_schema({"response_schema": response})
+    # Descended ambs → auctions (single-property envelopes) → auction items
+    # (multi-property with one array sibling ``details``) → details items.
+    assert "flag" in out.get("properties", {})
+    assert "auctionStatus" not in out.get("properties", {})
+
+
+def test_data_schema_descends_oneOf_to_first_concrete_variant():
+    """Top-level ``oneOf`` (after envelope strip) selects the first dict variant."""
+    response = {
+        "type": "object",
+        "properties": {
+            "wrapper": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        {"properties": {"a": {"type": "string"}}},
+                        {"properties": {"b": {"type": "integer"}}},
+                    ]
+                },
+            }
+        },
+    }
+    out = fg._data_schema({"response_schema": response})
+    assert out.get("properties") == {"a": {"type": "string"}}
+
+
 def test_unwrap_schema_envelopes_returns_empty_for_non_dict_input():
     assert fg._unwrap_schema_envelopes("not a dict") == {}  # type: ignore[arg-type]
     assert fg._unwrap_schema_envelopes(None) == {}  # type: ignore[arg-type]
@@ -408,14 +467,13 @@ def test_data_schema_returns_response_when_results_field_is_not_dict():
     assert out == response
 
 
-def test_data_schema_returns_response_when_anyof_only_null():
-    """``results.anyOf`` with only null falls through to the top-level
-    response. The single-property envelope rule only fires for structured
-    inner values (object with properties or array) — anyOf alone doesn't
-    qualify."""
+def test_data_schema_descends_through_anyof_single_property_envelope():
+    """``results.anyOf`` is a recognized envelope shape — even when the only
+    variant is ``null``, the envelope is unwrapped (yielding a degenerate
+    schema) so codegen doesn't emit ``results: Any`` as a real field."""
     response = {"properties": {"results": {"anyOf": [{"type": "null"}]}}}
     out = fg._data_schema({"response_schema": response})
-    assert out == response
+    assert out == {"anyOf": [{"type": "null"}]}
 
 
 # --- _credential_lookup_lines ---

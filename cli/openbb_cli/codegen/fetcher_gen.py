@@ -256,38 +256,77 @@ def _data_schema(cmd_spec: dict[str, Any]) -> dict[str, Any]:
 def _unwrap_schema_envelopes(schema: Any) -> dict[str, Any]:
     """Strip schema envelopes that ``unpack_response`` strips at runtime.
 
-    Mirrors the runtime unpack so the generated ``Data`` class matches the
-    shape of an unwrapped row instead of the raw response wrapper. Accepts
-    ``Any`` because it's called recursively on values plucked out of nested
-    schemas without static type information.
+    Peels pure-envelope wrappers (single-key dicts, top-level arrays, single
+    array property with no siblings) until the row schema is reached. Stops
+    at multi-property objects — those are rows, even if one of the
+    properties happens to be a nested array (an auction's ``details`` field
+    is part of the auction, not an envelope around it).
     """
     if not isinstance(schema, dict):
         return {}
     typed: dict[str, Any] = schema
     if typed.get("type") == "array":
         return _unwrap_schema_envelopes(typed.get("items"))
+    combinator_target = _first_non_null_combinator_variant(typed)
+    if combinator_target is not None:
+        return _unwrap_schema_envelopes(combinator_target)
     if _is_scalar_schema(typed):
         return _wrap_scalar_as_value(typed)
     props = typed.get("properties")
     if not isinstance(props, dict) or not props:
         return typed
-    array_props = [
-        (k, v)
-        for k, v in props.items()
-        if isinstance(v, dict) and v.get("type") == "array"
-    ]
-    if len(array_props) == 1:
-        items = array_props[0][1].get("items")
-        if isinstance(items, dict):
-            return _unwrap_schema_envelopes(items)
-        return typed
+    inner = _envelope_inner_schema(typed, props)
+    if inner is not None:
+        return _unwrap_schema_envelopes(inner)
+    # Multi-property object with no clear single-array envelope: this IS the row.
+    return typed
+
+
+def _first_non_null_combinator_variant(schema: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the first non-null variant of a top-level ``oneOf`` / ``anyOf``."""
+    for combinator in ("oneOf", "anyOf"):
+        variants = schema.get(combinator)
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if isinstance(variant, dict) and variant.get("type") != "null":
+                return cast(dict[str, Any], variant)
+    return None
+
+
+def _envelope_inner_schema(
+    typed: dict[str, Any],  # noqa: ARG001 — kept for symmetry with caller signature
+    props: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve the inner row schema when ``typed`` is a recognized envelope.
+
+    Returns ``None`` when the schema isn't an envelope (i.e. it IS the row,
+    OR the would-be inner schema is too malformed to descend into safely).
+    Mirrors what ``unpack_response`` does at runtime: a pure single-property
+    wrapper descends into the inner structured value, and a multi-property
+    object with exactly one array property treats the array's items as rows.
+    """
     if len(props) == 1:
-        only_value: Any = next(iter(props.values()))
+        only_value = next(iter(props.values()))
         if isinstance(only_value, dict):
             only_dict = cast(dict[str, Any], only_value)
-            if only_dict.get("properties"):
-                return _unwrap_schema_envelopes(only_dict)
-    return typed
+            if only_dict.get("type") == "array":
+                items = only_dict.get("items")
+                return cast(dict[str, Any], items) if isinstance(items, dict) else None
+            if (
+                only_dict.get("properties")
+                or only_dict.get("oneOf")
+                or only_dict.get("anyOf")
+            ):
+                return only_dict
+    array_keys = [
+        k for k, v in props.items() if isinstance(v, dict) and v.get("type") == "array"
+    ]
+    if len(array_keys) == 1:
+        items = props[array_keys[0]].get("items")
+        if isinstance(items, dict):
+            return cast(dict[str, Any], items)
+    return None
 
 
 def _is_scalar_schema(schema: dict[str, Any]) -> bool:
@@ -476,7 +515,6 @@ def generate_fetcher_module(spec: FetcherCommandSpec) -> GeneratedFetcher:
     path_params = _path_template_keys(spec.cmd_spec.get("url_path") or "")
 
     imports = {
-        "import json as _json",
         "from typing import Any",
         "from openbb_core.app.model.abstract.error import OpenBBError",
         "from openbb_core.provider.abstract.annotated_result import AnnotatedResult",
@@ -488,9 +526,11 @@ def generate_fetcher_module(spec: FetcherCommandSpec) -> GeneratedFetcher:
         # ``BaseModel`` is needed for any nested object schemas the
         # generator inlined; ``Field`` is used by every emitted field line.
         "from pydantic import BaseModel, Field",
-        # Shared runtime helper at the package root — written once by
-        # ``GeneratedPackage.write`` to ``<package>/utils.py``.
-        "from ....utils import unpack_response",
+        # Shared runtime helpers at the package root — written once by
+        # ``GeneratedPackage.write`` to ``<package>/utils.py``. ``safe_json_loads``
+        # tolerates upstream-quirk payloads (bare ``*`` sentinels, etc.) so a
+        # single masked field doesn't sink the whole response.
+        "from ....utils import safe_json_loads, unpack_response",
     }
     imports.update(qp_generated.collect_imports())
     imports.update(data_generated.collect_imports())
@@ -833,7 +873,7 @@ def _aextract_body(
         "                if 'json' in _ct or _text.lstrip().startswith(('{', '[')):"
     )
     lines.append("                    try:")
-    lines.append("                        _payload = _json.loads(_text)")
+    lines.append("                        _payload = safe_json_loads(_text)")
     lines.append("                    except ValueError as _exc:")
     lines.append(
         "                        raise OpenBBError("

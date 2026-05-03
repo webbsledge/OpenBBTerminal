@@ -251,28 +251,65 @@ def _unwrap_schema_envelopes(schema: Any) -> dict[str, Any]:
     typed: dict[str, Any] = schema
     if typed.get("type") == "array":
         return _unwrap_schema_envelopes(typed.get("items"))
+    combinator_target = _first_non_null_combinator_variant(typed)
+    if combinator_target is not None:
+        return _unwrap_schema_envelopes(combinator_target)
     if _is_scalar_schema(typed):
         return _wrap_scalar_as_value(typed)
     props = typed.get("properties")
     if not isinstance(props, dict) or not props:
         return typed
-    array_props = [
-        (k, v)
-        for k, v in props.items()
-        if isinstance(v, dict) and v.get("type") == "array"
-    ]
-    if len(array_props) == 1:
-        items = array_props[0][1].get("items")
-        if isinstance(items, dict):
-            return _unwrap_schema_envelopes(items)
-        return typed
+    inner = _envelope_inner_schema(typed, props)
+    if inner is not None:
+        return _unwrap_schema_envelopes(inner)
+    return typed
+
+
+def _first_non_null_combinator_variant(schema: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the first non-null variant of a top-level ``oneOf`` / ``anyOf``."""
+    for combinator in ("oneOf", "anyOf"):
+        variants = schema.get(combinator)
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            if isinstance(variant, dict) and variant.get("type") != "null":
+                return cast(dict[str, Any], variant)
+    return None
+
+
+def _envelope_inner_schema(
+    typed: dict[str, Any],  # noqa: ARG001 — kept for symmetry with caller signature
+    props: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve the inner row schema when ``typed`` is a recognized envelope.
+
+    Returns ``None`` when the schema isn't an envelope (i.e. it IS the row,
+    OR the would-be inner schema is too malformed to descend into safely).
+    Mirrors ``unpack_response``: pure single-property wrappers descend, and
+    multi-property objects with exactly one array property treat the
+    array's items as the row shape.
+    """
     if len(props) == 1:
-        only_value: Any = next(iter(props.values()))
+        only_value = next(iter(props.values()))
         if isinstance(only_value, dict):
             only_dict = cast(dict[str, Any], only_value)
-            if only_dict.get("properties"):
-                return _unwrap_schema_envelopes(only_dict)
-    return typed
+            if only_dict.get("type") == "array":
+                items = only_dict.get("items")
+                return cast(dict[str, Any], items) if isinstance(items, dict) else None
+            if (
+                only_dict.get("properties")
+                or only_dict.get("oneOf")
+                or only_dict.get("anyOf")
+            ):
+                return only_dict
+    array_keys = [
+        k for k, v in props.items() if isinstance(v, dict) and v.get("type") == "array"
+    ]
+    if len(array_keys) == 1:
+        items = props[array_keys[0]].get("items")
+        if isinstance(items, dict):
+            return cast(dict[str, Any], items)
+    return None
 
 
 def _is_scalar_schema(schema: dict[str, Any]) -> bool:

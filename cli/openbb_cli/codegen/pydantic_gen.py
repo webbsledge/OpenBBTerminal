@@ -149,13 +149,10 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
 
     enum = schema.get("enum")
     if enum:
-        imports.add("from typing import Literal")
-        rendered = ", ".join(repr(v) for v in enum)
-        return f"Literal[{rendered}]"
+        return _enum_primitive(enum, schema.get("type"), imports)
 
     if "const" in schema:
-        imports.add("from typing import Literal")
-        return f"Literal[{schema['const']!r}]"
+        return _enum_primitive([schema["const"]], schema.get("type"), imports)
 
     schema_type = schema.get("type")
     if schema_type == "array":
@@ -190,6 +187,34 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
         return py_type
 
     # Unknown / missing type: keep the field permissive.
+    imports.add("from typing import Any")
+    return "Any"
+
+
+def _enum_primitive(
+    values: list[Any],
+    declared_type: Any,
+    imports: set[str],
+) -> str:
+    """Map an ``enum`` / ``const`` to the underlying primitive type annotation.
+
+    We deliberately don't emit ``Literal[...]`` here — openbb-core's
+    docstring generator strips ``Literal`` types from union annotations
+    via ``get_origin(arg) is Literal: continue``, which leaves
+    ``Literal[...] | None`` rendered as the bogus ``Optional[None]``. The
+    enum's choices are surfaced separately via the field description (see
+    ``_resolve_field_description``), so the type annotation can stay flat.
+    """
+    if declared_type in _PRIMITIVE_TYPES:
+        return _PRIMITIVE_TYPES[declared_type]
+    if all(isinstance(v, bool) for v in values):
+        return "bool"
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        return "int"
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+        return "float"
+    if all(isinstance(v, str) for v in values):
+        return "str"
     imports.add("from typing import Any")
     return "Any"
 
@@ -344,7 +369,7 @@ def _build_field_call(
         args.append("default=None")
     if alias is not None:
         args.append(f"alias={alias!r}")
-    if description:
+    if description is not None:
         args.append(f"description={_python_string_literal(description)}")
     if not args:
         return ""
@@ -354,6 +379,114 @@ def _build_field_call(
     # Wrap across lines so each argument lands within the line-length budget.
     inner = ",\n        ".join(args)
     return f"Field(\n        {inner},\n    )"
+
+
+def _resolve_field_description(
+    prop: dict[str, Any],
+    field_name: str | None = None,  # noqa: ARG001 — kept for caller call site
+) -> str:
+    """Pick the description text for a Pydantic Field.
+
+    Priority: ``description`` > ``title`` > ``Example: <example value>``.
+    When the schema has an ``enum``, the allowed choices are appended (or
+    used as the body when there's no other text) so the information is
+    preserved after we stop emitting ``Literal[...]`` annotations.
+
+    Falls back to the empty string when the spec has nothing to say —
+    openbb-core's DocstringGenerator renders ``field.description`` directly,
+    so passing ``None`` produces the literal text ``"None"`` under the field.
+    An empty string renders as nothing.
+    """
+    text = prop.get("description") or prop.get("title")
+    parts: list[str] = []
+    if text:
+        parts.append(text.rstrip(". ") + ".")
+    elif prop.get("example") is not None:
+        parts.append(f"Example: {prop['example']}.")
+    enum = prop.get("enum") or (
+        [prop["const"]]
+        if isinstance(prop.get("const"), (str, int, float, bool))
+        else None
+    )
+    if enum:
+        rendered = ", ".join(str(v) for v in enum)
+        parts.append(f"Choices: {rendered}.")
+    return " ".join(parts).rstrip()
+
+
+def _nested_object_breakout(prop: dict[str, Any]) -> str:
+    """Render an inline breakout of a nested object's fields.
+
+    openbb-core's docstring renderer prints ``field.description`` directly
+    under each field but does NOT recursively expand nested-class types —
+    so ``num_dealers : NumDealers | None`` shows up as a bare class
+    reference with no hint at the inner shape. By embedding a one-line
+    summary of the inner fields into the description, the rendered
+    docstring becomes self-contained: every nested model's contents are
+    visible without the user having to chase down the class definition.
+
+    Returns the empty string for primitives, arrays-of-primitives, unions,
+    and ``$ref`` cycle stubs — anywhere there's no flat property list to
+    summarize.
+    """
+    target = prop
+    if isinstance(prop.get("items"), dict):
+        target = prop["items"]
+    # ``oneOf`` envelopes a single typed variant — descend so item schemas
+    # like ``{oneOf: [{properties: {...}}]}`` still produce a breakout.
+    for combinator in ("oneOf", "anyOf"):
+        variants = target.get(combinator)
+        if isinstance(variants, list):
+            for variant in variants:
+                if isinstance(variant, dict) and isinstance(
+                    variant.get("properties"), dict
+                ):
+                    target = variant
+                    break
+    properties = target.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        return ""
+    summaries: list[str] = []
+    for inner_name, inner_sch in properties.items():
+        if not isinstance(inner_sch, dict):
+            summaries.append(inner_name)
+            continue
+        inner_type = _quick_schema_type(inner_sch)
+        summaries.append(f"{inner_name} ({inner_type})")
+    label = (
+        "Inner item fields" if isinstance(prop.get("items"), dict) else "Inner fields"
+    )
+    return f"{label}: {', '.join(summaries)}."
+
+
+def _quick_schema_type(schema: dict[str, Any]) -> str:
+    """Best-effort shorthand type label for breakout text.
+
+    Doesn't replicate ``schema_to_type`` (no nested-class generation, no
+    import tracking) — just produces a short human-readable label that's
+    accurate enough to help a reader skim a Numpy-style docstring.
+    """
+    if isinstance(schema.get("enum"), list):
+        return "str"
+    schema_type = schema.get("type")
+    if schema_type == "array":
+        items = schema.get("items")
+        inner = "Any"
+        if isinstance(items, dict):
+            inner = _quick_schema_type(items)
+        return f"list[{inner}]"
+    if schema_type == "object" or "properties" in schema:
+        title = schema.get("title")
+        return title or "object"
+    if schema_type in _PRIMITIVE_TYPES:
+        if schema_type == "string":
+            fmt = schema.get("format")
+            if fmt == "date":
+                return "date"
+            if fmt == "date-time":
+                return "datetime"
+        return _PRIMITIVE_TYPES[schema_type]
+    return "Any"
 
 
 def _python_string_literal(text: str) -> str:
@@ -565,9 +698,15 @@ def generate_class(
         has_default = "default" in prop
         if not is_required and "None" not in annotation:
             annotation = f"{annotation} | None"
+        description = _resolve_field_description(prop, field_name=raw_name)
+        breakout = _nested_object_breakout(prop)
+        if breakout:
+            description = (
+                f"{description} {breakout}".strip() if description else breakout
+            )
         prefix = f"    {safe_name}: {annotation} = "
         field_call = _build_field_call(
-            description=prop.get("description") or prop.get("title"),
+            description=description,
             default=prop.get("default"),
             has_default=has_default,
             required=is_required,
@@ -583,7 +722,7 @@ def generate_class(
             (
                 safe_name,
                 annotation,
-                prop.get("description") or prop.get("title"),
+                description,
                 has_default,
                 prop.get("default"),
                 not is_required,
