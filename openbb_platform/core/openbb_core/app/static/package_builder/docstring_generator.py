@@ -107,7 +107,7 @@ class DocstringGenerator:
                     if get_origin(arg) is Literal:
                         continue
                     type_name = str(arg)
-                    if hasattr(arg, "__name__"):
+                    if hasattr(arg, "__name__") and not get_args(arg):
                         type_name = arg.__name__
                     type_name = (
                         type_name.replace("typing.", "")
@@ -116,7 +116,18 @@ class DocstringGenerator:
                         .replace("datetime.date", "date")
                     )
                     if "openbb_" in type_name:
-                        type_name = type_name.rsplit(".", 1)[-1]
+                        # Strip the dotted module path but preserve any
+                        # generic-container prefix like ``list[`` so
+                        # ``list[openbb_x.y.Foo]`` becomes ``list[Foo]``,
+                        # not just ``Foo]``.
+                        bracket_idx = type_name.find("[")
+                        if bracket_idx != -1:
+                            prefix = type_name[: bracket_idx + 1]
+                            tail = type_name[bracket_idx + 1 :]
+                            tail = tail.rsplit(".", 1)[-1]
+                            type_name = prefix + tail
+                        else:
+                            type_name = type_name.rsplit(".", 1)[-1]
                     if type_name != "NoneType":
                         type_names.append(type_name)
 
