@@ -390,47 +390,25 @@ def _build_root_router(
 _SKIP_TOP_NAMESPACES: frozenset[str] = frozenset({"coverage"})
 
 
-RUNTIME_UTILS_SOURCE = '''"""Shared runtime helpers for fetcher / POST modules."""
+def _runtime_utils_source() -> str:
+    """Read the canonical ``unpack_response`` source from ``_unpack.py``.
 
-from __future__ import annotations
-
-from typing import Any
-
-
-def unpack_response(
-    payload: Any,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Split a raw API payload into (rows, metadata).
-
-    Single-element list and single-key envelope wrappers are stripped so the
-    caller never has to handle them. When the payload is a dict mixing one
-    array field with scalar metadata fields, the array becomes ``rows`` and
-    everything else becomes ``metadata``. Arrays of scalars (strings,
-    numbers) wrap each element as ``{"value": x}`` so downstream typed-row
-    construction has something to instantiate.
+    Single source of truth: the spec-mode HTTP dispatcher and the codegen-
+    emitted modules both call exactly the same helper, so REPL output and
+    installed-extension output stay in sync.
     """
-    if isinstance(payload, list):
-        if len(payload) == 1:
-            return unpack_response(payload[0])
-        rows = [r for r in payload if isinstance(r, dict)]
-        if rows:
-            return rows, {}
-        return [{"value": r} for r in payload], {}
-    if not isinstance(payload, dict):
-        return [{"value": payload}], {}
-    list_keys = [k for k, v in payload.items() if isinstance(v, list)]
-    if len(list_keys) == 1:
-        key = list_keys[0]
-        items = payload[key]
-        rows = [r for r in items if isinstance(r, dict)]
-        if not rows and items:
-            rows = [{"value": r} for r in items]
-        metadata = {k: v for k, v in payload.items() if k != key}
-        return rows, metadata
-    if len(payload) == 1:
-        return unpack_response(next(iter(payload.values())))
-    return [payload], {}
-'''
+    from pathlib import Path
+
+    text = (
+        Path(__file__)
+        .resolve()
+        .parent.parent.joinpath("dispatchers", "_unpack.py")
+        .read_text()
+    )
+    return text
+
+
+RUNTIME_UTILS_SOURCE = _runtime_utils_source()
 
 
 def generate_packages(

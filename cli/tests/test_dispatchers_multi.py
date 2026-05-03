@@ -70,6 +70,39 @@ def test_merged_spec_doc_prefixes_command_names():
     assert set(cmds) == {"a.bill", "a.law", "b.markets.ambs", "b.rates"}
 
 
+def test_merged_spec_doc_publishes_each_namespace_as_top_level_menu():
+    """The REPL Home reads ``routers`` to populate menus — without per-namespace
+    entries here, the multi-spec REPL would render an empty Home."""
+    multi, _, _ = _make_multi()
+    routers = multi._spec_doc["routers"]
+    assert routers == {"a": "menu", "b": "menu"}
+
+
+def test_merged_spec_doc_namespaces_reference_paths_and_routers():
+    """``reference.paths`` and ``reference.routers`` come along too, with each
+    entry namespaced so describe / help text resolves under the right backend."""
+    a = _StubDispatcher("a", ["bill"])
+    a._spec_doc["reference"] = {
+        "paths": {"/bill": {"description": "A bill."}},
+        "routers": {"": {"description": "Top-level a."}},
+    }
+    b = _StubDispatcher("b", ["rates"])
+    b._spec_doc["reference"] = {
+        "paths": {"/rates": {"description": "A rate."}},
+        "routers": {"markets": {"description": "Markets sub."}},
+    }
+    multi = MultiSpecDispatcher({"a": a, "b": b})
+    ref = multi._spec_doc["reference"]
+    assert ref["paths"] == {
+        "/a/bill": {"description": "A bill."},
+        "/b/rates": {"description": "A rate."},
+    }
+    assert ref["routers"] == {
+        "a": {"description": "Top-level a."},
+        "b/markets": {"description": "Markets sub."},
+    }
+
+
 @pytest.mark.asyncio
 async def test_dispatch_routes_to_namespace_and_strips_prefix():
     multi, a, b = _make_multi()

@@ -195,8 +195,11 @@ def test_spec_backend_get_translators_for_path_collects_commands():
     assert paths == {"list": "subpath"}
 
 
-def test_spec_backend_get_translators_for_path_classifies_subsubpath():
-    """Two-level nesting is reflected in the sub-paths dict via repeated 'sub'."""
+def test_spec_backend_get_translators_for_path_lists_only_direct_children():
+    """Grandchildren (``pd.get.all.timeseries.csv`` -> ``all``, ``timeseries``)
+    must not surface as direct sub-paths — they're embedded in flattened
+    translator names under their direct-parent sub-controller instead.
+    """
     cmd_spec = {"method": "get", "url_path": "/api/x", "parameters": []}
     backend = SpecBackend(
         _spec_with(
@@ -207,9 +210,14 @@ def test_spec_backend_get_translators_for_path_classifies_subsubpath():
         ),
         dispatcher=MagicMock(),
     )
-    _, paths = backend.get_translators_for_path("pd")
-    assert paths["list"] == "subpath"
-    assert paths.get("all") == "subsubpath"
+    translators, paths = backend.get_translators_for_path("pd")
+    assert paths == {"list": "subpath", "get": "subpath"}
+    assert "all" not in paths
+    assert "timeseries" not in paths
+    # Translator names keep the full flattened path so the direct-child
+    # sub-controller can still route to nested commands.
+    assert "pd_get_all_timeseries_csv" in translators
+    assert "pd_list_timeseries" in translators
 
 
 def test_spec_backend_empty_router_returns_no_translators():

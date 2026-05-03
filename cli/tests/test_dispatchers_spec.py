@@ -249,6 +249,33 @@ def test_normalize_parameter_captures_example_from_schema_when_param_has_none():
     assert out["example"] == 5
 
 
+def test_normalize_parameter_promotes_path_number_to_integer():
+    """``--number 10`` against ``/last/{number}.{format}`` would otherwise
+    cast to ``10.0`` and produce ``/last/10.0.json`` which the API rejects."""
+    out = _normalize_parameter(
+        {
+            "name": "number",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "number"},
+        }
+    )
+    assert out["type"] == "integer"
+
+
+def test_normalize_parameter_keeps_query_number_as_number():
+    """Non-path numerics stay floats — only path placeholders flip to int."""
+    out = _normalize_parameter(
+        {
+            "name": "ratio",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "number"},
+        }
+    )
+    assert out["type"] == "number"
+
+
 def test_normalize_parameter_examples_map_skips_non_dict_entries():
     out = _normalize_parameter(
         {

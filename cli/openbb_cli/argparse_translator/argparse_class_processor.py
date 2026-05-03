@@ -134,12 +134,19 @@ class ArgparseClassProcessor:
         """
         return self._translators[command]
 
-    def _build_paths(self, target: type, depth: int = 1):
+    def _build_paths(self, target: type):
+        """Record direct sub-namespaces only.
+
+        Translators are emitted recursively by ``_process_class`` (so a
+        deeply nested command like ``nyfed.rates.secured.all.latest``
+        registers as a flat ``nyfed_rates_secured_all_latest`` translator
+        under the ``rates`` sub-controller). The path table only needs the
+        direct children of ``target`` — recursing here would surface
+        grandchildren as orphan top-level menus with no translators behind
+        them.
+        """
         for name, member in inspect.getmembers(target):
-            if name.startswith("__") or name.startswith("_"):
+            if name.startswith("_"):
                 continue
-            if inspect.ismethod(member):
-                pass
-            elif isinstance(member, Container):
-                self._build_paths(target=getattr(target, name), depth=depth + 1)
-                self._paths[f"{name}"] = "sub" * depth + "path"
+            if isinstance(member, Container):
+                self._paths[f"{name}"] = "subpath"

@@ -36,7 +36,9 @@ async def test_dispatch_success_translates_dotted_path():
 
     assert resp.ok is True
     assert resp.id == "x"
-    assert resp.result == {"echo": {"symbol": "AAPL"}}
+    # The single-key ``echo`` wrapper gets stripped by the response
+    # unwrap, matching how an installed extension surfaces the same row.
+    assert resp.result == {"symbol": "AAPL"}
     assert "/api/v1/equity/price/historical" in captured["url"]
 
 
@@ -130,6 +132,105 @@ def test_url_for_strips_separators():
 def test_custom_api_prefix():
     d = HttpDispatcher("http://srv", api_prefix="custom/v2")
     assert d._url_for("ping") == "http://srv/custom/v2/ping"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unwraps_single_array_envelope():
+    """``{"refRates": [...]}`` -> the rows list, matching codegen behavior."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "refRates": [
+                    {"effectiveDate": "2026-04-30", "type": "TGCR"},
+                    {"effectiveDate": "2026-04-29", "type": "TGCR"},
+                ]
+            },
+        )
+
+    d = _make_dispatcher(handler)
+    try:
+        resp = await d.dispatch(Request(command="rates.last"))
+    finally:
+        await d.aclose()
+    assert resp.ok is True
+    assert resp.result == [
+        {"effectiveDate": "2026-04-30", "type": "TGCR"},
+        {"effectiveDate": "2026-04-29", "type": "TGCR"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_splits_metadata_from_rows():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"asOfDate": "2026-04-30", "operations": [{"id": 1}, {"id": 2}]},
+        )
+
+    d = _make_dispatcher(handler)
+    try:
+        resp = await d.dispatch(Request(command="x"))
+    finally:
+        await d.aclose()
+    assert resp.ok is True
+    assert resp.result == {
+        "results": [{"id": 1}, {"id": 2}],
+        "metadata": {"asOfDate": "2026-04-30"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unwraps_array_of_scalars_into_value_field_then_flattens():
+    """Single-key envelope around a string array -> a flat list of strings."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"asOfDates": ["2026-04-30", "2026-04-23"]})
+
+    d = _make_dispatcher(handler)
+    try:
+        resp = await d.dispatch(Request(command="x"))
+    finally:
+        await d.aclose()
+    # Each scalar gets wrapped as ``{value: x}`` by ``unpack_response``;
+    # ``_shape_result`` then unwraps the synthetic ``value`` key for clean
+    # rendering.
+    assert resp.result == ["2026-04-30", "2026-04-23"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_passes_text_response_through_unchanged():
+    """Non-JSON responses (XML, CSV, plain text) bypass the unwrap entirely."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, text="<xml>raw</xml>", headers={"content-type": "application/xml"}
+        )
+
+    d = _make_dispatcher(handler)
+    try:
+        resp = await d.dispatch(Request(command="x"))
+    finally:
+        await d.aclose()
+    assert resp.result == "<xml>raw</xml>"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_returns_payload_unchanged_when_unwrap_yields_nothing():
+    """Empty list response: ``unpack_response`` produces ``([], {})``;
+    the dispatcher leaves the original payload untouched rather than
+    collapsing to ``None``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    d = _make_dispatcher(handler)
+    try:
+        resp = await d.dispatch(Request(command="x"))
+    finally:
+        await d.aclose()
+    assert resp.result == []
 
 
 @pytest.mark.asyncio

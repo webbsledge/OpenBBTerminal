@@ -802,8 +802,24 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         return 0
 
     if args.generate_spec:
+        leftover = list(args.command or [])
+        output_path = args.output
+        if leftover:
+            # ``openbb ... --generate-spec out.spec`` (no ``--output``) is the
+            # intuitive shorthand — accept the first positional as the output
+            # path so it doesn't get swallowed silently into the default.
+            if output_path == "openbb.spec":
+                output_path = leftover[0]
+                leftover = leftover[1:]
+            if leftover:
+                sys.stderr.write(
+                    "--generate-spec takes no extra positional arguments after "
+                    f"the output path; got {leftover!r}. Use "
+                    "``--output PATH`` to be explicit.\n"
+                )
+                return 2
         return _generate_spec(
-            args.server, args.output, args.openapi_path, headers, query_params
+            args.server, output_path, args.openapi_path, headers, query_params
         )
 
     if getattr(args, "generate_extension", False):

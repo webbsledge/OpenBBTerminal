@@ -43,13 +43,41 @@ class MultiSpecDispatcher:
 
         Each per-namespace spec keeps its own ``base_url`` / ``api_prefix`` —
         those live on the per-namespace dispatcher and are not needed at the
-        parser layer. Only ``commands`` is merged, with names prefixed.
+        parser layer. ``commands``, ``routers``, and ``reference`` are merged
+        with each entry prefixed by the namespace so the REPL Home menu and
+        the spec-aware describe path see one unified surface.
         """
         merged_commands: dict[str, Any] = {}
+        merged_routers: dict[str, str] = {}
+        merged_reference_paths: dict[str, dict[str, Any]] = {}
+        merged_reference_routers: dict[str, dict[str, Any]] = {}
         for namespace, dispatcher in self._dispatchers.items():
-            for cmd, entry in dispatcher._spec_doc.get("commands", {}).items():
+            doc = dispatcher._spec_doc
+            for cmd, entry in doc.get("commands", {}).items():
                 merged_commands[f"{namespace}.{cmd}"] = entry
-        return {"commands": merged_commands}
+            # Each spec is mounted under its own namespace at the REPL Home,
+            # so the ``namespace`` itself becomes the only top-level menu —
+            # the spec's own top-level routers nest inside it.
+            merged_routers[namespace] = "menu"
+            reference = doc.get("reference") or {}
+            for path, meta in (reference.get("paths") or {}).items():
+                prefixed = (
+                    "/" + namespace + (path if path.startswith("/") else "/" + path)
+                )
+                merged_reference_paths[prefixed] = meta
+            for router, meta in (reference.get("routers") or {}).items():
+                if router == "":
+                    merged_reference_routers[namespace] = meta
+                else:
+                    merged_reference_routers[f"{namespace}/{router}"] = meta
+        return {
+            "commands": merged_commands,
+            "routers": merged_routers,
+            "reference": {
+                "paths": merged_reference_paths,
+                "routers": merged_reference_routers,
+            },
+        }
 
     async def dispatch(self, request: Request, method: str | None = None) -> Response:
         """Route ``request`` to the namespace named by its leading command segment."""

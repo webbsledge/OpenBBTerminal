@@ -79,6 +79,36 @@ def test_build_paths_walks_nested_containers():
     assert proc.paths["nested"] == "subpath"
 
 
+class _DeeplyNestedTarget(_FakeContainer):
+    """Container two levels deep used to verify ``_build_paths`` doesn't recurse."""
+
+    def __init__(self):
+        self.middle = _MiddleTarget()
+
+
+class _MiddleTarget(_FakeContainer):
+    """Middle layer holding a grandchild container."""
+
+    def __init__(self):
+        self.deep = _SubTarget()
+
+
+def test_build_paths_only_records_direct_children_not_grandchildren():
+    """``_build_paths`` must not surface grandchild namespaces as direct paths.
+
+    ``obb.nyfed.rates.secured`` etc. used to leak ``secured`` into the
+    nyfed root menu, creating empty sub-controllers with no translators.
+    """
+    target = _DeeplyNestedTarget()
+    with patch(
+        "openbb_cli.argparse_translator.argparse_class_processor.Container",
+        _FakeContainer,
+    ):
+        proc = ArgparseClassProcessor(target_class=target)
+    assert "middle" in proc.paths
+    assert "deep" not in proc.paths
+
+
 def test_custom_groups_from_reference_pulls_route_when_present():
     """When reference contains ``/<class>/<method>``, ``ReferenceToArgumentsProcessor`` is invoked."""
 

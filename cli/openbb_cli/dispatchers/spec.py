@@ -180,10 +180,18 @@ def _normalize_parameter(
     if example is None:
         example = schema.get("example")
 
+    type_name = _TYPE_TO_NAME.get(py_type, "string")
+    # Path parameters typed ``number`` in OpenAPI almost always carry whole
+    # numbers (counts, IDs, "last N"). Without this promotion, ``--number 10``
+    # gets type-cast to ``10.0`` (float) and the URL becomes
+    # ``.../last/10.0.json`` which the API rejects.
+    if location == "path" and type_name == "number":
+        type_name = "integer"
+
     return {
         "name": name,
         "in": location,
-        "type": _TYPE_TO_NAME.get(py_type, "string"),
+        "type": type_name,
         "is_list": is_list,
         "required": required,
         "default": default,
@@ -407,7 +415,7 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     if version != SPEC_VERSION:
         raise ValueError(
             f"Spec file at {path} has version {version!r}; expected {SPEC_VERSION}. "
-            "Regenerate with --generate-spec."
+            f"Regenerate with: openbb --server <URL> --generate-spec --output {path}"
         )
     try:
         SpecDocument.model_validate(spec_doc)

@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from openbb_cli.auth import AuthContext, AuthDecision, AuthHook
+from openbb_cli.dispatchers._unpack import unpack_response
 from openbb_cli.dispatchers.openapi_schema import (
     PROVIDER_SECTION_SPLIT_RE,
     PROVIDER_TAG_RE,
@@ -223,6 +224,30 @@ def _decode_response(response: httpx.Response) -> Any:
     return response.text
 
 
+def _shape_result(payload: Any) -> Any:
+    """Apply the same envelope unwrap codegen does, then return a tidy result.
+
+    Wraps the unpacked rows + metadata in the OBBject-shaped dict the rest of
+    the CLI rendering expects: a single row dict (when there's exactly one)
+    or the row list otherwise. Metadata, when present, is exposed alongside
+    so downstream renderers can still surface it.
+    """
+    if not isinstance(payload, (dict, list)):
+        return payload
+    rows, metadata = unpack_response(payload)
+    if not rows and not metadata:
+        return payload
+    body: Any
+    if len(rows) == 1:
+        sole = rows[0]
+        body = sole.get("value", sole) if set(sole.keys()) == {"value"} else sole
+    else:
+        body = [r.get("value", r) if set(r.keys()) == {"value"} else r for r in rows]
+    if metadata:
+        return {"results": body, "metadata": metadata}
+    return body
+
+
 class HttpDispatcher:
     """Multi-tenant dispatcher backed by openbb-platform-api over HTTP.
 
@@ -411,7 +436,9 @@ class HttpDispatcher:
                     )
             response.raise_for_status()
             payload = _decode_response(response)
-            return Response(id=request.id, ok=True, result=payload, error=None)
+            return Response(
+                id=request.id, ok=True, result=_shape_result(payload), error=None
+            )
         except httpx.HTTPStatusError as exc:
             try:
                 detail = exc.response.json()

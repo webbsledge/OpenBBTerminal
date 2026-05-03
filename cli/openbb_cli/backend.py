@@ -182,9 +182,18 @@ class SpecBackend:
     def get_translators_for_path(
         self, router: str
     ) -> tuple[dict[str, Translator], dict[str, str]]:
+        """Get translators for ``router.*`` commands and the direct sub-namespace list.
+
+        Sub-paths are *direct* children only — grandchildren collapse into the
+        flattened command names (``rates.secured.all.latest`` becomes the
+        translator key ``nyfed_rates_secured_all_latest`` under the
+        ``rates`` direct child). Surfacing intermediate segments like
+        ``secured`` / ``all`` at the root would create empty menus with no
+        translators routing to them.
+        """
         prefix = router + "."
         translators: dict[str, Translator] = {}
-        seen_sub: dict[str, int] = {}
+        direct_subs: set[str] = set()
 
         for cmd_name, cmd_spec in self._spec.get("commands", {}).items():
             if not cmd_name.startswith(prefix):
@@ -193,12 +202,10 @@ class SpecBackend:
             key = f"{router}_{tail.replace('.', '_')}"
             translators[key] = SpecTranslator(cmd_name, cmd_spec, self._dispatcher)
             parts = tail.split(".")
-            for depth, segment in enumerate(parts[:-1], start=1):
-                seen_sub[segment] = max(seen_sub.get(segment, 0), depth)
+            if len(parts) > 1:
+                direct_subs.add(parts[0])
 
-        sub_paths: dict[str, str] = {
-            name: ("sub" * depth) + "path" for name, depth in seen_sub.items()
-        }
+        sub_paths: dict[str, str] = {name: "subpath" for name in direct_subs}
         return translators, sub_paths
 
 

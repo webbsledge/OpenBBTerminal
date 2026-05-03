@@ -75,6 +75,58 @@ def test_main_help_exit_when_no_command(capsys):
     assert "usage" in err.lower()
 
 
+def test_main_generate_spec_accepts_positional_output_path():
+    """``openbb --server X --generate-spec out.spec`` (no --output) writes to ``out.spec``."""
+    with patch("openbb_cli.cli._generate_spec", return_value=0) as gen:
+        rc = cli.main(["--server", "http://x", "--generate-spec", "/tmp/out.spec"])
+    assert rc == 0
+    args, _ = gen.call_args
+    assert args[1] == "/tmp/out.spec"
+
+
+def test_main_generate_spec_uses_explicit_output_flag():
+    """``--output`` is honored when no positional output path is supplied."""
+    with patch("openbb_cli.cli._generate_spec", return_value=0) as gen:
+        cli.main(
+            ["--server", "http://x", "--generate-spec", "--output", "/explicit.spec"]
+        )
+    args, _ = gen.call_args
+    assert args[1] == "/explicit.spec"
+
+
+def test_main_generate_spec_errors_when_positional_added_to_explicit_output(capsys):
+    """``--output`` already-set + a positional path -> error, no silent override."""
+    with patch("openbb_cli.cli._generate_spec") as gen:
+        rc = cli.main(
+            [
+                "--server",
+                "http://x",
+                "--generate-spec",
+                "--output",
+                "/explicit.spec",
+                "/extra.spec",
+            ]
+        )
+    assert rc == 2
+    gen.assert_not_called()
+    err = capsys.readouterr().err
+    assert "no extra positional" in err
+    assert "/extra.spec" in err
+
+
+def test_main_generate_spec_errors_on_extra_positionals(capsys):
+    """Anything beyond a single positional output path triggers a clean error."""
+    with patch("openbb_cli.cli._generate_spec") as gen:
+        rc = cli.main(
+            ["--server", "http://x", "--generate-spec", "/tmp/a.spec", "/tmp/b.spec"]
+        )
+    assert rc == 2
+    gen.assert_not_called()
+    err = capsys.readouterr().err
+    assert "no extra positional" in err
+    assert "/tmp/b.spec" in err
+
+
 def test_main_passes_dev_debug_to_repl():
     with patch("openbb_cli.cli._launch_repl", return_value=0) as repl:
         cli.main(["-i", "--dev", "--debug"])
