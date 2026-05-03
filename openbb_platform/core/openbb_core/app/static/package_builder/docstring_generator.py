@@ -494,13 +494,34 @@ class DocstringGenerator:
                         main_description = result
 
             # If no provider sections but we have choices, add them at the end
+            # Skip if the description already enumerates choices to avoid duplication.
             elif provider_choices:
-                for prov, choices in provider_choices.items():
-                    main_description += f"\n{base_indent}Choices for {prov}: {choices}"
+                already_listed = re.search(
+                    r"(?im)^\s*(choices(\s+for\s+\w+)?\s+are|choices(\s+for\s+\w+)?)\s*:",
+                    main_description,
+                )
+                if not already_listed:
+                    for prov, choices in provider_choices.items():
+                        main_description += (
+                            f"\n{base_indent}Choices for {prov}: {choices}"
+                        )
 
             # Add multiple items text at the end
             if multi_items_text:
                 main_description += f"\n{base_indent}{multi_items_text}"
+
+            # Re-indent continuation lines of the main description to align with
+            # the parameter description column (base_indent = 12 spaces). The raw
+            # field descriptions can carry their own embedded indentation that
+            # would otherwise leave continuation lines unaligned in the rendered
+            # docstring.
+            lines = main_description.splitlines()
+            if len(lines) > 1:
+                normalized = [lines[0]]
+                for ln in lines[1:]:
+                    stripped = ln.lstrip()
+                    normalized.append(f"{base_indent}{stripped}" if stripped else "")
+                main_description = "\n".join(normalized)
 
             return main_description
 
