@@ -522,9 +522,88 @@ def _generate_spec(
     openapi = fetch_openapi(
         server_url, path=openapi_path, headers=headers, query_params=query_params
     )
-    spec_doc = build_spec_document(openapi, base_url=server_url)
+    if openapi_path and (
+        openapi_path.startswith("http://") or openapi_path.startswith("https://")
+    ):
+        source_url = openapi_path
+    elif openapi_path:
+        source_url = server_url.rstrip("/") + openapi_path
+    else:
+        source_url = server_url.rstrip("/") + "/openapi.json"
+    spec_doc = build_spec_document(openapi, base_url=server_url, source_url=source_url)
     write_spec(output_path, spec_doc)
     sys.stdout.write(f"wrote {len(spec_doc['commands'])} commands to {output_path}\n")
+    return 0
+
+
+def _generate_extension(
+    spec_entries: list[tuple[str | None, str]],
+    output_path: str,
+    *,
+    provider_name: str | None,
+    project_name: str | None,
+    package_name: str | None,
+    router_name: str | None,
+) -> int:
+    """Generate a full installable OpenBB extension from a ``.spec`` file.
+
+    Parameters
+    ----------
+    spec_entries : list of (str or None, str)
+        Resolved ``--spec`` entries — exactly one entry is required and
+        its path is loaded as the source spec.
+    output_path : str
+        Directory to write the extension package to.
+    provider_name : str, optional
+        Snake-case provider identifier (defaults to the output directory
+        basename).
+    project_name : str, optional
+        PyPI distribution name.
+    package_name : str, optional
+        Python package directory name.
+    router_name : str, optional
+        Router identifier.
+
+    Returns
+    -------
+    int
+        Process exit code: 0 on success, 2 on missing-spec / bad-input.
+    """
+    if len(spec_entries) != 1:
+        sys.stderr.write(
+            "--generate-extension requires exactly one --spec PATH (or [NAME=]PATH).\n"
+        )
+        return 2
+    _, spec_path = spec_entries[0]
+
+    from openbb_cli.codegen.package_gen import generate_packages
+    from openbb_cli.dispatchers.spec import load_spec
+
+    spec_doc = load_spec(spec_path)
+    output = Path(output_path)
+    derived_provider = provider_name or output.name or "generated_extension"
+    package_set = generate_packages(
+        spec_doc,
+        output_root=output,
+        provider_name=derived_provider,
+        project_name=project_name,
+        package_name=package_name,
+    )
+    paths = package_set.write()
+    for pkg, path in zip(package_set.packages, paths, strict=True):
+        total_get = sum(len(v) for v in pkg.fetchers_by_provider.values())
+        total_post = len(pkg.post_commands)
+        sys.stdout.write(
+            f"wrote project to {path}\n"
+            f"  providers ({len(pkg.providers)}): "
+            f"{', '.join(p.provider_name for p in pkg.providers)}\n"
+            f"  routers ({len(pkg.top_level_routers)}): "
+            f"{', '.join(pkg.top_level_routers)}\n"
+            f"  fetchers: {total_get} GET (across all providers)\n"
+            f"  POST:     {total_post} local-compute commands\n"
+            f"  install:  pip install -e {path}\n"
+            f"  build:    openbb-build\n"
+        )
     return 0
 
 
@@ -725,6 +804,16 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     if args.generate_spec:
         return _generate_spec(
             args.server, args.output, args.openapi_path, headers, query_params
+        )
+
+    if getattr(args, "generate_extension", False):
+        return _generate_extension(
+            spec_entries,
+            args.output,
+            provider_name=args.provider_name,
+            project_name=args.project_name,
+            package_name=args.package_name,
+            router_name=args.router_name,
         )
 
     if args.interactive:

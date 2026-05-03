@@ -28,7 +28,9 @@ from openbb_cli.config.constants import AVAILABLE_FLAIRS, ENV_FILE_SETTINGS
 from openbb_cli.session import Session
 
 if TYPE_CHECKING:
-    from openbb_charting.core.openbb_figure import OpenBBFigure
+    from openbb_charting.core.openbb_figure import (  # ty: ignore[unresolved-import]
+        OpenBBFigure,
+    )
 
 
 class SQLiteTable:

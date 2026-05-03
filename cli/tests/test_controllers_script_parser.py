@@ -147,6 +147,23 @@ def test_date_keyword_no_unit_match_returns_empty():
     assert match_and_return_openbb_keyword_date("$1DAYS") == ""
 
 
+def test_date_keyword_last_sunday_falls_back_seven_days():
+    """``$LASTSUNDAY`` exercises the ``today.weekday() <= target`` branch.
+
+    Sunday is weekday 6 — no day of the week strictly exceeds it, so the
+    weekday comparison always picks the second branch (subtracting 7 days
+    before stepping to the requested weekday). That branch is the one
+    coverage flagged previously.
+    """
+    today = datetime.now()
+    result = match_and_return_openbb_keyword_date("$LASTSUNDAY")
+    parsed = datetime.strptime(result, "%Y-%m-%d")
+    # The result is a Sunday, and it is strictly in the past (not today
+    # even when today is Sunday — the branch always subtracts a week).
+    assert parsed.weekday() == 6
+    assert parsed.date() < today.date()
+
+
 def test_parse_openbb_script_multi_dollar_variable_warning(capsys):
     """Multi-dollar declarations emit a console warning but still set the variable."""
     from unittest.mock import patch

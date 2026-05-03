@@ -85,6 +85,73 @@ openbb --generate-spec --server https://api.congress.gov --output congress.spec
 openbb --spec congress.spec law --congress 119 --limit 5
 ```
 
+### Generate an installable OpenBB extension from a spec
+
+A `.spec` file is enough to dispatch commands directly. Going one step further, `--generate-extension` turns that spec into a full installable OpenBB Platform extension package — `Provider(...)` + `Fetcher` classes + a router that mirrors the upstream's namespace tree — that registers with `openbb-build` like any first-party extension. After install, every command shows up on the typed `obb.*` surface (auto-completion, `obb.reference`, `OBBject` envelopes, the works).
+
+End-to-end with the NY Fed Markets API:
+
+```bash
+# 1. Snapshot the OpenAPI surface as a spec file. NY Fed publishes its
+#    spec at a non-default path, so point --openapi-path at the YAML.
+openbb --generate-spec \
+       --server https://markets.newyorkfed.org \
+       --openapi-path /static/docs/markets-api.yml \
+       --output nyfed.spec
+# wrote 55 commands to nyfed.spec
+
+# 2. Generate a complete extension project from that spec
+openbb --generate-extension \
+       --spec nyfed.spec \
+       --provider-name nyfed \
+       --output ./openbb-nyfed
+# wrote project to ./openbb-nyfed/openbb-nyfed
+#   providers (1): nyfed
+#   routers (10): ambs, fxs, guidesheets, marketshare, pd, rates, rp, seclending, soma, tsy
+#   fetchers: 55 GET (across all providers)
+#   POST:     0 local-compute commands
+#   install:  pip install -e ./openbb-nyfed/openbb-nyfed
+#   build:    openbb-build
+
+# 3. Install + register with the OpenBB Platform
+pip install -e ./openbb-nyfed/openbb-nyfed
+openbb-build
+
+# 4. The new namespaces are live on the typed obb surface
+python -c "from openbb import obb; print(obb.nyfed.rates.all.latest().to_df())"
+```
+
+(`--openapi-path` is only needed when the upstream doesn't expose `/openapi.json` directly. For servers that do — most FastAPI deployments, Congress.gov via the embedded-spec scraper — drop the flag.)
+
+What `--generate-extension` produces:
+
+```
+openbb-nyfed/
+├── pyproject.toml                          # PEP 621 / Hatchling — every provider + router declared as entry points
+├── README.md
+└── openbb_nyfed/
+    ├── providers/
+    │   └── nyfed/
+    │       ├── __init__.py                 # nyfed_provider = Provider(name="nyfed", fetcher_dict={...}, credentials=[...])
+    │       └── models/<command>.py         # one Fetcher class per command (QueryParams + Data + Fetcher)
+    └── routers/
+        ├── rates.py                        # @router.command(model="RatesAllLatest") — typed signature
+        ├── ambs.py
+        └── ...                             # one router per top-level namespace; sub-routers nest via include_router(prefix="/sub")
+```
+
+Every flag is optional except `--spec`:
+
+| Flag | Default | What it controls |
+|------|---------|------------------|
+| `--output PATH` | _required_ | Project root directory written to disk. |
+| `--provider-name NAME` | derived from `--output` basename | Snake-case provider identifier — drives credential lookup keys (`credentials.get(f"{provider}_api_key")`). |
+| `--project-name NAME` | `openbb-<provider-name>` | PyPI distribution name in `pyproject.toml`. Use dashes. |
+| `--package-name NAME` | `openbb_<provider-name>` | Snake-case Python package name. |
+| `--router-name NAME` | `<provider-name>` | Top-level router identifier. |
+
+Bring-your-own-key APIs: parameter names that look like credentials (`api_key`, `apikey`, `app_token`, `X-API-Key`, `Authorization`, `client_secret`, `bearer_token`, …) are auto-promoted to the provider's `credentials=[...]` list. After install, `openbb` reads them through the standard user-settings flow (`OBB_USER_SETTINGS` / `~/.openbb_platform/user_settings.json`) — no per-call flag needed.
+
 ### Multi-spec — combine APIs under one CLI
 
 Repeat `--spec NAME=PATH` to mount more than one spec at once. Each spec's commands get prefixed with its namespace, and each backend keeps its own `base_url`, headers, and query params:

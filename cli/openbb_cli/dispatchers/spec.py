@@ -22,11 +22,18 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from datetime import datetime, timezone
+from importlib.metadata import (
+    PackageNotFoundError,
+    version as _pkg_version,
+)
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from openbb_cli.dispatchers.openapi_schema import (
     _escape_help,
@@ -93,10 +100,15 @@ def _looks_like_datetime_param(name: str, help_text: str | None) -> bool:
 def _operation_providers(op: dict[str, Any]) -> list[str]:
     """Return the OpenBB provider list for an operation, ordered as declared.
 
-    OpenBB Platform encodes the discriminator as a required ``provider``
-    parameter whose schema enum lists every supported provider. Other
-    OpenAPI servers don't have this concept; they yield ``[]`` and the
-    rest of the spec build / describe path falls back to the flat shape.
+    OpenBB Platform encodes the discriminator as a ``provider`` parameter
+    whose schema is either:
+
+    * ``enum: [provider1, provider2, ...]`` — multi-provider endpoints
+    * ``const: "providerX"`` — single-provider endpoints
+
+    Other OpenAPI servers don't have this concept; they yield ``[]`` and
+    the rest of the spec build / describe path falls back to the flat
+    shape.
     """
     for raw in op.get("parameters", []) or []:
         if not isinstance(raw, dict):
@@ -107,6 +119,9 @@ def _operation_providers(op: dict[str, Any]) -> list[str]:
         enum = schema.get("enum")
         if isinstance(enum, list):
             return [str(e) for e in enum]
+        const = schema.get("const")
+        if const is not None:
+            return [str(const)]
     return []
 
 
@@ -135,17 +150,12 @@ def _normalize_parameter(
             choices.append(c)
 
     required = bool(param.get("required")) or location == "path"
-    if "default" in schema and location != "path":
-        required = False
-
     default = schema.get("default")
-    # APIs that offer both ``xml`` and ``json`` (e.g. Congress.gov) usually
-    # default to ``xml`` for legacy reasons. The CLI's downstream handling
-    # (rendering, --output stdio/json) is built around JSON, so flip the
-    # default whenever both are on offer.
     lower_choices = {str(c).lower() for c in choices}
     if "json" in lower_choices and "xml" in lower_choices:
         default = "json"
+    if default is not None:
+        required = False
 
     description = param.get("description") or schema.get("description")
     providers: list[str] = (
@@ -153,6 +163,22 @@ def _normalize_parameter(
         if providers_set and name != "provider"
         else []
     )
+
+    # Capture the parameter's example value from either the OpenAPI 3.x
+    # ``example``/``examples`` slots on the parameter object or its schema.
+    # This is the strongest signal that a value will produce real data
+    # against the live API — spec authors curate it specifically so docs
+    # and Swagger UI render against a working call.
+    example: Any = param.get("example")
+    if example is None:
+        examples_map = param.get("examples") or {}
+        if isinstance(examples_map, dict):
+            for entry in examples_map.values():
+                if isinstance(entry, dict) and "value" in entry:
+                    example = entry["value"]
+                    break
+    if example is None:
+        example = schema.get("example")
 
     return {
         "name": name,
@@ -162,6 +188,7 @@ def _normalize_parameter(
         "required": required,
         "default": default,
         "choices": choices,
+        "example": example,
         "help": param.get("description") or schema.get("description"),
         "providers": providers,
     }
@@ -252,11 +279,20 @@ def _resolve_base_url(openapi: dict[str, Any], user_base_url: str) -> str:
     return user_clean + server_path
 
 
+def _generator_identifier() -> str:
+    """Return ``"openbb-cli==<version>"`` or just the name when unresolved."""
+    try:
+        return f"openbb-cli=={_pkg_version('openbb-cli')}"
+    except PackageNotFoundError:
+        return "openbb-cli"
+
+
 def build_spec_document(
     openapi: dict[str, Any],
     *,
     base_url: str,
     api_prefix: str | None = None,
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     """Build the on-disk spec dict from a fetched OpenAPI document.
 
@@ -264,6 +300,8 @@ def build_spec_document(
     ``_resolve_base_url``. ``api_prefix`` defaults to the longest path-prefix
     shared by every URL in the spec — OpenBB Platform's ``/api/v1``, NY Fed's
     ``/api``, the empty prefix, etc. Pass an explicit value to override.
+    ``source_url`` is the URL the OpenAPI document was fetched from — recorded
+    so the spec carries enough provenance to be regenerated.
     """
     effective_prefix = (
         api_prefix if api_prefix is not None else detect_api_prefix(openapi)
@@ -271,6 +309,9 @@ def build_spec_document(
     return {
         "version": SPEC_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generator": _generator_identifier(),
+        "source_url": source_url or "",
+        "openapi_version": str(openapi.get("openapi") or openapi.get("swagger") or ""),
         "base_url": _resolve_base_url(openapi, base_url),
         "api_prefix": (("/" + effective_prefix.strip("/")) if effective_prefix else ""),
         "commands": build_command_spec(openapi, api_prefix=effective_prefix),
@@ -279,13 +320,88 @@ def build_spec_document(
     }
 
 
+def _content_hash(spec_doc: dict[str, Any]) -> str:
+    """Hash the spec doc deterministically, ignoring any existing hash field."""
+    payload = {k: v for k, v in spec_doc.items() if k != "content_sha256"}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def write_spec(path: str | Path, spec_doc: dict[str, Any]) -> None:
-    """Write the spec doc to ``path`` as compact JSON."""
+    """Write the spec doc to ``path`` as compact JSON, stamped with its SHA-256.
+
+    The hash covers the canonical JSON serialization of the doc with the
+    ``content_sha256`` field excluded — so the value is reproducible from
+    the written file alone. Mutates ``spec_doc`` in place to record it.
+    """
+    spec_doc["content_sha256"] = _content_hash(spec_doc)
     Path(path).write_text(json.dumps(spec_doc, separators=(",", ":")))
 
 
+class _CommandParameter(BaseModel):
+    """One parameter inside a command's ``parameters`` list."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    in_: str = Field(default="query", alias="in")
+    type: str = "string"
+    is_list: bool = False
+    required: bool = False
+    default: Any = None
+    choices: list[Any] = Field(default_factory=list)
+    example: Any = None
+    help: str | None = None
+    providers: list[str] = Field(default_factory=list)
+
+
+class _CommandSpec(BaseModel):
+    """One entry in ``spec["commands"]`` keyed by dotted command path."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url_path: str
+    method: str
+    description: str | None = None
+    parameters: list[_CommandParameter] = Field(default_factory=list)
+    providers: list[str] = Field(default_factory=list)
+    request_body_schema: dict[str, Any] | None = None
+    response_schema: dict[str, Any] | None = None
+
+
+class SpecDocument(BaseModel):
+    """The on-disk shape of a ``.spec`` file.
+
+    Validation is structural: every required field must be present with the
+    declared type. Unknown fields are accepted (forward-compat with future
+    spec versions that introduce optional metadata).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int
+    base_url: str
+    api_prefix: str = ""
+    commands: dict[str, _CommandSpec]
+    routers: dict[str, Any] = Field(default_factory=dict)
+    reference: dict[str, Any] = Field(default_factory=dict)
+    generated_at: str | None = None
+    generator: str | None = None
+    source_url: str | None = None
+    openapi_version: str | None = None
+    content_sha256: str | None = None
+
+
 def load_spec(path: str | Path) -> dict[str, Any]:
-    """Load a spec doc; reject incompatible versions early."""
+    """Load and validate a spec doc; reject incompatible versions early.
+
+    Three checks: the integer ``version`` must match ``SPEC_VERSION`` (hard
+    floor for incompatible format changes), the document must conform to
+    ``SpecDocument`` (required keys, declared types), and — when present —
+    the recorded ``content_sha256`` must match the recomputed hash. Specs
+    written by older generators predate the hash field and skip the third
+    check.
+    """
     spec_doc = json.loads(Path(path).read_text())
     version = spec_doc.get("version")
     if version != SPEC_VERSION:
@@ -293,6 +409,21 @@ def load_spec(path: str | Path) -> dict[str, Any]:
             f"Spec file at {path} has version {version!r}; expected {SPEC_VERSION}. "
             "Regenerate with --generate-spec."
         )
+    try:
+        SpecDocument.model_validate(spec_doc)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Spec file at {path} does not conform to the expected schema:\n{exc}"
+        ) from exc
+    recorded_hash = spec_doc.get("content_sha256")
+    if recorded_hash is not None:
+        actual_hash = _content_hash(spec_doc)
+        if recorded_hash != actual_hash:
+            raise ValueError(
+                f"Spec file at {path} failed integrity check: "
+                f"recorded SHA-256 {recorded_hash!r} does not match recomputed "
+                f"{actual_hash!r}. The file has been modified since it was generated."
+            )
     return spec_doc
 
 

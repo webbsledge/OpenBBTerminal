@@ -226,6 +226,50 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     mode.add_argument(
+        "--generate-extension",
+        action="store_true",
+        help=(
+            "Generate a full installable OpenBB Platform extension package "
+            "from a .spec file (--spec PATH). Each spec becomes one provider "
+            "with its own router. After generation: ``pip install -e <output>`` "
+            "+ ``openbb-build`` registers it. Configure provider/project names "
+            "via --provider-name / --project-name / --package-name / --router-name."
+        ),
+    )
+    parser.add_argument(
+        "--provider-name",
+        metavar="NAME",
+        default=None,
+        help=(
+            "Snake-case provider identifier for --generate-extension "
+            "(default: derived from --output)."
+        ),
+    )
+    parser.add_argument(
+        "--project-name",
+        metavar="NAME",
+        default=None,
+        help=(
+            "PyPI distribution name for --generate-extension "
+            "(default: openbb-<provider-name>)."
+        ),
+    )
+    parser.add_argument(
+        "--package-name",
+        metavar="NAME",
+        default=None,
+        help=(
+            "Python package directory for --generate-extension "
+            "(default: openbb_<provider-name>)."
+        ),
+    )
+    parser.add_argument(
+        "--router-name",
+        metavar="NAME",
+        default=None,
+        help=("Router identifier for --generate-extension (default: <provider-name>)."),
+    )
+    mode.add_argument(
         "--list-commands",
         action="store_true",
         help=(

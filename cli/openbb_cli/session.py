@@ -167,7 +167,9 @@ class Session(metaclass=SingletonMeta):
 
     def _build_backend(self) -> Any:
         try:
-            from openbb_charting.core.backend import Backend
+            from openbb_charting.core.backend import (  # ty: ignore[unresolved-import]
+                Backend,
+            )
             from openbb_core.app.model.charts.charting_settings import ChartingSettings
 
             return Backend(

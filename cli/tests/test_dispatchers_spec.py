@@ -37,6 +37,7 @@ def test_normalize_parameter_required_string():
         "required": True,
         "default": None,
         "choices": [],
+        "example": None,
         "help": None,
         "providers": [],
     }
@@ -186,6 +187,256 @@ def test_load_spec_rejects_unknown_version(tmp_path):
     target.write_text(json.dumps({"version": SPEC_VERSION + 99, "commands": {}}))
     with pytest.raises(ValueError, match="version"):
         load_spec(target)
+
+
+def test_build_spec_document_records_provenance():
+    openapi = {
+        "openapi": "3.1.0",
+        "paths": {"/api/v1/x": {"get": {"operationId": "x", "parameters": []}}},
+    }
+    doc = build_spec_document(
+        openapi,
+        base_url="http://h",
+        source_url="https://example.com/openapi.json",
+    )
+    assert doc["source_url"] == "https://example.com/openapi.json"
+    assert doc["openapi_version"] == "3.1.0"
+    assert doc["generator"].startswith("openbb-cli")
+    assert doc["generated_at"]
+
+
+def test_build_spec_document_falls_back_to_swagger_field():
+    """Pre-OpenAPI 3 specs use ``swagger: "2.0"`` instead of ``openapi``."""
+    openapi = {"swagger": "2.0", "paths": {}}
+    doc = build_spec_document(openapi, base_url="http://h")
+    assert doc["openapi_version"] == "2.0"
+    assert doc["source_url"] == ""
+
+
+def test_normalize_parameter_captures_example_from_param_object():
+    out = _normalize_parameter(
+        {
+            "name": "symbol",
+            "required": True,
+            "example": "AAPL",
+            "schema": {"type": "string"},
+        }
+    )
+    assert out["example"] == "AAPL"
+
+
+def test_normalize_parameter_captures_example_from_examples_map():
+    """OpenAPI 3.x ``examples`` map: pick the first entry's ``value`` field."""
+    out = _normalize_parameter(
+        {
+            "name": "symbol",
+            "required": True,
+            "examples": {"primary": {"value": "MSFT"}, "alt": {"value": "GOOG"}},
+            "schema": {"type": "string"},
+        }
+    )
+    assert out["example"] == "MSFT"
+
+
+def test_normalize_parameter_captures_example_from_schema_when_param_has_none():
+    out = _normalize_parameter(
+        {
+            "name": "n",
+            "required": True,
+            "schema": {"type": "integer", "example": 5},
+        }
+    )
+    assert out["example"] == 5
+
+
+def test_normalize_parameter_examples_map_skips_non_dict_entries():
+    out = _normalize_parameter(
+        {
+            "name": "x",
+            "required": True,
+            "examples": {"bad": "not a dict", "good": {"value": "ok"}},
+            "schema": {"type": "string"},
+        }
+    )
+    assert out["example"] == "ok"
+
+
+def test_generator_identifier_falls_back_when_package_not_installed(monkeypatch):
+    """When ``importlib.metadata.version`` raises, the identifier degrades gracefully."""
+    import openbb_cli.dispatchers.spec as spec_mod
+
+    def _raise(_name):
+        raise spec_mod.PackageNotFoundError("openbb-cli")
+
+    monkeypatch.setattr(spec_mod, "_pkg_version", _raise)
+    assert spec_mod._generator_identifier() == "openbb-cli"
+
+
+# --- Schema validation ---
+
+
+def _minimal_valid_spec():
+    return {
+        "version": SPEC_VERSION,
+        "base_url": "https://example.com",
+        "api_prefix": "/api",
+        "commands": {
+            "x.y": {
+                "url_path": "/api/x/y",
+                "method": "get",
+                "description": "X",
+                "parameters": [
+                    {
+                        "name": "symbol",
+                        "in": "query",
+                        "type": "string",
+                        "is_list": False,
+                        "required": True,
+                        "default": None,
+                        "choices": [],
+                        "help": "Ticker.",
+                        "providers": [],
+                    }
+                ],
+                "providers": [],
+            }
+        },
+        "routers": {},
+        "reference": {},
+    }
+
+
+def test_load_spec_accepts_minimal_valid_document(tmp_path):
+    target = tmp_path / "ok.spec"
+    target.write_text(json.dumps(_minimal_valid_spec()))
+    loaded = load_spec(target)
+    assert loaded["base_url"] == "https://example.com"
+    assert "x.y" in loaded["commands"]
+
+
+def test_load_spec_rejects_missing_required_top_level_key(tmp_path):
+    spec = _minimal_valid_spec()
+    del spec["commands"]
+    target = tmp_path / "missing.spec"
+    target.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="does not conform"):
+        load_spec(target)
+
+
+def test_load_spec_rejects_command_missing_url_path(tmp_path):
+    spec = _minimal_valid_spec()
+    del spec["commands"]["x.y"]["url_path"]
+    target = tmp_path / "bad_cmd.spec"
+    target.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="url_path"):
+        load_spec(target)
+
+
+def test_load_spec_rejects_parameter_missing_name(tmp_path):
+    spec = _minimal_valid_spec()
+    spec["commands"]["x.y"]["parameters"][0].pop("name")
+    target = tmp_path / "bad_param.spec"
+    target.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="name"):
+        load_spec(target)
+
+
+def test_load_spec_rejects_wrong_type_for_field(tmp_path):
+    spec = _minimal_valid_spec()
+    spec["base_url"] = 123  # should be a string
+    target = tmp_path / "wrong_type.spec"
+    target.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="does not conform"):
+        load_spec(target)
+
+
+def test_load_spec_tolerates_unknown_top_level_fields(tmp_path):
+    """Forward-compat: extra fields from a newer generator must not break loading."""
+    spec = _minimal_valid_spec()
+    spec["future_field"] = {"some": "metadata"}
+    spec["commands"]["x.y"]["future_command_field"] = "ok"
+    target = tmp_path / "future.spec"
+    target.write_text(json.dumps(spec))
+    loaded = load_spec(target)
+    assert loaded["future_field"] == {"some": "metadata"}
+
+
+def test_round_trip_real_built_spec_validates(tmp_path):
+    """A spec produced by ``build_spec_document`` must round-trip through validation."""
+    openapi = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/api/v1/x": {
+                "get": {
+                    "operationId": "x",
+                    "parameters": [
+                        {
+                            "name": "symbol",
+                            "in": "query",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                }
+            }
+        },
+    }
+    doc = build_spec_document(openapi, base_url="http://h")
+    target = tmp_path / "real.spec"
+    write_spec(target, doc)
+    loaded = load_spec(target)
+    assert loaded["commands"]["x"]["url_path"] == "/api/v1/x"
+
+
+# --- SHA-256 integrity check ---
+
+
+def test_write_spec_stamps_content_sha256(tmp_path):
+    spec = _minimal_valid_spec()
+    target = tmp_path / "stamped.spec"
+    write_spec(target, spec)
+    raw = json.loads(target.read_text())
+    assert "content_sha256" in raw
+    assert len(raw["content_sha256"]) == 64  # hex-encoded sha256
+
+
+def test_load_spec_accepts_genuine_hash(tmp_path):
+    spec = _minimal_valid_spec()
+    target = tmp_path / "ok.spec"
+    write_spec(target, spec)
+    loaded = load_spec(target)
+    assert loaded["content_sha256"]
+
+
+def test_load_spec_rejects_tampered_content(tmp_path):
+    """Hand-edits after generation must trip the integrity check."""
+    spec = _minimal_valid_spec()
+    target = tmp_path / "tamper.spec"
+    write_spec(target, spec)
+    raw = json.loads(target.read_text())
+    raw["base_url"] = "https://attacker.example"
+    target.write_text(json.dumps(raw, separators=(",", ":")))
+    with pytest.raises(ValueError, match="failed integrity check"):
+        load_spec(target)
+
+
+def test_load_spec_skips_hash_check_when_field_absent(tmp_path):
+    """Specs from older generators predate the hash field — must still load."""
+    spec = _minimal_valid_spec()
+    target = tmp_path / "legacy.spec"
+    target.write_text(json.dumps(spec, separators=(",", ":")))
+    loaded = load_spec(target)
+    assert loaded.get("content_sha256") is None
+
+
+def test_content_hash_is_stable_under_unrelated_field_order(tmp_path):
+    """Canonical JSON ordering means a re-saved doc with identical content
+    must hash identically regardless of original key insertion order."""
+    from openbb_cli.dispatchers.spec import _content_hash
+
+    spec_a = {"version": SPEC_VERSION, "base_url": "h", "commands": {}, "x": 1}
+    spec_b = {"x": 1, "commands": {}, "base_url": "h", "version": SPEC_VERSION}
+    assert _content_hash(spec_a) == _content_hash(spec_b)
 
 
 def test_write_spec_is_compact(tmp_path):
@@ -434,6 +685,22 @@ def test_operation_providers_returns_empty_when_no_provider_param():
     from openbb_cli.dispatchers.spec import _operation_providers
 
     op = {"parameters": [{"name": "x", "schema": {"type": "string"}}]}
+    assert _operation_providers(op) == []
+
+
+def test_operation_providers_extracts_const_for_single_provider():
+    """A single-provider endpoint uses ``const`` instead of ``enum``."""
+    from openbb_cli.dispatchers.spec import _operation_providers
+
+    op = {"parameters": [{"name": "provider", "schema": {"const": "eia"}}]}
+    assert _operation_providers(op) == ["eia"]
+
+
+def test_operation_providers_returns_empty_when_provider_schema_lacks_enum_or_const():
+    """``provider`` parameter without ``enum`` and without ``const`` → ``[]``."""
+    from openbb_cli.dispatchers.spec import _operation_providers
+
+    op = {"parameters": [{"name": "provider", "schema": {"type": "string"}}]}
     assert _operation_providers(op) == []
 
 
