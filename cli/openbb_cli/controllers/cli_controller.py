@@ -50,6 +50,41 @@ env_file = str(ENV_FILE_SETTINGS)
 session = Session()
 
 
+def _result_to_obbject(result: Any, router: str, other_args: list[str]) -> Any:
+    """Lift a spec-mode dispatcher result to an ``OBBject`` for registry insert.
+
+    Two cases:
+
+    * The dispatcher already produced a live ``OBBject`` instance (spec
+      command had column metadata) — pass it through unchanged. The
+      private attrs (``_route``, ``_standard_params``) the dispatcher
+      already set are preserved that way; reconstruction would lose them.
+    * Bare rows (list / single dict) — the spec had no column metadata,
+      so wrap them in a fresh ``OBBject`` so the registry can still
+      surface the call.
+
+    In both cases ``extra['command']`` gets stamped with the invocation
+    line so the legacy ``results`` recall table shows what was run.
+    Returns ``None`` if there's nothing wrappable (scalars, ``None``).
+    """
+    try:
+        from openbb_core.app.model.obbject import OBBject
+    except ImportError:
+        return None
+    if isinstance(result, OBBject):
+        obbject = result
+    elif isinstance(result, (list, dict)):
+        try:
+            obbject = OBBject(results=result)
+            obbject._route = "/" + router.replace(".", "/").strip("/")
+        except Exception:  # noqa: BLE001 — registration is best-effort
+            return None
+    else:
+        return None
+    obbject.extra["command"] = f"/{router} {' '.join(other_args)}".strip()
+    return obbject
+
+
 def _params_to_completions(parameters: list[dict[str, Any]]) -> dict[str, Any]:
     """Translate normalized spec parameters into a NestedCompleter dict.
 
@@ -151,6 +186,13 @@ class CLIController(BaseController):
             and renders the result. Without this, top-level leaves like
             ``law`` for the Congress.gov spec would silently dump their spec
             metadata instead of invoking the API.
+
+            Registers the result in ``session.obbject_registry`` so the
+            legacy ``results`` recall command surfaces it — same UX as
+            installed-extension calls. When the dispatcher already
+            produced an OBBject dump (spec carries column metadata), the
+            dict is round-tripped via ``OBBject.model_validate``;
+            otherwise the bare rows get wrapped in a fresh OBBject.
             """
             from openbb_cli.backend import SpecTranslator
 
@@ -174,9 +216,32 @@ class CLIController(BaseController):
             except Exception as exc:  # noqa: BLE001 — surface dispatch errors to user
                 session.console.print(f"[red]error: {exc}[/red]")
                 return
-            payload = (
-                result.get("results", result) if isinstance(result, dict) else result
-            )
+
+            obbject = _result_to_obbject(result, router, other_args)
+            if obbject is not None and obbject.results is not None:
+                if session.max_obbjects_exceeded():
+                    session.obbject_registry.remove()
+                    session.console.print(
+                        "[yellow]Maximum number of OBBjects reached. "
+                        "The oldest entry was removed.[/yellow]"
+                    )
+                if session.obbject_registry.register(obbject) and (
+                    session.settings.SHOW_MSG_OBBJECT_REGISTRY
+                ):
+                    session.console.print("Added `OBBject` to cached results.")
+
+            # ``obbject`` is either the live OBBject the dispatcher
+            # built (when there's column metadata) or a freshly-wrapped
+            # one. Either way ``obbject.results`` is the row payload to
+            # render; falling back to ``result`` covers the
+            # unwrap-failed case where ``obbject`` is None.
+            payload: Any
+            if obbject is not None:
+                payload = obbject.results
+            elif isinstance(result, dict):
+                payload = result.get("results", result)
+            else:
+                payload = result
             if isinstance(payload, dict):
                 df = pd.DataFrame([payload])
             elif isinstance(payload, list):

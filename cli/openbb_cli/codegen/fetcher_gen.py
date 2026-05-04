@@ -213,6 +213,36 @@ def _query_params_schema(
     }
 
 
+def _column_metadata_from_data_schema(
+    data_schema: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Pull per-column ``description`` / ``socrata_format`` out of the row schema.
+
+    Returns ``{field_name: {key: value, ...}}`` — only columns that
+    carry one of the surfaced metadata keys end up in the output, so
+    the constant we embed in the fetcher source stays compact for
+    OpenAPI specs that don't carry any column descriptions.
+    """
+    properties = (data_schema or {}).get("properties") or {}
+    out: dict[str, dict[str, Any]] = {}
+    for field_name, schema in properties.items():
+        if not isinstance(schema, dict):
+            continue
+        meta: dict[str, Any] = {}
+        if schema.get("description"):
+            meta["description"] = schema["description"]
+        if schema.get("format"):
+            meta["format"] = schema["format"]
+        # Source-of-truth for unit / rendering hints from Socrata's
+        # column ``format`` block. Re-emitted under the same key on
+        # the runtime side.
+        if schema.get("socrata_format"):
+            meta["socrata_format"] = schema["socrata_format"]
+        if meta:
+            out[field_name] = meta
+    return out
+
+
 def _data_schema(cmd_spec: dict[str, Any]) -> dict[str, Any]:
     """Pull the per-row data schema out of a response_schema.
 
@@ -408,16 +438,33 @@ def _query_dict_construction(
     """
     body_props = (cmd_spec.get("request_body_schema") or {}).get("properties") or {}
     excluded = set(path_params) | set(body_props)
+    # Socrata range-filter parameters (``<col>_start`` / ``<col>_end``)
+    # carry ``_socrata_op`` markers in the spec — they don't ride the
+    # query string as plain ``?<name>=<value>`` pairs, they get folded
+    # into a single ``$where`` clause below. Exclude them from the dump
+    # so they don't double up.
+    range_params = [
+        p
+        for p in (cmd_spec.get("parameters") or [])
+        if isinstance(p, dict) and p.get("_socrata_op") in {"date_min", "date_max"}
+    ]
+    excluded.update(p["name"] for p in range_params)
+    # ``by_alias=True`` so wire names with characters that aren't valid
+    # Python identifiers (e.g. Socrata's ``$select`` / ``$where``) survive
+    # serialization. Fields without aliases dump under their plain name —
+    # so existing OpenAPI-derived specs are unaffected.
     if excluded:
         excluded_literal = (
             "{" + ", ".join(repr(name) for name in sorted(excluded)) + "}"
         )
         dump = (
             f"        _query_dict = query.model_dump("
-            f"exclude={excluded_literal}, exclude_none=True)"
+            f"by_alias=True, exclude={excluded_literal}, exclude_none=True)"
         )
     else:
-        dump = "        _query_dict = query.model_dump(exclude_none=True)"
+        dump = (
+            "        _query_dict = query.model_dump(by_alias=True, exclude_none=True)"
+        )
     lines = [dump]
     # When the spec command declares a ``provider`` parameter (multi-
     # provider OpenBB endpoint), pin it to the provider this fetcher
@@ -435,7 +482,74 @@ def _query_dict_construction(
         wire_name = info["name"]
         lines.append(f"        if {var}:")
         lines.append(f"            _query_dict[{wire_name!r}] = {var}")
+    if range_params:
+        lines.extend(_socrata_where_clause_lines(range_params))
+        # Default ``$order`` to the date column descending so ``limit=N``
+        # returns the N most recent records — without this, Socrata
+        # returns rows in storage order which is rarely what the caller
+        # wants from a time-series dataset. ``setdefault`` keeps any
+        # user-supplied ordering intact.
+        date_column = next(
+            (p["_socrata_column"] for p in range_params if p.get("_socrata_column")),
+            None,
+        )
+        if date_column:
+            lines.append(
+                f"        _query_dict.setdefault('$order', {date_column!r} + ' DESC')"
+            )
+    # ``wire_name`` lets a spec keep clean user-facing parameter names
+    # (``limit``) while sending the actual upstream form (``$limit``).
+    # Apply the renames after model_dump so the dict has the URL-side keys.
+    rename_pairs: list[tuple[str, str]] = []
+    for param in cmd_spec.get("parameters") or []:
+        if not isinstance(param, dict):
+            continue
+        wire_name = param.get("wire_name")
+        if wire_name and wire_name != param.get("name"):
+            rename_pairs.append((param["name"], wire_name))
+    if rename_pairs:
+        lines.append("        for _src, _dst in (")
+        for src, dst in rename_pairs:
+            lines.append(f"            ({src!r}, {dst!r}),")
+        lines.append("        ):")
+        lines.append("            if _src in _query_dict:")
+        lines.append("                _query_dict[_dst] = _query_dict.pop(_src)")
     return "\n".join(lines)
+
+
+def _socrata_where_clause_lines(range_params: list[dict[str, Any]]) -> list[str]:
+    """Compose runtime lines that fold Socrata range params into ``$where``.
+
+    Each ``date_min`` param contributes ``<column> >= '<value>'`` and
+    each ``date_max`` contributes ``<column> <= '<value>'``. Multiple
+    fragments AND together. The result is appended to any existing
+    ``$where`` clause the user passed (Socrata accepts a single
+    ``$where`` with arbitrary boolean SoQL).
+    """
+    field_lookups: list[str] = []
+    for param in range_params:
+        wire_name = param["name"]
+        column = param["_socrata_column"]
+        op = ">=" if param["_socrata_op"] == "date_min" else "<="
+        py_field, _ = safe_field_name(wire_name)
+        var = f"_range_{py_field}"
+        field_lookups.append(
+            f"        {var} = getattr(query, {py_field!r}, None)\n"
+            f"        if {var} is not None:\n"
+            f"            _socrata_where_parts.append("
+            f'f"{column} {op} \'" + str({var}) + "\'")'
+        )
+    out: list[str] = ["        _socrata_where_parts: list[str] = []"]
+    out.extend(field_lookups)
+    out.append("        if _socrata_where_parts:")
+    out.append("            _existing_where = _query_dict.pop('$where', None)")
+    out.append("            _socrata_where = ' AND '.join(_socrata_where_parts)")
+    out.append("            if _existing_where:")
+    out.append(
+        "                _socrata_where = f'({_existing_where}) AND ({_socrata_where})'"
+    )
+    out.append("            _query_dict['$where'] = _socrata_where")
+    return out
 
 
 def _header_dict_construction(creds: dict[str, dict[str, str]]) -> str:
@@ -566,6 +680,7 @@ def generate_fetcher_module(spec: FetcherCommandSpec) -> GeneratedFetcher:
         creds=creds,
         description=description,
         imports=consolidate_imports(imports),
+        column_metadata=_column_metadata_from_data_schema(data_schema),
     )
 
     return GeneratedFetcher(
@@ -598,6 +713,7 @@ def _render_fetcher_source(
     creds: dict[str, dict[str, str]],
     description: str,
     imports: list[str],
+    column_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     """Format the final fetcher module source.
 
@@ -756,24 +872,39 @@ def _render_fetcher_source(
         "        _creds = credentials or {}",
     ]
     fetcher_source_lines.extend(body_construction)
-    fetcher_source_lines.extend(
+    column_meta_literal = repr(column_metadata) if column_metadata else None
+    transform_data_lines = [
+        "",
+        "    @staticmethod",
+        "    def transform_data(",
+        f"        query: {qp_class},",
+        "        data: dict[str, Any],",
+        "        **kwargs: Any,",
+        f"    ) -> list[{data_class}] | AnnotatedResult[list[{data_class}]]:",
+        transform_data_doc,
+        f"        _typed = [{data_class}(**row) for row in data['rows']]",
+        "        _metadata = dict(data.get('metadata') or {})",
+    ]
+    if column_meta_literal:
+        # Embed the column metadata constant verbatim — descriptions
+        # (with embedded units) and Socrata format hints (currency,
+        # decimal separators) ride alongside every response under
+        # ``obbject.extra['results_metadata']['columns']``. Lets a
+        # downstream formatter render ``$763.75`` with the right
+        # symbol without re-querying the spec.
+        transform_data_lines.append(f"        _column_metadata = {column_meta_literal}")
+        transform_data_lines.append(
+            "        _metadata.setdefault('columns', _column_metadata)"
+        )
+    transform_data_lines.extend(
         [
-            "",
-            "    @staticmethod",
-            "    def transform_data(",
-            f"        query: {qp_class},",
-            "        data: dict[str, Any],",
-            "        **kwargs: Any,",
-            f"    ) -> list[{data_class}] | AnnotatedResult[list[{data_class}]]:",
-            transform_data_doc,
-            f"        _typed = [{data_class}(**row) for row in data['rows']]",
-            "        _metadata = data.get('metadata') or {}",
             "        if _metadata:",
             "            return AnnotatedResult(result=_typed, metadata=_metadata)",
             "        return _typed",
             "",
         ]
     )
+    fetcher_source_lines.extend(transform_data_lines)
     parts.append("\n".join(fetcher_source_lines))
 
     return "\n".join(parts).rstrip() + "\n"

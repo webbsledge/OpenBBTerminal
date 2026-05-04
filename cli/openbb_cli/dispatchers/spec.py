@@ -319,7 +319,7 @@ def build_spec_document(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "generator": _generator_identifier(),
         "source_url": source_url or "",
-        "openapi_version": str(openapi.get("openapi") or openapi.get("swagger") or ""),
+        "api_version": str(openapi.get("openapi") or openapi.get("swagger") or ""),
         "base_url": _resolve_base_url(openapi, base_url),
         "api_prefix": (("/" + effective_prefix.strip("/")) if effective_prefix else ""),
         "commands": build_command_spec(openapi, api_prefix=effective_prefix),
@@ -396,7 +396,11 @@ class SpecDocument(BaseModel):
     generated_at: str | None = None
     generator: str | None = None
     source_url: str | None = None
-    openapi_version: str | None = None
+    # ``api_version`` is the upstream's own version label — OpenAPI's
+    # ``"3.1.0"``, Socrata's ``"v2"`` — kept as an opaque string so spec
+    # consumers can branch on it when needed without us baking in a
+    # versioning scheme. Was ``openapi_version`` in earlier spec versions.
+    api_version: str | None = None
     content_sha256: str | None = None
 
 
@@ -517,7 +521,18 @@ def _add_normalized_parameter(
         parser.add_argument(flag, **kwargs)
         return
 
-    if py_type is str and _looks_like_datetime_param(p["name"], p.get("help")):
+    # Socrata range-filter params (``start_date`` / ``end_date`` carry
+    # ``_socrata_op``) need the raw ``YYYY-MM-DD`` string preserved —
+    # the dispatcher folds them into a SoQL ``$where`` clause, and
+    # Socrata's parser auto-coerces ISO-timestamp literals (``...T00:00:00Z``)
+    # to a ``calendar_date`` type which fails ``op$>=`` against
+    # text-stored date columns ("Type mismatch for op$>=, is text").
+    is_socrata_range_param = p.get("_socrata_op") in {"date_min", "date_max"}
+    if (
+        py_type is str
+        and not is_socrata_range_param
+        and _looks_like_datetime_param(p["name"], p.get("help"))
+    ):
         kwargs["type"] = _coerce_iso_datetime
     else:
         kwargs["type"] = py_type

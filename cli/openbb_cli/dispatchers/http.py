@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import re
+from datetime import datetime, timezone
+from time import perf_counter_ns
 from typing import Any
 
 import httpx
@@ -224,6 +227,346 @@ def _decode_response(response: httpx.Response) -> Any:
     return response.text
 
 
+_NUMERIC_RESPONSE_TYPES: frozenset[str] = frozenset(
+    {"number", "money", "percent", "double"}
+)
+
+# Socrata's per-request page size. The portal's dispatcher rejects any
+# single ``$limit`` above this — larger volumes have to be fetched via
+# paginated ``$offset`` requests. We use this as both the wire cap on
+# every page AND the chunk size for ``limit=0`` "fetch all" mode.
+_SOCRATA_PAGE_SIZE = 5000
+
+# Safety cap on automatic pagination — at 5000 rows/page, this is
+# 5,000,000 rows max per command. Anything that needs more should be
+# fetching from a flat-file dump, not through the ``/resource/`` API.
+_SOCRATA_MAX_PAGES = 1000
+
+
+def _user_requested_all_rows(request: Request) -> bool:
+    """Return True when the caller asked for the full dataset (``limit=0``)."""
+    raw = (request.params or {}).get("limit")
+    if raw is None:
+        return False
+    try:
+        return int(raw) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _user_limit_for_per_item(request: Request) -> int | None:
+    """Return the user's ``limit`` as an int, or ``None`` if unusable.
+
+    Treats ``0`` as "no cap" (per-item collapse returns every distinct
+    item it finds) so the ``limit=0`` semantics flow through to the
+    collapse pass.
+    """
+    raw = (request.params or {}).get("limit")
+    if raw is None:
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if n < 0:
+        return None
+    return n if n > 0 else None
+
+
+async def _fetch_until_n_distinct_dates(
+    client: httpx.AsyncClient,
+    url: str,
+    base_query: dict[str, Any],
+    extra_headers: dict[str, str] | None,
+    time_axis: str,
+    n: int,
+) -> list[dict[str, Any]]:
+    """Page until the response covers ≥ ``n + 1`` distinct ``time_axis`` values.
+
+    Used by date-snapshot ``limit=N`` semantics: we need every row from
+    the N most recent distinct dates, so the fetch stops once we've
+    confirmed the boundary (the N+1-th date appears) — at that point
+    the local truncation can safely cut off the tail. Stops early if
+    the upstream returns a short page (no more data to page through)
+    or hits ``_SOCRATA_MAX_PAGES``.
+    """
+    rows: list[dict[str, Any]] = []
+    distinct_dates: set[Any] = set()
+    base = dict(base_query)
+    base["$limit"] = _SOCRATA_PAGE_SIZE
+    for page in range(_SOCRATA_MAX_PAGES):
+        page_params = dict(base)
+        page_params["$offset"] = page * _SOCRATA_PAGE_SIZE
+        response = await client.get(url, params=page_params, headers=extra_headers)
+        response.raise_for_status()
+        payload = _decode_response(response)
+        if not isinstance(payload, list) or not payload:
+            break
+        rows.extend(payload)
+        for row in payload:
+            if isinstance(row, dict):
+                value = row.get(time_axis)
+                if value is not None:
+                    distinct_dates.add(value)
+        # Once we've seen ``n + 1`` distinct dates, the (n+1)-th appearance
+        # marks where the truncate pass will cut — no need to keep paging.
+        if len(distinct_dates) > n:
+            break
+        if len(payload) < _SOCRATA_PAGE_SIZE:
+            break
+    return rows
+
+
+async def _fetch_all_pages(
+    client: httpx.AsyncClient,
+    url: str,
+    base_query: dict[str, Any],
+    extra_headers: dict[str, str] | None,
+) -> list[dict[str, Any]]:
+    """Page through ``$offset`` until the upstream returns an empty page.
+
+    Used by ``limit=0`` semantics — the caller asked for "every row",
+    so we issue ``_SOCRATA_PAGE_SIZE``-sized pages sequentially and
+    concatenate. Sequential is intentional: parallel pagination breaks
+    when the dataset isn't strictly date-ordered (rows shift between
+    pages between requests), and Socrata's per-IP rate limit is gentle
+    enough for sequential issue not to bottleneck typical 10–50 page
+    fetches.
+
+    Stops at ``_SOCRATA_MAX_PAGES`` as a safety net — anything larger
+    is better fetched from the dataset's flat-file dump rather than
+    the resource API.
+    """
+    rows: list[dict[str, Any]] = []
+    base = dict(base_query)
+    base["$limit"] = _SOCRATA_PAGE_SIZE
+    for page in range(_SOCRATA_MAX_PAGES):
+        page_params = dict(base)
+        page_params["$offset"] = page * _SOCRATA_PAGE_SIZE
+        response = await client.get(url, params=page_params, headers=extra_headers)
+        response.raise_for_status()
+        payload = _decode_response(response)
+        if not isinstance(payload, list) or not payload:
+            break
+        rows.extend(payload)
+        if len(payload) < _SOCRATA_PAGE_SIZE:
+            # Short page — this was the last batch the upstream had.
+            break
+    return rows
+
+
+def _request_with_page_size_limit(request: Request) -> Request:
+    """Return a copy of ``request`` with ``limit`` capped to one page.
+
+    Used by the most-recent-per-item path: we issue a single page-sized
+    request, collapse to most-recent-per-item locally, then cap to the
+    user's requested ``limit``. One page is usually enough to cover
+    every distinct item in a date-DESC sort.
+    """
+    bumped = dict(request.params or {})
+    bumped["limit"] = _SOCRATA_PAGE_SIZE
+    return Request(id=request.id, command=request.command, params=bumped)
+
+
+def _truncate_to_top_n_dates(
+    shaped: Any, time_axis: str, user_limit: int | None
+) -> Any:
+    """Keep every row whose ``time_axis`` is among the ``user_limit`` most recent.
+
+    Rows are assumed pre-sorted DESC by ``time_axis`` (the dispatcher
+    sets ``$order=<time_axis> DESC`` by default). Walks the list once,
+    tracking distinct date values; once the (``user_limit``+1)-th
+    distinct date appears, stops including further rows. Returns the
+    full set when ``user_limit`` is ``None`` (the ``limit=0`` case
+    where the user asked for every row already).
+
+    Falls through unchanged when the payload isn't a row list — nothing
+    to truncate.
+    """
+    rows = _extract_rows(shaped)
+    if rows is None or user_limit is None:
+        return shaped
+    seen_dates: list[Any] = []
+    seen_set: set[Any] = set()
+    kept: list[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            kept.append(row)
+            continue
+        date = row.get(time_axis)
+        if date is None:
+            kept.append(row)
+            continue
+        if date not in seen_set:
+            if len(seen_dates) >= user_limit:
+                break
+            seen_dates.append(date)
+            seen_set.add(date)
+        kept.append(row)
+    return _replace_rows(shaped, kept)
+
+
+def _extract_rows(shaped: Any) -> list[Any] | None:
+    """Pull the row list out of a shaped result, or return ``None``.
+
+    Handles three carriers: a bare list, a ``{results: [...]}`` dict, or
+    an actual ``OBBject`` instance (the dispatcher's spec-mode wrap).
+    """
+    if isinstance(shaped, list):
+        return shaped
+    if isinstance(shaped, dict):
+        results = shaped.get("results")
+        if isinstance(results, list):
+            return results
+        return None
+    # Duck-typed OBBject — we don't import the type here to keep this
+    # module independent of openbb_core. ``results`` plus ``extra``
+    # together are a tight enough fingerprint.
+    results = getattr(shaped, "results", None)
+    if isinstance(results, list) and hasattr(shaped, "extra"):
+        return results
+    return None
+
+
+def _replace_rows(shaped: Any, rows: list[Any]) -> Any:
+    """Inverse of ``_extract_rows`` — substitute the collapsed row list back in.
+
+    Mutates an OBBject in place (keeps the original instance, including
+    its private attrs like ``_standard_params``) so registry insertion
+    downstream still sees the canonical instance.
+    """
+    if isinstance(shaped, list):
+        return rows
+    if isinstance(shaped, dict) and isinstance(shaped.get("results"), list):
+        return {**shaped, "results": rows}
+    if isinstance(getattr(shaped, "results", None), list) and hasattr(shaped, "extra"):
+        shaped.results = rows
+        return shaped
+    return shaped
+
+
+def _coerce_response_value(value: Any, type_name: str, fmt: str) -> Any:
+    """Cast a single field value to the type declared by the response schema.
+
+    Socrata serializes everything as strings on the wire — even
+    ``calendar_date``, ``number``, and ``boolean`` columns — so the raw
+    payload comes back with ``"3.14"`` for a number field and
+    ``"2024-01-01T00:00:00.000"`` for a date. The Pydantic ``Data``
+    class handles this automatically when the installed-extension path
+    runs (``Data(**row)`` parses each value), but spec-mode dispatch
+    skips Pydantic and returns the raw dict — so we coerce here to keep
+    the user-facing shape consistent across both backends.
+    """
+    if not isinstance(value, str):
+        return value
+    if type_name in _NUMERIC_RESPONSE_TYPES:
+        try:
+            num = float(value)
+        except ValueError:
+            return value
+        return int(num) if num.is_integer() else num
+    if type_name == "integer":
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if type_name == "boolean":
+        if value.lower() in {"true", "false"}:
+            return value.lower() == "true"
+        return value
+    # Drop the time component from ``2024-01-01T00:00:00.000`` — the
+    # column is date-only by intent, the timestamp form is just how
+    # Socrata serializes it.
+    if type_name == "string" and fmt == "date" and "T" in value and len(value) >= 10:
+        return value.split("T", 1)[0]
+    return value
+
+
+def _row_column_types(cmd_spec: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """Extract ``{field_name: (type, format)}`` from a command's response schema.
+
+    Walks the ``{results: array<row>}`` envelope the spec generators
+    emit. Returns an empty dict when the schema doesn't fit that shape
+    (most non-Socrata commands), in which case ``_coerce_row_types``
+    becomes a no-op.
+    """
+    response = cmd_spec.get("response_schema") or {}
+    results = (response.get("properties") or {}).get("results") or {}
+    items = results.get("items") or {}
+    item_props = items.get("properties") or {}
+    out: dict[str, tuple[str, str]] = {}
+    for name, schema in item_props.items():
+        if not isinstance(schema, dict):
+            continue
+        out[name] = (
+            schema.get("type") or "",
+            schema.get("format") or "",
+        )
+    return out
+
+
+def _command_to_route(command: str) -> str:
+    """Translate a dotted CLI command into the slash-separated route shape
+    that ``Metadata.route`` carries in the installed-extension path.
+
+    ``equity.price.historical`` → ``/equity/price/historical``. Mirrors the
+    convention ``command_runner`` uses so downstream telemetry parses
+    spec-mode and installed-extension routes identically.
+    """
+    return "/" + command.replace(".", "/").strip("/")
+
+
+def _row_column_metadata(cmd_spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Extract per-column description / format hints from the response schema.
+
+    Mirrors the codegen path in ``fetcher_gen._column_metadata_from_data_schema``
+    so spec-mode dispatch surfaces the same ``{field: {description?, format?,
+    socrata_format?}}`` map under ``AnnotatedResult.metadata['columns']``
+    as the installed-extension fetcher does. Empty dict when the schema
+    doesn't carry such metadata.
+    """
+    response = cmd_spec.get("response_schema") or {}
+    results = (response.get("properties") or {}).get("results") or {}
+    items = results.get("items") or {}
+    item_props = items.get("properties") or {}
+    out: dict[str, dict[str, Any]] = {}
+    for name, schema in item_props.items():
+        if not isinstance(schema, dict):
+            continue
+        meta: dict[str, Any] = {}
+        if schema.get("description"):
+            meta["description"] = schema["description"]
+        if schema.get("format"):
+            meta["format"] = schema["format"]
+        if schema.get("socrata_format"):
+            meta["socrata_format"] = schema["socrata_format"]
+        if meta:
+            out[name] = meta
+    return out
+
+
+def _coerce_row_types(
+    rows: list[dict[str, Any]], column_types: dict[str, tuple[str, str]]
+) -> list[dict[str, Any]]:
+    """Apply schema-driven coercion to every row in a response."""
+    if not column_types:
+        return rows
+    coerced: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            coerced.append(row)
+            continue
+        new_row = {}
+        for k, v in row.items():
+            type_info = column_types.get(k)
+            if type_info is None:
+                new_row[k] = v
+            else:
+                new_row[k] = _coerce_response_value(v, type_info[0], type_info[1])
+        coerced.append(new_row)
+    return coerced
+
+
 def _shape_result(payload: Any) -> Any:
     """Apply the same envelope unwrap codegen does, then return a tidy result.
 
@@ -316,11 +659,17 @@ class HttpDispatcher:
         """Build the URL for ``command`` and split path-substituted params off.
 
         Returns ``(url, remaining_params)``. ``remaining_params`` is what goes
-        on the query string (GET) or in the JSON body (POST).
+        on the query string (GET) or in the JSON body (POST). The remaining
+        params are also passed through ``_apply_param_transforms`` so any
+        ``wire_name`` renames or Socrata-style date-range folding declared in
+        the spec take effect — same translation the generated fetcher
+        applies, kept in sync between spec-mode and installed-extension flows.
         """
         template = self._command_url_paths.get(command)
         if template is None:
-            return self._url_for(command), dict(params)
+            return self._url_for(command), self._apply_param_transforms(
+                command, dict(params)
+            )
 
         consumed: set[str] = set()
 
@@ -334,7 +683,231 @@ class HttpDispatcher:
 
         path = _PATH_TEMPLATE_RE.sub(_substitute, template)
         remaining = {k: v for k, v in params.items() if k not in consumed}
-        return f"{self._base_url}{path}", remaining
+        return f"{self._base_url}{path}", self._apply_param_transforms(
+            command, remaining
+        )
+
+    def _date_snapshot_context(self, request: Request) -> tuple[str | None, int | None]:
+        """Detect the "rows-from-N-most-recent-dates" branch for ``limit``.
+
+        Returns ``(time_axis_column, user_limit)`` when the spec marks a
+        time-axis column AND the user supplied a positive ``limit``.
+        ``(None, None)`` otherwise — the caller falls back to plain
+        single-page dispatch with no truncation.
+
+        ``limit=0`` (fetch-all) doesn't trigger date-snapshot truncation
+        because the caller asked for every row regardless of date.
+        """
+        cmd_spec = (self._spec_doc.get("commands") or {}).get(request.command) or {}
+        time_axis = cmd_spec.get("_socrata_time_axis")
+        if not time_axis:
+            return None, None
+        raw_limit = (request.params or {}).get("limit")
+        if raw_limit is None:
+            return None, None
+        try:
+            user_limit = int(raw_limit)
+        except (TypeError, ValueError):
+            return None, None
+        if user_limit <= 0:
+            return None, None
+        return time_axis, user_limit
+
+    def _shape_and_coerce(
+        self,
+        command: str,
+        payload: Any,
+        *,
+        params: dict[str, Any] | None = None,
+        timestamp: datetime | None = None,
+        duration_ns: int | None = None,
+    ) -> Any:
+        """Unpack envelopes, coerce row types, then return a real ``OBBject``.
+
+        ``_shape_result`` strips the OBBject / single-key wrappers. After
+        that, when the spec carries a typed ``response_schema``, the per
+        column ``(type, format)`` map drives a row-by-row coercion so
+        date-only columns lose the ``T00:00:00.000`` suffix and numeric
+        columns become ``int`` / ``float`` instead of strings — matching
+        what the installed-extension Pydantic ``Data`` class would do.
+
+        Whenever there's *any* metadata to surface (column descriptions,
+        sibling API metadata like NY-Fed's ``asOfDate``, or execution
+        info from ``command_runner``-style timing), the dispatcher
+        wraps the rows in a real ``OBBject``. ``metadata`` is *never*
+        a top-level property of the result — it lives under
+        ``extra["metadata"]`` (execution info, ``command_runner``
+        shape) or under ``extra["results_metadata"]`` (per-column
+        descriptions + sibling API metadata folded together).
+
+        Returns bare rows only when nothing in the spec or upstream
+        response calls for an OBBject envelope (no spec, no sibling
+        metadata) — keeping the simplest possible shape for
+        single-row OpenBB Platform calls without a response_schema.
+        """
+        shaped = _shape_result(payload)
+        cmd_spec = (self._spec_doc.get("commands") or {}).get(command) or {}
+        column_types = _row_column_types(cmd_spec)
+        column_metadata = _row_column_metadata(cmd_spec)
+
+        # Pull rows + any sibling metadata out of whatever shape
+        # ``_shape_result`` produced. Three cases:
+        #   * bare list of dicts (most Socrata responses)
+        #   * ``{results, metadata}`` envelope from sibling-metadata APIs
+        #   * single dict (one-row response)
+        api_metadata: dict[str, Any] = {}
+        rows: Any
+        if isinstance(shaped, list):
+            rows = shaped
+        elif isinstance(shaped, dict):
+            inner = shaped.get("results")
+            if isinstance(inner, list) or inner is not None:
+                rows = inner
+                api_metadata = dict(shaped.get("metadata") or {})
+            else:
+                rows = shaped
+        else:
+            return shaped
+
+        if column_types:
+            if isinstance(rows, list):
+                rows = _coerce_row_types(rows, column_types)
+            elif isinstance(rows, dict):
+                rows = _coerce_row_types([rows], column_types)[0]
+
+        # Nothing in the spec or upstream signals user-visible metadata —
+        # return bare rows. ``column_types`` alone (response_schema with
+        # only type info) doesn't justify a wrap because there's nothing
+        # to surface beyond the rows themselves; the type coercion that
+        # already ran is the only behavior driven by it.
+        if not column_metadata and not api_metadata:
+            return rows
+
+        # Construct a real ``OBBject`` and return the live instance.
+        # Pydantic serializes it for the wire JSON path; interactive
+        # callers get the actual instance for registry insertion.
+        #
+        # Three distinct extra keys, never conflated:
+        #
+        # * ``extra["results_metadata"]`` — per-row / per-column
+        #   metadata (the ``AnnotatedResult.metadata`` shape from
+        #   codegen). Carries ``columns`` describing each column's
+        #   description / Socrata format hints.
+        # * ``extra["metadata"]`` — execution ``Metadata`` (the
+        #   ``command_runner`` shape). Route, arguments, duration,
+        #   timestamp.
+        # * Sibling API fields (NY-Fed ``asOfDate``, etc.) — each lands
+        #   under its own key in ``extra`` directly. They are not
+        #   row-level metadata and they are not execution telemetry,
+        #   so folding them into either bucket would lie about what
+        #   they are.
+
+        # Deferred import: ``openbb_core`` is an optional runtime
+        # dependency of the CLI (only required for paths that surface
+        # OBBject metadata). Falling back to a plain dict keeps the
+        # dispatcher usable in environments without it — but the
+        # fallback still puts metadata under ``extra`` so the schema
+        # never sprouts a top-level ``metadata`` field.
+        try:
+            from openbb_core.app.model.metadata import Metadata
+            from openbb_core.app.model.obbject import OBBject
+        except ImportError:
+            extra_fallback: dict[str, Any] = dict(api_metadata)
+            if column_metadata:
+                extra_fallback["results_metadata"] = {"columns": column_metadata}
+            return {"results": rows, "extra": extra_fallback}
+
+        extra: dict[str, Any] = dict(api_metadata)
+        if column_metadata:
+            extra["results_metadata"] = {"columns": column_metadata}
+
+        # Mirror ``command_runner``: attach a ``Metadata`` instance under
+        # ``extra["metadata"]`` carrying the route, arguments, timestamp,
+        # and duration. ``arguments`` follows the canonical
+        # ``{provider_choices, standard_params, extra_params}`` shape so
+        # downstream consumers (renderers, registries) parse it the same
+        # way they do for installed-extension responses.
+        if timestamp is not None and duration_ns is not None:
+            # Telemetry is best-effort — a malformed Metadata payload
+            # shouldn't kill an otherwise-good response.
+            with contextlib.suppress(Exception):
+                extra["metadata"] = Metadata(
+                    arguments={
+                        "provider_choices": {},
+                        "standard_params": dict(params or {}),
+                        "extra_params": {},
+                    },
+                    duration=duration_ns,
+                    route=_command_to_route(command),
+                    timestamp=timestamp,
+                )
+
+        return OBBject(results=rows, extra=extra)
+
+    def _apply_param_transforms(
+        self, command: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Translate user-facing param names into the upstream wire form.
+
+        Two transforms drive off per-parameter spec metadata:
+
+        * ``wire_name`` — rename the dict key. Lets Socrata expose
+          clean ``limit`` / ``offset`` to the user while sending
+          ``$limit`` / ``$offset`` on the wire.
+        * ``_socrata_op`` (``date_min`` / ``date_max``) plus
+          ``_socrata_column`` — fold the date-range params into a
+          single SoQL ``$where`` clause keyed on the underlying
+          column name. Mirrors ``fetcher_gen``'s codegen so spec-mode
+          dispatch and installed-extension dispatch produce the same URL.
+
+        Returns a new dict; ``params`` is not mutated.
+        """
+        cmd_spec = (self._spec_doc.get("commands") or {}).get(command) or {}
+        param_specs = cmd_spec.get("parameters") or []
+        if not param_specs:
+            return params
+        out = dict(params)
+        # Date-range fold into ``$where`` — collect first so the rename
+        # pass below sees the populated ``$where`` (avoids stomping a
+        # user-supplied one).
+        where_parts: list[str] = []
+        for p in param_specs:
+            if not isinstance(p, dict):
+                continue
+            op = p.get("_socrata_op")
+            if op not in {"date_min", "date_max"}:
+                continue
+            value = out.pop(p["name"], None)
+            if value is None:
+                continue
+            column = p.get("_socrata_column")
+            if not column:
+                continue
+            cmp = ">=" if op == "date_min" else "<="
+            where_parts.append(f"{column} {cmp} '{value}'")
+        if where_parts:
+            existing = out.pop("$where", None)
+            joined = " AND ".join(where_parts)
+            out["$where"] = f"({existing}) AND ({joined})" if existing else joined
+        # Default ordering when the spec marks a time axis: sort by it
+        # descending so ``limit=N`` naturally returns the N most recent
+        # records. The time axis is whatever the spec generator marked
+        # as ``_socrata_time_axis`` — could be a true ``calendar_date``
+        # column or a text column named ``year`` / ``month_year`` etc.
+        # Datasets without any time-shaped column skip this step.
+        time_axis = cmd_spec.get("_socrata_time_axis")
+        if time_axis and "$order" not in out:
+            out["$order"] = f"{time_axis} DESC"
+        # ``wire_name`` renames — apply after the where-fold so range
+        # params (already removed) don't get processed twice.
+        for p in param_specs:
+            if not isinstance(p, dict):
+                continue
+            wire = p.get("wire_name")
+            name = p.get("name")
+            if wire and name and wire != name and name in out:
+                out[wire] = out.pop(name)
+        return out
 
     def _method_for(self, command: str, override: str | None) -> str:
         """Resolve the HTTP method for ``command``: explicit override > map > default."""
@@ -399,12 +972,27 @@ class HttpDispatcher:
             return await self._list_commands(request)
         if request.command == "__schema__":
             return await self._describe_command(request)
+        # ``limit=N`` against a dataset with a time axis means "every row
+        # from the N most recent distinct dates" (a snapshot semantic),
+        # not "N rows total." We fetch pages until we've gathered at
+        # least N+1 distinct dates' worth of rows, then truncate locally
+        # to keep only the top N. ``limit=0`` keeps its existing
+        # "fetch every row" meaning.
+        time_axis, user_limit = self._date_snapshot_context(request)
+        fetch_all = _user_requested_all_rows(request)
+        wire_request = request
+        if time_axis is not None or fetch_all:
+            wire_request = _request_with_page_size_limit(request)
+        # Capture wall-clock + monotonic clock for ``Metadata`` — same
+        # pair ``command_runner`` records before invoking the command.
+        timestamp = datetime.now(timezone.utc)
+        start_ns = perf_counter_ns()
         try:
             url, body_or_query = self._resolve_url(
-                request.command, request.params or {}
+                wire_request.command, wire_request.params or {}
             )
-            method_lower = self._method_for(request.command, method)
-            decision = await self._invoke_auth_hook(request, method_lower)
+            method_lower = self._method_for(wire_request.command, method)
+            decision = await self._invoke_auth_hook(wire_request, method_lower)
             if not decision.allow:
                 return Response(
                     id=request.id,
@@ -423,9 +1011,31 @@ class HttpDispatcher:
                         **(extra_query or {}),
                         **body_or_query,
                     }
-                    response = await client.get(
-                        url, params=merged_query, headers=extra_headers
-                    )
+                    if fetch_all:
+                        # ``limit=0`` mode: page through ``$offset``
+                        # until the response runs dry.
+                        payload = await _fetch_all_pages(
+                            client, url, merged_query, extra_headers
+                        )
+                    elif time_axis is not None:
+                        # Date-snapshot mode: page until we've seen at
+                        # least ``user_limit + 1`` distinct dates, so
+                        # the local truncation knows exactly where the
+                        # cutoff date is.
+                        payload = await _fetch_until_n_distinct_dates(
+                            client,
+                            url,
+                            merged_query,
+                            extra_headers,
+                            time_axis,
+                            user_limit or 0,
+                        )
+                    else:
+                        response = await client.get(
+                            url, params=merged_query, headers=extra_headers
+                        )
+                        response.raise_for_status()
+                        payload = _decode_response(response)
                 else:
                     merged_query = {**self._query_params, **(extra_query or {})}
                     response = await client.post(
@@ -434,10 +1044,23 @@ class HttpDispatcher:
                         json=body_or_query,
                         headers=extra_headers,
                     )
-            response.raise_for_status()
-            payload = _decode_response(response)
+                    response.raise_for_status()
+                    payload = _decode_response(response)
+            duration_ns = perf_counter_ns() - start_ns
+            shaped = self._shape_and_coerce(
+                wire_request.command,
+                payload,
+                params=request.params or {},
+                timestamp=timestamp,
+                duration_ns=duration_ns,
+            )
+            if time_axis is not None and not fetch_all:
+                shaped = _truncate_to_top_n_dates(shaped, time_axis, user_limit)
             return Response(
-                id=request.id, ok=True, result=_shape_result(payload), error=None
+                id=request.id,
+                ok=True,
+                result=shaped,
+                error=None,
             )
         except httpx.HTTPStatusError as exc:
             try:

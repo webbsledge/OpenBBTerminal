@@ -749,6 +749,207 @@ def test_method_call_command_legacy_emits_table_via_backend():
     backend.get_command_target.assert_called_once_with("coverage")
 
 
+def test_result_to_obbject_passes_through_live_obbject_instance():
+    """The dispatcher returns a live OBBject when the spec carries column
+    metadata. ``_result_to_obbject`` must pass it through unchanged so the
+    private attrs (``_route``, ``_standard_params``) the dispatcher set
+    aren't lost — reconstruction via ``model_validate`` would drop them.
+    """
+    from openbb_core.app.model.obbject import OBBject
+
+    from openbb_cli.controllers.cli_controller import _result_to_obbject
+
+    obb = OBBject(
+        results=[{"price": 12.5}],
+        extra={"results_metadata": {"columns": {"price": {"description": "$/ton"}}}},
+    )
+    obb._route = "/fertilizer_prices_by_region"
+    obb._standard_params = {"limit": 1}
+    out = _result_to_obbject(obb, "fertilizer_prices_by_region", ["--limit", "1"])
+    # Same instance — no copy, no rewrap.
+    assert out is obb
+    # Dispatcher's private attrs preserved.
+    assert out._route == "/fertilizer_prices_by_region"
+    assert out._standard_params == {"limit": 1}
+    # Command line stamped for the recall table.
+    assert out.extra["command"] == "/fertilizer_prices_by_region --limit 1"
+    # Column metadata still there.
+    assert out.extra["results_metadata"]["columns"]["price"]["description"] == "$/ton"
+
+
+def test_result_to_obbject_wraps_bare_rows():
+    """No column metadata in the spec → dispatcher returns bare rows;
+    ``_result_to_obbject`` wraps them in a fresh OBBject so the registry
+    can still recall them."""
+    from openbb_cli.controllers.cli_controller import _result_to_obbject
+
+    obb = _result_to_obbject([{"a": 1}, {"a": 2}], "simple.cmd", [])
+    assert obb is not None
+    assert obb.results == [{"a": 1}, {"a": 2}]
+    assert obb._route == "/simple/cmd"
+    assert obb.extra["command"] == "/simple.cmd"
+
+
+def test_result_to_obbject_returns_none_for_unwrappable_payload():
+    """Scalar payloads (strings, numbers) can't seed an OBBject.results — skip
+    registration rather than synthesize a bogus entry."""
+    from openbb_cli.controllers.cli_controller import _result_to_obbject
+
+    assert _result_to_obbject("plain string", "x", []) is None
+    assert _result_to_obbject(42, "x", []) is None
+    assert _result_to_obbject(None, "x", []) is None
+
+
+def test_result_to_obbject_registry_round_trip_surfaces_in_recall():
+    """End-to-end: a reconstructed OBBject lands in ``Registry.all`` with
+    the route + command columns populated — the legacy ``results`` recall
+    UX displays exactly this dict."""
+    from openbb_cli.argparse_translator.obbject_registry import Registry
+    from openbb_cli.controllers.cli_controller import _result_to_obbject
+
+    obb = _result_to_obbject(
+        [{"region": "Cornbelt", "price": 12.5}],
+        "fertilizer_prices_by_region",
+        ["--limit", "1"],
+    )
+    reg = Registry()
+    assert reg.register(obb)
+    rows = reg.all
+    assert rows[0]["extra"]["command"] == "/fertilizer_prices_by_region --limit 1"
+
+
+def test_result_to_obbject_returns_none_when_obbject_construction_raises():
+    """If ``OBBject(results=...)`` itself raises (validation failure on
+    rows that pydantic rejects), registration is best-effort — return
+    ``None`` so the controller skips registration without crashing the
+    user-visible render path.
+    """
+    from openbb_cli.controllers import cli_controller
+
+    real_obbject = cli_controller._result_to_obbject  # cache for restore
+
+    class _BoomOBBject:
+        def __init__(self, *args, **kwargs):
+            raise ValueError("simulated validation failure")
+
+    # Pollute the import path so OBBject(...) raises.
+    import openbb_core.app.model.obbject as obbject_mod
+
+    original = obbject_mod.OBBject
+    obbject_mod.OBBject = _BoomOBBject  # type: ignore[assignment]
+    try:
+        out = real_obbject([{"x": 1}], "router", [])
+    finally:
+        obbject_mod.OBBject = original  # type: ignore[assignment]
+    assert out is None
+
+
+def test_result_to_obbject_returns_none_when_openbb_core_missing(monkeypatch):
+    """No openbb_core → can't construct an OBBject → ``None`` so the
+    controller's registration step skips silently."""
+    import builtins
+
+    from openbb_cli.controllers import cli_controller
+
+    real_import = builtins.__import__
+
+    def _block(name, *args, **kwargs):
+        if name == "openbb_core.app.model.obbject":
+            raise ImportError(f"simulated missing {name}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _block)
+    out = cli_controller._result_to_obbject([{"x": 1}], "router", [])
+    assert out is None
+
+
+def test_method_call_command_spec_renders_dict_results_envelope_when_obbject_unwrappable(
+    tmp_path,
+):
+    """Belt-and-braces: when the dispatcher returns a plain dict that
+    isn't unwrappable (no ``OBBject`` reconstruction possible), the
+    render path uses ``result.get('results', result)`` to extract the
+    payload — exercised when ``_result_to_obbject`` returns ``None``.
+    """
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {"url_path": "/x", "method": "get", "parameters": []}
+    backend = MagicMock()
+    backend.routers = {"x": "command"}
+    backend._spec = {"commands": {"x": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock()
+    fake_translator.parser = MagicMock()
+    # A scalar result is not wrappable — ``_result_to_obbject`` returns
+    # ``None`` and the render path falls through to ``result``.
+    fake_translator.execute_func.return_value = "scalar payload"
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_x([])
+    fake_translator.execute_func.assert_called_once()
+    # Render still happened (no crash).
+    fake_session.output_adapter.display.assert_called_once()
+
+
+def test_method_call_command_spec_extracts_results_from_dict_when_obbject_is_none(
+    tmp_path,
+):
+    """When ``_result_to_obbject`` returns ``None`` but the result *is*
+    a dict (e.g. an envelope ``{"results": [...], "metadata": {...}}``
+    that couldn't be wrapped because OBBject construction was patched
+    out), the render path takes the ``elif isinstance(result, dict)``
+    branch and pulls ``result['results']`` for display.
+    """
+    from openbb_cli.controllers import cli_controller
+
+    cmd_spec = {"url_path": "/x", "method": "get", "parameters": []}
+    backend = MagicMock()
+    backend.routers = {"x": "command"}
+    backend._spec = {"commands": {"x": cmd_spec}}
+    backend._dispatcher = MagicMock()
+
+    fake_translator = MagicMock()
+    fake_translator.parser = MagicMock()
+    fake_translator.execute_func.return_value = {
+        "results": [{"id": 1}, {"id": 2}],
+        "metadata": {"asOfDate": "2026-04-30"},
+    }
+
+    fake_session = MagicMock()
+    with (
+        patch.object(cli_controller, "session", fake_session),
+        patch.object(cli_controller.CLIController, "update_runtime_choices"),
+        # Force ``_result_to_obbject`` to return ``None`` so the dict
+        # fallback branch runs.
+        patch.object(cli_controller, "_result_to_obbject", return_value=None),
+        patch("openbb_cli.backend.SpecTranslator", return_value=fake_translator),
+        patch.object(
+            cli_controller.CLIController,
+            "parse_known_args_and_warn",
+            return_value=MagicMock(),
+        ),
+    ):
+        ctrl = cli_controller.CLIController(backend=backend)
+        ctrl.call_x([])
+    # Display was called with the unwrapped rows, not the envelope.
+    args, _kwargs = fake_session.output_adapter.display.call_args
+    rendered_df = args[0]
+    # ``pd.DataFrame([{"id": 1}, {"id": 2}])`` shape — two rows.
+    assert len(rendered_df) == 2
+
+
 def test_method_call_command_spec_dispatches_via_translator():
     """SpecBackend path: top-level command-typed routers dispatch through a
     ``SpecTranslator`` so ``--help`` prints help and arg parsing/dispatch

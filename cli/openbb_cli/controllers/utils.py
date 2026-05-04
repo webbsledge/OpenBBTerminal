@@ -1089,7 +1089,22 @@ def handle_obbject_display(
         except Exception as e:
             session.console.print(f"Failed to display chart: {e}")
     elif session.settings.USE_INTERACTIVE_DF:
-        obbject.charting.table()  # ty: ignore[unresolved-attribute]
+        # ``charting`` is an accessor ``openbb-charting`` registers
+        # lazily on ``OBBject``. When it isn't installed (spec-mode
+        # CLI without the charting extension) the attribute access
+        # raises ``AttributeError`` from pydantic — fall back to the
+        # plain DataFrame display so ``results -i N`` still surfaces
+        # the rows.
+        try:
+            obbject.charting.table()  # ty: ignore[unresolved-attribute]
+        except AttributeError:
+            df = extract_dataframe(obbject)
+            session.output_adapter.display(
+                data=df,
+                title=obbject.extra.get("command", ""),
+                export=bool(export),
+                chart=False,
+            )
     else:
         df = extract_dataframe(obbject)
         session.output_adapter.display(

@@ -200,7 +200,7 @@ def test_build_spec_document_records_provenance():
         source_url="https://example.com/openapi.json",
     )
     assert doc["source_url"] == "https://example.com/openapi.json"
-    assert doc["openapi_version"] == "3.1.0"
+    assert doc["api_version"] == "3.1.0"
     assert doc["generator"].startswith("openbb-cli")
     assert doc["generated_at"]
 
@@ -209,7 +209,7 @@ def test_build_spec_document_falls_back_to_swagger_field():
     """Pre-OpenAPI 3 specs use ``swagger: "2.0"`` instead of ``openapi``."""
     openapi = {"swagger": "2.0", "paths": {}}
     doc = build_spec_document(openapi, base_url="http://h")
-    assert doc["openapi_version"] == "2.0"
+    assert doc["api_version"] == "2.0"
     assert doc["source_url"] == ""
 
 

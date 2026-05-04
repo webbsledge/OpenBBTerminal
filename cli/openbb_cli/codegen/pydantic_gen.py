@@ -82,12 +82,19 @@ def safe_field_name(name: str) -> tuple[str, bool]:
     the on-the-wire name still round-trips. Triggers on names that aren't
     valid identifiers, collide with Python keywords, or shadow Pydantic's
     reserved attribute names.
+
+    Leading underscores get stripped because Pydantic v2 refuses to
+    declare them as model fields ("Fields must not use names with leading
+    underscores"). Names that would otherwise start with a digit get an
+    ``f_`` prefix instead of ``_`` so the result stays acceptable to
+    Pydantic — Socrata's ``$select`` becomes ``select`` (alias ``$select``),
+    not ``_select``.
     """
-    cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", name)
-    if cleaned and cleaned[0].isdigit():
-        cleaned = f"_{cleaned}"
+    cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", name).lstrip("_")
     if not cleaned:
-        cleaned = "_field"
+        cleaned = "field"
+    if cleaned[0].isdigit():
+        cleaned = f"f_{cleaned}"
     if keyword.iskeyword(cleaned) or cleaned in _PYTHON_RESERVED_FIELD_NAMES:
         cleaned = f"{cleaned}_"
     return (cleaned, cleaned != name)
@@ -193,30 +200,32 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
 
 def _enum_primitive(
     values: list[Any],
-    declared_type: Any,
+    declared_type: Any,  # noqa: ARG001 — kept for caller compatibility
     imports: set[str],
 ) -> str:
-    """Map an ``enum`` / ``const`` to the underlying primitive type annotation.
+    """Map an ``enum`` / ``const`` to a ``Literal[...]`` annotation.
 
-    We deliberately don't emit ``Literal[...]`` here — openbb-core's
-    docstring generator strips ``Literal`` types from union annotations
-    via ``get_origin(arg) is Literal: continue``, which leaves
-    ``Literal[...] | None`` rendered as the bogus ``Optional[None]``. The
-    enum's choices are surfaced separately via the field description (see
-    ``_resolve_field_description``), so the type annotation can stay flat.
+    Pydantic enforces ``Literal`` membership at construction time so
+    invalid choices raise instead of silently flowing through to the
+    upstream API. ``None`` is included as a valid Literal member so the
+    field can be omitted ("all values, no filter") without losing the
+    rejection of typo'd values like ``"Imprt"``.
+
+    openbb-core's docstring renderer used to collapse
+    ``Literal[...] | None`` to the bogus ``Optional[None]``; that's
+    been fixed (Literal args render as the primitive type of their
+    members), so the docstring shows ``str | None`` while the runtime
+    type still rejects unknown values.
     """
-    if declared_type in _PRIMITIVE_TYPES:
-        return _PRIMITIVE_TYPES[declared_type]
-    if all(isinstance(v, bool) for v in values):
-        return "bool"
-    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
-        return "int"
-    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
-        return "float"
-    if all(isinstance(v, str) for v in values):
-        return "str"
-    imports.add("from typing import Any")
-    return "Any"
+    if not values:
+        imports.add("from typing import Any")
+        return "Any"
+    rendered_members = ", ".join(repr(v) for v in values)
+    imports.add("from typing import Literal")
+    # The ``| None`` suffix gets appended by ``generate_class`` for
+    # non-required fields (with ``default=None``) — so callers omit the
+    # filter to get all values, or pass a Literal member to constrain.
+    return f"Literal[{rendered_members}]"
 
 
 def _resolve_union(

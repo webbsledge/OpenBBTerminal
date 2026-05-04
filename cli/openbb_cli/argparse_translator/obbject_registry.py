@@ -1,6 +1,6 @@
 """Registry for OBBjects."""
 
-import json
+from typing import Any
 
 from openbb_core.app.model.obbject import OBBject
 
@@ -61,48 +61,36 @@ class Registry:
 
     @property
     def all(self) -> dict[int, dict]:
-        """Return all obbjects in the registry."""
+        """Return all obbjects in the registry.
 
-        def _handle_standard_params(obbject: OBBject) -> str:
-            """Handle standard params for obbjects."""
-            standard_params_json = ""
-            std_params = getattr(obbject, "_standard_params", {})
-            if std_params:
-                standard_params = {
-                    k: str(v)[:30] for k, v in std_params.items() if v and k != "data"
-                }
-                standard_params_json = json.dumps(standard_params)
-
-            return standard_params_json
-
-        def _handle_data_repr(obbject: OBBject) -> str:
-            """Handle data representation for obbjects."""
-            data_repr = ""
-            if hasattr(obbject, "results") and obbject.results is not None:
-                data_schema = (
-                    obbject.results[0].model_json_schema()
-                    if isinstance(obbject.results, list)
-                    and len(obbject.results) > 0
-                    and hasattr(obbject.results[0], "model_json_schema")
-                    else ""
-                )
-                if data_schema and "title" in data_schema:
-                    data_repr = f"{data_schema['title']}"
-                if data_schema and "description" in data_schema:
-                    data_repr += f" - {data_schema['description'].split('.')[0]}"
-
-            return data_repr
-
-        obbjects = {}
+        Each row is the OBBject dumped minus ``results`` — everything
+        else *is* metadata: ``id``, ``provider``, ``warnings``, ``chart``,
+        and ``extra`` (which carries ``metadata``, ``results_metadata``,
+        ``command``, ``register_key``, and whatever else got stamped
+        on). No synthesized columns, no JSON-stringified mirrors of
+        private attrs — duplicating ``extra.metadata.route`` as a
+        synthetic ``route`` field would just confuse callers.
+        """
+        obbjects: dict[int, dict] = {}
         for i, obbject in enumerate(list(reversed(self._obbjects))):
-            obbjects[i] = {
-                "route": obbject._route,
-                "provider": obbject.provider,
-                "standard params": _handle_standard_params(obbject),
-                "data": _handle_data_repr(obbject),
-                "command": obbject.extra.get("command", ""),
-                "key": obbject.extra.get("register_key", ""),
-            }
+            model_dump = getattr(obbject, "model_dump", None)
+            dump: dict[str, Any] | None = None
+            if callable(model_dump):
+                try:
+                    candidate = model_dump(exclude={"results"})
+                except Exception:  # noqa: BLE001 — recall display is best-effort
+                    candidate = None
+                if isinstance(candidate, dict):
+                    dump = candidate
+            if dump is None:
+                dump = {
+                    "id": getattr(obbject, "id", None),
+                    "provider": getattr(obbject, "provider", None),
+                    "warnings": getattr(obbject, "warnings", None),
+                    "chart": getattr(obbject, "chart", None),
+                    "extra": getattr(obbject, "extra", {}) or {},
+                }
+            obbjects[i] = dump
 
         return obbjects
 

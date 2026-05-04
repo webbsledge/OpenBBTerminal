@@ -506,7 +506,23 @@ def test_query_dict_construction_excludes_path_and_body_fields():
 
 def test_query_dict_construction_no_excludes_when_no_path_or_body():
     out = fg._query_dict_construction({}, creds={}, path_params=[], provider_name="fmp")
-    assert out == "        _query_dict = query.model_dump(exclude_none=True)"
+    # ``by_alias=True`` is always emitted so wire names with non-identifier
+    # characters (Socrata's ``$select`` / ``$where``) survive serialization;
+    # fields without aliases are unaffected since their alias equals the
+    # field name.
+    assert (
+        out
+        == "        _query_dict = query.model_dump(by_alias=True, exclude_none=True)"
+    )
+
+
+def test_query_dict_construction_emits_by_alias_for_aliased_wire_names():
+    """Excluded-fields branch carries ``by_alias=True`` too."""
+    cmd = {"request_body_schema": {"properties": {"data": {"type": "array"}}}}
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=["symbol"], provider_name="fmp"
+    )
+    assert "by_alias=True" in out
 
 
 def test_query_dict_construction_pins_provider_when_command_declares_one():
@@ -533,6 +549,281 @@ def test_query_dict_construction_skips_header_credentials():
     )
     # Header-credential should not be merged into the query string
     assert "Authorization" not in out
+
+
+def test_query_dict_construction_emits_wire_name_renames():
+    """Socrata pagination uses clean ``limit`` / ``offset`` user-facing
+    names with ``wire_name='$limit'`` / ``'$offset'``; fetcher_gen has to
+    emit a runtime rewrite so the URL carries the SoQL-prefixed form."""
+    cmd = {
+        "parameters": [
+            {"name": "limit", "in": "query", "type": "integer", "wire_name": "$limit"},
+            {
+                "name": "offset",
+                "in": "query",
+                "type": "integer",
+                "wire_name": "$offset",
+            },
+        ]
+    }
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=[], provider_name="socrata"
+    )
+    # Rename loop is emitted and lists both rewrites.
+    assert "for _src, _dst in (" in out
+    assert "('limit', '$limit')" in out
+    assert "('offset', '$offset')" in out
+    assert "_query_dict[_dst] = _query_dict.pop(_src)" in out
+
+
+def test_query_dict_construction_skips_wire_name_rename_when_already_matching():
+    """If ``wire_name`` equals ``name`` (no actual rename needed), the
+    rewrite block is omitted entirely."""
+    cmd = {
+        "parameters": [
+            {"name": "limit", "in": "query", "type": "integer", "wire_name": "limit"},
+        ]
+    }
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=[], provider_name="socrata"
+    )
+    assert "for _src, _dst in (" not in out
+
+
+def test_query_dict_construction_ignores_non_dict_parameter_entries():
+    """Defensive: a stray non-dict in ``cmd_spec.parameters`` doesn't
+    crash the rename loop — it gets skipped silently."""
+    cmd = {
+        "parameters": [
+            "not-a-dict",
+            {"name": "limit", "type": "integer", "wire_name": "$limit"},
+        ]
+    }
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=[], provider_name="socrata"
+    )
+    assert "('limit', '$limit')" in out
+
+
+# --- _socrata_where_clause_lines ---
+
+
+def test_socrata_where_clause_emits_runtime_lines_for_date_range_params():
+    """Socrata range params (``start_date`` / ``end_date``) compose into a
+    single SoQL ``$where`` clause at runtime — the fetcher emits the
+    builder code that runs against the validated query model."""
+    range_params = [
+        {
+            "name": "start_date",
+            "_socrata_op": "date_min",
+            "_socrata_column": "month_year",
+        },
+        {
+            "name": "end_date",
+            "_socrata_op": "date_max",
+            "_socrata_column": "month_year",
+        },
+    ]
+    out_lines = fg._socrata_where_clause_lines(range_params)
+    out = "\n".join(out_lines)
+    # Each range param contributes a typed lookup against the query model.
+    assert "_range_start_date = getattr(query, 'start_date', None)" in out
+    assert "_range_end_date = getattr(query, 'end_date', None)" in out
+    # The SoQL operators reflect the date_min / date_max marker.
+    assert "month_year >=" in out
+    assert "month_year <=" in out
+    # Final ``$where`` is composed (with AND-prefixing if a clause already
+    # came in via the user) and lands in ``_query_dict['$where']``.
+    assert "_query_dict['$where'] = _socrata_where" in out
+    assert "_existing_where" in out
+
+
+def test_column_metadata_from_data_schema_extracts_units_and_format_hints():
+    """Per-column ``description`` (carries units like 'dollars per ton')
+    and ``socrata_format`` (currency / decimal-separator rendering hints)
+    flow into ``AnnotatedResult.metadata['columns']``."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "price": {
+                "type": "number",
+                "description": "Price, measured in dollars per ton.",
+                "socrata_format": {"precisionStyle": "currency"},
+            },
+            "region": {"type": "string", "description": "Region name."},
+            "no_meta": {"type": "string"},
+        },
+    }
+    out = fg._column_metadata_from_data_schema(schema)
+    assert out == {
+        "price": {
+            "description": "Price, measured in dollars per ton.",
+            "socrata_format": {"precisionStyle": "currency"},
+        },
+        "region": {"description": "Region name."},
+    }
+    # Columns with no metadata are omitted entirely — keeps the
+    # constant embedded in the fetcher source compact.
+    assert "no_meta" not in out
+
+
+def test_column_metadata_from_data_schema_skips_non_dict_property_entries():
+    """Defensive: a non-dict property entry (malformed schema) gets skipped
+    rather than blowing up the codegen pass. ``format`` alone (no
+    description / socrata_format) still survives so format hints don't
+    silently disappear.
+    """
+    schema = {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "string", "format": "date"},
+            "garbage": "not-a-dict",  # skipped by the defensive guard
+        },
+    }
+    out = fg._column_metadata_from_data_schema(schema)
+    assert out == {"ok": {"format": "date"}}
+
+
+def test_column_metadata_from_data_schema_handles_none_input():
+    """``None`` input → empty mapping. The codegen path passes
+    ``data_schema or {}`` for safety, so this should be a no-op."""
+    assert fg._column_metadata_from_data_schema(None) == {}
+    assert fg._column_metadata_from_data_schema({}) == {}
+
+
+def test_generate_fetcher_module_embeds_column_metadata_in_annotated_result():
+    """When a spec carries column descriptions / format hints, the
+    generated ``transform_data`` always returns ``AnnotatedResult``
+    with a ``columns`` key under ``metadata`` (so callers can read
+    ``obbject.extra['results_metadata']['columns']``)."""
+    cmd_spec = {
+        "url_path": "/resource/abc.json",
+        "method": "get",
+        "parameters": [],
+        "request_body_schema": None,
+        "response_schema": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "price": {
+                                "type": "number",
+                                "description": "Price in dollars per ton.",
+                                "socrata_format": {"precisionStyle": "currency"},
+                            },
+                        },
+                    },
+                }
+            },
+        },
+    }
+    spec = fg.FetcherCommandSpec(
+        name="prices.query",
+        cmd_spec=cmd_spec,
+        base_url="https://x",
+        api_prefix="",
+        provider_name="prov",
+    )
+    out = fg.generate_fetcher_module(spec)
+    src = out.source
+    # ``AnnotatedResult`` always returned (since ``_metadata`` is now
+    # always populated with the columns dict) — ensure the column
+    # metadata literal lands verbatim.
+    assert "'price'" in src
+    assert "'Price in dollars per ton.'" in src
+    assert "'precisionStyle': 'currency'" in src
+    assert "_metadata.setdefault('columns', _column_metadata)" in src
+
+
+def test_generate_fetcher_module_skips_column_metadata_when_no_descriptions():
+    """A spec with no per-column descriptions / format hints falls
+    back to the original ``return _typed`` path — no empty constant
+    embedded, no AnnotatedResult on every response."""
+    cmd_spec = {
+        "url_path": "/x.json",
+        "method": "get",
+        "parameters": [],
+        "request_body_schema": None,
+        "response_schema": {
+            "type": "object",
+            "properties": {
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"x": {"type": "string"}},
+                    },
+                }
+            },
+        },
+    }
+    spec = fg.FetcherCommandSpec(
+        name="bare.query",
+        cmd_spec=cmd_spec,
+        base_url="https://x",
+        api_prefix="",
+        provider_name="prov",
+    )
+    out = fg.generate_fetcher_module(spec)
+    assert "_column_metadata" not in out.source
+
+
+def test_socrata_range_params_default_order_to_date_column_descending():
+    """When the spec carries date-range params, the generated fetcher
+    defaults ``$order`` to ``<date_col> DESC`` — so ``limit=N`` returns
+    the most recent N records instead of arbitrary storage-order rows."""
+    cmd = {
+        "parameters": [
+            {
+                "name": "start_date",
+                "_socrata_op": "date_min",
+                "_socrata_column": "month_year",
+            },
+            {
+                "name": "end_date",
+                "_socrata_op": "date_max",
+                "_socrata_column": "month_year",
+            },
+        ]
+    }
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=[], provider_name="socrata"
+    )
+    # ``setdefault`` so a user-supplied $order isn't overwritten.
+    assert "_query_dict.setdefault('$order', 'month_year' + ' DESC')" in out
+
+
+def test_query_dict_construction_threads_socrata_range_params_into_where_clause():
+    """End-to-end: ``_query_dict_construction`` invokes
+    ``_socrata_where_clause_lines`` when range params are present AND
+    excludes those params from ``model_dump`` (they don't ride the wire
+    as flat ``?<name>=<value>`` pairs)."""
+    cmd = {
+        "parameters": [
+            {
+                "name": "start_date",
+                "_socrata_op": "date_min",
+                "_socrata_column": "ts",
+            },
+            {
+                "name": "end_date",
+                "_socrata_op": "date_max",
+                "_socrata_column": "ts",
+            },
+        ]
+    }
+    out = fg._query_dict_construction(
+        cmd, creds={}, path_params=[], provider_name="socrata"
+    )
+    # Range params land in the model_dump exclusion set (so they don't
+    # double-up as URL params) AND show up in the $where builder.
+    assert "exclude={'end_date', 'start_date'}" in out
+    assert "_socrata_where_parts" in out
+    assert "ts >=" in out
+    assert "ts <=" in out
 
 
 # --- _header_dict_construction ---

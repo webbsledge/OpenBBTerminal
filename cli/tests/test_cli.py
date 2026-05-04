@@ -127,6 +127,94 @@ def test_main_generate_spec_errors_on_extra_positionals(capsys):
     assert "/tmp/b.spec" in err
 
 
+def test_main_socrata_story_materializes_spec_for_interactive_mode(tmp_path):
+    """``-i --socrata-story <url>`` materializes the spec to a temp file
+    and feeds it to the REPL as an unnamed ``--spec`` entry — same UX as
+    pre-generating with ``--generate-spec`` and then loading."""
+    materialized = tmp_path / "stub.spec"
+    materialized.write_text("{}")
+    with (
+        patch(
+            "openbb_cli.cli._materialize_socrata_spec",
+            return_value=str(materialized),
+        ) as mat,
+        patch("openbb_cli.cli._launch_repl", return_value=0) as repl,
+    ):
+        rc = cli.main(["-i", "--socrata-story", "https://x/stories/s/abcd-1234"])
+    assert rc == 0
+    mat.assert_called_once_with("https://x/stories/s/abcd-1234")
+    # spec_entries (3rd positional arg to _launch_repl) carries the
+    # materialized spec as a single unnamed entry.
+    args, _ = repl.call_args
+    assert args[2] == [(None, str(materialized))]
+
+
+def test_main_socrata_story_appends_named_entry_when_other_specs_present(tmp_path):
+    """Mixed with other ``--spec`` entries, the socrata one becomes a
+    named entry (``socrata``) so the resolver doesn't reject the mix of
+    unnamed + named."""
+    materialized = tmp_path / "stub.spec"
+    materialized.write_text("{}")
+    with (
+        patch(
+            "openbb_cli.cli._materialize_socrata_spec",
+            return_value=str(materialized),
+        ),
+        patch("openbb_cli.cli._launch_repl", return_value=0) as repl,
+    ):
+        cli.main(
+            [
+                "-i",
+                "--spec",
+                "other=/tmp/other.spec",
+                "--socrata-story",
+                "https://x/stories/s/abcd-1234",
+            ]
+        )
+    args, _ = repl.call_args
+    assert args[2] == [
+        ("other", "/tmp/other.spec"),
+        ("socrata", str(materialized)),
+    ]
+
+
+def test_main_socrata_story_passes_through_to_generate_spec_when_set(capsys):
+    """``--generate-spec --socrata-story`` keeps the file-output behavior;
+    the in-memory materialization branch is skipped."""
+    with (
+        patch("openbb_cli.cli._generate_spec", return_value=0) as gen,
+        patch("openbb_cli.cli._materialize_socrata_spec") as mat,
+    ):
+        rc = cli.main(
+            [
+                "--generate-spec",
+                "--socrata-story",
+                "https://x/stories/s/abcd-1234",
+                "--output",
+                "/tmp/out.spec",
+            ]
+        )
+    assert rc == 0
+    # File-mode generation path used; in-memory materializer not invoked.
+    mat.assert_not_called()
+    _args, kwargs = gen.call_args
+    assert kwargs["socrata_story"] == "https://x/stories/s/abcd-1234"
+
+
+def test_main_socrata_story_surfaces_materialization_errors(capsys):
+    """A network / parse failure from ``_materialize_socrata_spec`` exits
+    with a clean ``--socrata-story`` error message."""
+    with patch(
+        "openbb_cli.cli._materialize_socrata_spec",
+        side_effect=OSError("DNS failed"),
+    ):
+        rc = cli.main(["-i", "--socrata-story", "https://nope/stories/s/x-y"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--socrata-story" in err
+    assert "DNS failed" in err
+
+
 def test_main_passes_dev_debug_to_repl():
     with patch("openbb_cli.cli._launch_repl", return_value=0) as repl:
         cli.main(["-i", "--dev", "--debug"])

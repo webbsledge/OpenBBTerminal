@@ -128,7 +128,7 @@ def _render_provenance_block(provenance: dict[str, str]) -> str:
     """Render ``[tool.openbb-codegen]`` (empty string when no provenance)."""
     keys = (
         "source_url",
-        "openapi_version",
+        "api_version",
         "generator",
         "generated_at",
         "spec_version",

@@ -397,6 +397,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--socrata-story",
+        metavar="URL_OR_PATH",
+        default=None,
+        help=(
+            "Generate a .spec from a Socrata story JSON. Walks the story for "
+            "every ``datasetUid``, fetches each dataset's column metadata, and "
+            "emits one router namespace per dataset with a ``query`` command "
+            "wrapping ``/resource/{uid}.json`` and the standard SoQL parameters "
+            "(``$select`` / ``$where`` / ``$limit`` / ``$offset`` / ``$order`` "
+            "/ ``$group`` / ``$having`` / ``$q``). Mutually exclusive with "
+            "``--server`` for ``--generate-spec``."
+        ),
+    )
+    parser.add_argument(
         "-H",
         "--header",
         metavar="KEY=VALUE",

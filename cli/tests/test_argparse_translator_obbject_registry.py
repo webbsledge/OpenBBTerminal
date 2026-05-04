@@ -40,13 +40,25 @@ def mock_obbject():
 
 
 def test_listing_all_obbjects(registry, mock_obbject):
-    """Test listing all obbjects with additional properties."""
+    """Registry surfaces the entire OBBject sans ``results`` — every metadata
+    field rides along, including ``provider`` at top level and
+    ``command`` nested under ``extra``. No synthesized duplicates of
+    private attrs.
+    """
     registry.register(mock_obbject)
 
     all_obbjects = registry.all
     assert len(all_obbjects) == 1
-    assert all_obbjects[0]["command"] == "test_command"
     assert all_obbjects[0]["provider"] == "test_provider"
+    # ``command`` lives where the OBBject keeps it: under ``extra``.
+    assert all_obbjects[0]["extra"]["command"] == "test_command"
+    # Private attrs (_route, _standard_params) are NOT duplicated as
+    # synthetic columns — callers read them off the OBBject directly,
+    # or off ``extra.metadata`` which carries the canonical values.
+    assert "_route" not in all_obbjects[0]
+    assert "_standard_params" not in all_obbjects[0]
+    assert "route" not in all_obbjects[0]
+    assert "standard params" not in all_obbjects[0]
 
 
 def test_registry_initialization(registry):
@@ -167,8 +179,8 @@ def test_all_index_as_stack_order(registry):
     registry.register(obj2)
 
     all_items = registry.all
-    assert all_items[0]["command"] == "cmd2"
-    assert all_items[1]["command"] == "cmd1"
+    assert all_items[0]["extra"]["command"] == "cmd2"
+    assert all_items[1]["extra"]["command"] == "cmd1"
 
 
 def test_get_out_of_bounds(registry, mock_obbject):
@@ -177,49 +189,119 @@ def test_get_out_of_bounds(registry, mock_obbject):
     assert registry.get(99) is None
 
 
-def test_all_serializes_standard_params_dict(registry):
-    """``_handle_standard_params`` builds a JSON dict of non-empty, non-data params."""
+def test_all_does_not_duplicate_private_attrs_into_synthetic_columns(registry):
+    """Private attrs (``_route``, ``_standard_params``) are NOT promoted to
+    synthetic table columns — that would duplicate ``extra.metadata.route``
+    and ``extra.metadata.arguments.standard_params`` for any OBBject that
+    came through ``command_runner`` (or our spec-mode dispatcher), which is
+    exactly the duplication users complained about.
+    """
     obj = Mock(spec=OBBject)
     obj.id = "1"
     obj.provider = "p"
-    obj.extra = {"command": "cmd"}
-    obj._route = "/r"
-    obj._standard_params = {
-        "symbol": "AAPL",
-        "data": "ignored — explicit skip",
-        "empty": "",
-        "limit": 10,
+    obj.extra = {
+        "command": "cmd",
+        "metadata": {
+            "route": "/r",
+            "arguments": {
+                "provider_choices": {},
+                "standard_params": {"symbol": "AAPL", "limit": 10},
+                "extra_params": {},
+            },
+        },
     }
+    obj._route = "/r"
+    obj._standard_params = {"symbol": "AAPL", "limit": 10}
     obj.results = []
     registry.register(obj)
-    rendered = registry.all[0]["standard params"]
-    import json as _json
+    row = registry.all[0]
+    # The metadata is in ``extra.metadata`` — not duplicated.
+    assert row["extra"]["metadata"]["arguments"]["standard_params"] == {
+        "symbol": "AAPL",
+        "limit": 10,
+    }
+    assert row["extra"]["metadata"]["route"] == "/r"
+    # No mirror columns.
+    assert "_route" not in row
+    assert "_standard_params" not in row
+    assert "route" not in row
+    assert "standard params" not in row
 
-    payload = _json.loads(rendered)
-    assert payload["symbol"] == "AAPL"
-    assert payload["limit"] == "10"
-    assert "data" not in payload
-    assert "empty" not in payload
 
-
-def test_all_includes_data_schema_title_and_description(registry):
-    """``_handle_data_repr`` extracts both ``title`` and ``description`` from the schema."""
-
-    class ResultModel:
-        def model_json_schema(self):
-            return {
-                "title": "Quote",
-                "description": "A quote object. Detail line two.",
-            }
-
+def test_all_falls_back_when_model_dump_raises(registry):
+    """When ``OBBject.model_dump`` itself raises (corrupted state, custom
+    pydantic config, etc.) the registry must not blow up — fall back to
+    a manual ``getattr``-based row so recall still works.
+    """
     obj = Mock(spec=OBBject)
-    obj.id = "1"
+    obj.id = "x"
     obj.provider = "p"
-    obj.extra = {"command": "cmd"}
-    obj._route = "/r"
+    obj.warnings = None
+    obj.chart = None
+    obj.extra = {"command": "c"}
+    obj._route = "/x"
     obj._standard_params = {}
-    obj.results = [ResultModel()]
+    obj.results = [{"a": 1}]
+    # Force model_dump to blow up — exercises the manual-fallback branch.
+    obj.model_dump = Mock(side_effect=RuntimeError("boom"))
     registry.register(obj)
-    data_repr = registry.all[0]["data"]
-    assert data_repr.startswith("Quote")
-    assert "A quote object" in data_repr
+    row = registry.all[0]
+    # Manual fallback still produces the canonical row keys.
+    assert row["id"] == "x"
+    assert row["provider"] == "p"
+    assert row["extra"]["command"] == "c"
+
+
+def test_all_dumps_full_obbject_minus_results(registry):
+    """The recall row is ``OBBject.model_dump(exclude={'results'})`` plus the
+    private attrs — every metadata field on the OBBject rides along untouched.
+    Smoke-checks that ``extra.metadata`` and ``extra.results_metadata`` survive.
+    """
+    obj = Mock(spec=OBBject)
+    obj.id = "abc"
+    obj.provider = None
+    obj.warnings = None
+    obj.chart = None
+    obj.extra = {
+        "command": "/foo --bar 1",
+        "results_metadata": {"columns": {"price": {"description": "$/ton"}}},
+        "metadata": {
+            "route": "/foo",
+            "duration": 12345,
+            "arguments": {
+                "provider_choices": {},
+                "standard_params": {"bar": 1},
+                "extra_params": {},
+            },
+            "timestamp": "2026-05-04T00:00:00+00:00",
+        },
+    }
+    obj._route = "/foo"
+    obj._standard_params = {"bar": 1}
+    obj.results = [{"price": 12.5}]
+    obj.model_dump = Mock(
+        return_value={
+            "id": "abc",
+            "provider": None,
+            "warnings": None,
+            "chart": None,
+            "extra": obj.extra,
+        }
+    )
+    registry.register(obj)
+    row = registry.all[0]
+    # Every OBBject field except ``results`` is present.
+    assert row["id"] == "abc"
+    assert row["provider"] is None
+    assert row["chart"] is None
+    # ``extra`` carries the rich metadata, intact.
+    assert (
+        row["extra"]["results_metadata"]["columns"]["price"]["description"] == "$/ton"
+    )
+    assert row["extra"]["metadata"]["route"] == "/foo"
+    assert row["extra"]["metadata"]["duration"] == 12345
+    assert row["extra"]["command"] == "/foo --bar 1"
+    # Private attrs are NOT promoted to synthetic top-level keys — that
+    # would duplicate ``extra.metadata.route`` etc.
+    assert "_route" not in row
+    assert "_standard_params" not in row

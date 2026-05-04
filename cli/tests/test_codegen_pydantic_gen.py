@@ -17,14 +17,30 @@ def test_safe_field_name_replaces_invalid_chars():
     assert pg.safe_field_name("X-API-Key") == ("X_API_Key", True)
 
 
-def test_safe_field_name_prefixes_leading_digit():
-    assert pg.safe_field_name("404") == ("_404", True)
+def test_safe_field_name_prefixes_leading_digit_with_letter():
+    """``f_`` (not ``_``) so Pydantic v2 accepts it — leading-underscore
+    field names are rejected with "must not use names with leading
+    underscores"."""
+    assert pg.safe_field_name("404") == ("f_404", True)
 
 
 def test_safe_field_name_handles_empty_input():
     safe, alias = pg.safe_field_name("")
-    assert safe == "_field"
+    assert safe == "field"
     assert alias is True
+
+
+def test_safe_field_name_strips_leading_dollar_for_socrata_soql_params():
+    """``$select`` → ``select`` (with alias ``$select``) — the leading
+    underscore that ``re.sub`` would otherwise produce trips Pydantic's
+    "Fields must not use names with leading underscores" check."""
+    assert pg.safe_field_name("$select") == ("select", True)
+
+
+def test_safe_field_name_strips_leading_underscore_from_already_underscore_name():
+    """An already-underscore-prefixed name (rare in practice) loses the
+    underscore so the result is Pydantic-compatible."""
+    assert pg.safe_field_name("_internal") == ("internal", True)
 
 
 def test_safe_field_name_appends_underscore_for_keyword():
@@ -148,14 +164,10 @@ def test_schema_to_type_ref_cycle_collapses_to_dict():
 # --- enum / const ---
 
 
-def test_schema_to_type_enum_returns_primitive_not_literal():
-    """``enum`` resolves to the underlying primitive, not ``Literal[...]``.
-
-    openbb-core's DocstringGenerator strips ``Literal`` from union args via
-    ``get_origin(arg) is Literal: continue``, leaving ``Literal[...] | None``
-    rendered as the bogus ``Optional[None]``. Choices land in the description
-    instead — see ``_resolve_field_description``.
-    """
+def test_schema_to_type_enum_returns_literal_with_typing_import():
+    """``enum`` resolves to ``Literal[...]`` — ``generate_class`` later
+    appends ``| None`` for optional fields (default=None) so the field
+    accepts the choices or the omit/None case (no filter applied)."""
     imports: set[str] = set()
     out = pg.schema_to_type(
         {"type": "string", "enum": ["buy", "sell"]},
@@ -164,12 +176,13 @@ def test_schema_to_type_enum_returns_primitive_not_literal():
         nested_classes=[],
         imports=imports,
     )
-    assert out == "str"
-    assert "from typing import Literal" not in imports
+    assert out == "Literal['buy', 'sell']"
+    assert "from typing import Literal" in imports
 
 
-def test_schema_to_type_enum_infers_primitive_when_type_omitted():
-    """Spec authors sometimes omit ``type`` next to ``enum``; infer from values."""
+def test_schema_to_type_enum_emits_literal_when_type_omitted():
+    """Spec authors sometimes omit ``type`` next to ``enum``; the values
+    drive the Literal regardless."""
     imports: set[str] = set()
     out = pg.schema_to_type(
         {"enum": [1, 2, 3]},
@@ -178,10 +191,10 @@ def test_schema_to_type_enum_infers_primitive_when_type_omitted():
         nested_classes=[],
         imports=imports,
     )
-    assert out == "int"
+    assert out == "Literal[1, 2, 3]"
 
 
-def test_schema_to_type_const_returns_primitive_not_literal():
+def test_schema_to_type_const_returns_single_member_literal():
     imports: set[str] = set()
     out = pg.schema_to_type(
         {"type": "string", "const": "fred"},
@@ -190,11 +203,11 @@ def test_schema_to_type_const_returns_primitive_not_literal():
         nested_classes=[],
         imports=imports,
     )
-    assert out == "str"
+    assert out == "Literal['fred']"
 
 
-def test_schema_to_type_const_infers_primitive_from_value():
-    """``const`` without an explicit ``type`` falls back to value inspection."""
+def test_schema_to_type_const_emits_literal_from_value_alone():
+    """``const`` without an explicit ``type`` still emits ``Literal[<value>]``."""
     imports: set[str] = set()
     out = pg.schema_to_type(
         {"const": 42},
@@ -203,7 +216,7 @@ def test_schema_to_type_const_infers_primitive_from_value():
         nested_classes=[],
         imports=imports,
     )
-    assert out == "int"
+    assert out == "Literal[42]"
 
 
 # --- arrays ---
@@ -818,11 +831,13 @@ def test_field_keeps_description_over_example_when_both_present():
     assert "Example: EX" not in cls.source
 
 
-def test_optional_enum_field_emits_primitive_type_with_choices_in_description():
-    """Regression: ``{type: string, enum: [P, S], example: P}`` previously
-    rendered as ``Literal["P", "S"] | None``, which openbb-core's docstring
-    generator collapsed to the bogus ``Optional[None]``. We now emit
-    ``str | None`` and surface the choices in the description text."""
+def test_optional_enum_field_emits_literal_with_optional_none_suffix():
+    """``{type: string, enum: [P, S]}`` becomes ``Literal['P', 'S'] | None``
+    so Pydantic enforces the choices at construction time. ``None``
+    (the default) means "no filter applied"; passing ``'P'`` / ``'S'``
+    constrains; passing anything else raises. The openbb-core renderer
+    fix in the same change set keeps ``Literal[...] | None`` from
+    collapsing to the bogus ``Optional[None]`` in docstrings."""
     schema = {
         "type": "object",
         "properties": {
@@ -835,9 +850,8 @@ def test_optional_enum_field_emits_primitive_type_with_choices_in_description():
     }
     cls = pg.generate_class(schema, class_name="Auction")
     src = cls.source
-    assert "operationDirection: str | None" in src
-    assert "Literal" not in src
-    # Choices land in the description so the information isn't lost
+    assert "operationDirection: Literal['P', 'S'] | None" in src
+    # Choices still surface in the description for user-facing context.
     assert "Choices: P, S" in src
     assert "Example: P" in src
 
@@ -866,27 +880,27 @@ def test_render_module_appends_period_to_docstring_summary():
 # --- _enum_primitive ---
 
 
-def test_enum_primitive_infers_bool_when_all_values_boolean():
-    """``enum: [True, False]`` with no declared type → ``"bool"``."""
+def test_enum_primitive_renders_string_values_as_literal():
     imports: set[str] = set()
-    assert pg._enum_primitive([True, False], None, imports) == "bool"
+    assert pg._enum_primitive(["A", "B"], None, imports) == "Literal['A', 'B']"
+    assert "from typing import Literal" in imports
 
 
-def test_enum_primitive_infers_float_when_values_mix_int_and_float():
+def test_enum_primitive_renders_numeric_values_as_literal():
     imports: set[str] = set()
-    assert pg._enum_primitive([1, 2.5, 3], None, imports) == "float"
+    assert pg._enum_primitive([1, 2, 3], None, imports) == "Literal[1, 2, 3]"
 
 
-def test_enum_primitive_infers_str_when_all_values_string_no_declared_type():
-    """``enum: ["A", "B"]`` with no declared type → ``"str"``."""
+def test_enum_primitive_renders_boolean_values_as_literal():
     imports: set[str] = set()
-    assert pg._enum_primitive(["A", "B"], None, imports) == "str"
+    assert pg._enum_primitive([True, False], None, imports) == "Literal[True, False]"
 
 
-def test_enum_primitive_falls_back_to_any_for_mixed_unhandled_types():
-    """Heterogeneous enum (e.g. dicts) with no declared type → ``"Any"``."""
+def test_enum_primitive_falls_back_to_any_for_empty_choice_set():
+    """``enum: []`` carries no information — collapse to ``Any`` rather
+    than emit a ``Literal[]`` that Pydantic can't construct."""
     imports: set[str] = set()
-    out = pg._enum_primitive([{"x": 1}, "y"], None, imports)
+    out = pg._enum_primitive([], None, imports)
     assert out == "Any"
     assert "from typing import Any" in imports
 

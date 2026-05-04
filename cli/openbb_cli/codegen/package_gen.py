@@ -602,7 +602,7 @@ def generate_packages(
         version=version,
         spec_provenance={
             "source_url": str(spec_doc.get("source_url") or ""),
-            "openapi_version": str(spec_doc.get("openapi_version") or ""),
+            "api_version": str(spec_doc.get("api_version") or ""),
             "generator": str(spec_doc.get("generator") or ""),
             "generated_at": str(spec_doc.get("generated_at") or ""),
             "spec_version": str(spec_doc.get("version") or ""),

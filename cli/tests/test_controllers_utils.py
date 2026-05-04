@@ -598,6 +598,34 @@ def test_handle_obbject_display_interactive_uses_charting_table(mock_session):
     obbject.charting.table.assert_called_once()
 
 
+def test_handle_obbject_display_falls_back_to_dataframe_without_charting(mock_session):
+    """When ``openbb-charting`` isn't installed, ``obbject.charting`` raises
+    ``AttributeError`` from pydantic. The interactive path catches that and
+    falls back to the plain DataFrame display so spec-mode REPL ``results
+    -i N`` still surfaces rows instead of crashing on the missing accessor.
+
+    Uses a real ``OBBject`` (charting accessor not registered in this
+    test process) rather than a MagicMock — MagicMock auto-creates the
+    ``charting`` attribute and would defeat the test.
+    """
+    from openbb_core.app.model.obbject import OBBject
+
+    from openbb_cli.controllers.utils import handle_obbject_display
+
+    # Real OBBject — its ``accessors`` ClassVar doesn't include
+    # ``charting`` here (no openbb-charting registered), so attribute
+    # access raises AttributeError exactly as in production.
+    assert "charting" not in OBBject.accessors
+    obbject = OBBject(results=[{"x": 1}], extra={"command": "/foo"})
+    mock_session.settings.USE_INTERACTIVE_DF = True
+    with patch(
+        "openbb_cli.controllers.utils.extract_dataframe", return_value="DF"
+    ) as ed:
+        handle_obbject_display(obbject)
+    ed.assert_called_once_with(obbject)
+    mock_session.output_adapter.display.assert_called_once()
+
+
 @pytest.fixture
 def sample_df_helper():
     """Reusable small DataFrame for utils tests."""

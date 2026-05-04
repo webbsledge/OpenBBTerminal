@@ -29,6 +29,28 @@ from typing import Any
 from openbb_cli.utils.utils import change_logging_sub_app, reset_logging_sub_app
 
 
+def _materialize_socrata_spec(story_source: str) -> str:
+    """Build a Socrata spec from a story and write it to a temp file.
+
+    Returns the path so the caller can add it to ``spec_entries``. The
+    file lives for the process's lifetime — the spec dispatcher loads
+    its contents once at startup and never re-reads, so an OS-level
+    cleanup of the temp file later doesn't break anything in flight.
+    Letting the OS reap the temp dir on shutdown avoids the careful
+    shutdown-handler dance an explicit unlink would require.
+    """
+    import tempfile
+
+    from openbb_cli.dispatchers.socrata import build_socrata_spec
+    from openbb_cli.dispatchers.spec import write_spec
+
+    spec_doc = build_socrata_spec(story_source)
+    fd, path = tempfile.mkstemp(prefix="openbb-socrata-", suffix=".spec")
+    os.close(fd)
+    write_spec(path, spec_doc)
+    return path
+
+
 def _parse_spec_arg(token: str) -> tuple[str | None, str]:
     """``[NAME=]PATH`` → ``(name, path)``. Returns ``(None, path)`` if no name.
 
@@ -508,16 +530,39 @@ def _generate_spec(
     openapi_path: str | None,
     headers: dict[str, str] | None = None,
     query_params: dict[str, str] | None = None,
+    socrata_story: str | None = None,
 ) -> int:
-    """Fetch the server's OpenAPI document and write a precomputed .spec file."""
+    """Build a precomputed .spec file from one of the supported sources.
+
+    With ``--socrata-story`` the spec is derived from a Socrata story JSON
+    (no OpenAPI involved). Otherwise the server's OpenAPI document is
+    fetched and translated.
+    """
+    from openbb_cli.dispatchers.spec import write_spec
+
+    if socrata_story:
+        from openbb_cli.dispatchers.socrata import build_socrata_spec
+
+        spec_doc = build_socrata_spec(socrata_story)
+        write_spec(output_path, spec_doc)
+        skipped = (spec_doc.get("_socrata") or {}).get("skipped") or []
+        sys.stdout.write(
+            f"wrote {len(spec_doc['commands'])} dataset commands to {output_path}"
+        )
+        if skipped:
+            sys.stdout.write(f" (skipped {len(skipped)} non-dataset views)")
+        sys.stdout.write("\n")
+        return 0
+
     if not server_url:
         sys.stderr.write(
-            "--generate-spec requires --server URL (or OPENBB_SERVER_URL env var).\n"
+            "--generate-spec requires --server URL (or OPENBB_SERVER_URL env var) "
+            "or --socrata-story URL_OR_PATH.\n"
         )
         return 2
 
     from openbb_cli.dispatchers.openapi_schema import fetch_openapi
-    from openbb_cli.dispatchers.spec import build_spec_document, write_spec
+    from openbb_cli.dispatchers.spec import build_spec_document
 
     openapi = fetch_openapi(
         server_url, path=openapi_path, headers=headers, query_params=query_params
@@ -751,6 +796,26 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         sys.stderr.write(f"--spec: {exc}\n")
         return 2
 
+    # ``--socrata-story`` outside ``--generate-spec`` mode means "build
+    # the spec on the fly and use it as the dispatcher source" — same UX
+    # as ``--spec PATH`` but with no intermediate file. The materialized
+    # spec is appended to ``spec_entries`` so it works with every
+    # downstream mode (interactive, batch, one-shot) without special-
+    # casing each one.
+    socrata_story = getattr(args, "socrata_story", None)
+    if socrata_story and not args.generate_spec:
+        try:
+            socrata_path = _materialize_socrata_spec(socrata_story)
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(f"--socrata-story: {exc}\n")
+            return 2
+        if not spec_entries:
+            spec_entries = [(None, socrata_path)]
+        else:
+            # Mixing with other ``--spec`` entries: every entry must be
+            # named, so derive a namespace for the socrata one too.
+            spec_entries.append(("socrata", socrata_path))
+
     namespaces: set[str] = {n for n, _ in spec_entries if n}
     config_specs = (
         config.get("specs") if isinstance(config.get("specs"), dict) else None
@@ -819,7 +884,12 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
                 )
                 return 2
         return _generate_spec(
-            args.server, output_path, args.openapi_path, headers, query_params
+            args.server,
+            output_path,
+            args.openapi_path,
+            headers,
+            query_params,
+            socrata_story=getattr(args, "socrata_story", None),
         )
 
     if getattr(args, "generate_extension", False):

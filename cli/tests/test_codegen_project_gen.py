@@ -82,7 +82,7 @@ def test_generate_pyproject_emits_provenance_block_when_provided():
         description="d",
         spec_provenance={
             "source_url": "https://example.com/openapi.json",
-            "openapi_version": "3.0.0",
+            "api_version": "3.0.0",
             "generator": "openbb-cli==2.0.0",
             "generated_at": "2026-05-02T12:00:00+00:00",
             "spec_version": "5",
@@ -92,7 +92,7 @@ def test_generate_pyproject_emits_provenance_block_when_provided():
     src = out.source
     assert "[tool.openbb-codegen]" in src
     assert "source_url = 'https://example.com/openapi.json'" in src
-    assert "openapi_version = '3.0.0'" in src
+    assert "api_version = '3.0.0'" in src
     assert "generator = 'openbb-cli==2.0.0'" in src
     assert "generated_at = '2026-05-02T12:00:00+00:00'" in src
     assert "spec_version = '5'" in src
@@ -106,6 +106,6 @@ def test_generate_pyproject_omits_provenance_block_when_empty():
         providers=[],
         routers=[],
         description="d",
-        spec_provenance={"source_url": "", "openapi_version": ""},
+        spec_provenance={"source_url": "", "api_version": ""},
     )
     assert "[tool.openbb-codegen]" not in out.source

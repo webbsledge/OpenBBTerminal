@@ -37,8 +37,11 @@ def test_registry_operations():
     assert registry.get("key2") is None
 
     all_obbjects = registry.all
-    assert "command" in all_obbjects[0]
-    assert all_obbjects[0]["command"] == "cmd1"
+    # ``command`` lives under ``extra`` — that's where the OBBject keeps
+    # it and where the registry surfaces it (no synthetic top-level
+    # mirror that would duplicate ``extra.metadata.route`` etc.).
+    assert "command" in all_obbjects[0]["extra"]
+    assert all_obbjects[0]["extra"]["command"] == "cmd1"
 
     registry.remove()
     assert len(registry.obbjects) == 0
