@@ -1588,9 +1588,7 @@ def test_detect_time_axis_column_returns_none_when_no_columns_qualify():
 
 def test_longest_common_token_run_returns_empty_for_no_common_run():
     """Three lists with no shared run of tokens → empty list."""
-    assert (
-        socrata._longest_common_token_run([["a", "b"], ["c", "d"], ["e", "f"]]) == []
-    )
+    assert socrata._longest_common_token_run([["a", "b"], ["c", "d"], ["e", "f"]]) == []
 
 
 def test_longest_common_token_run_returns_empty_for_empty_input():
@@ -1633,9 +1631,7 @@ def test_command_tokens_around_run_returns_full_list_when_run_absent():
     """If the router-token run isn't found in the per-member token list
     (shouldn't happen in practice, but defensive), return the full
     token list unchanged."""
-    out = socrata._command_tokens_around_run(
-        ["alpha", "beta", "gamma"], ["nope"], 1
-    )
+    out = socrata._command_tokens_around_run(["alpha", "beta", "gamma"], ["nope"], 1)
     assert out == ["alpha", "beta", "gamma"]
 
 

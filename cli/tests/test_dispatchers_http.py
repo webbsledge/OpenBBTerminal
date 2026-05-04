@@ -1797,8 +1797,8 @@ def test_request_with_page_size_limit_caps_user_limit_to_one_page():
     constant so the most-recent-per-item path issues exactly one page-sized
     fetch regardless of what the user asked for."""
     from openbb_cli.dispatchers.http import (
-        _request_with_page_size_limit,
         _SOCRATA_PAGE_SIZE,
+        _request_with_page_size_limit,
     )
 
     out = _request_with_page_size_limit(
@@ -1917,7 +1917,9 @@ def test_replace_rows_returns_unchanged_for_unrecognized_shape():
     from openbb_cli.dispatchers.http import _replace_rows
 
     assert _replace_rows("scalar", [{"a": 1}]) == "scalar"
-    assert _replace_rows({"no_results_key": True}, [{"a": 1}]) == {"no_results_key": True}
+    assert _replace_rows({"no_results_key": True}, [{"a": 1}]) == {
+        "no_results_key": True
+    }
 
 
 def test_coerce_response_value_numeric_parse_failure_returns_string():
@@ -2014,14 +2016,10 @@ def test_coerce_row_types_handles_empty_types_non_dict_rows_and_unknown_fields()
     # Empty types — no-op.
     assert _coerce_row_types([{"a": "1"}], {}) == [{"a": "1"}]
     # Non-dict row — kept verbatim.
-    out = _coerce_row_types(
-        ["scalar", {"a": "1"}], {"a": ("integer", "")}
-    )
+    out = _coerce_row_types(["scalar", {"a": "1"}], {"a": ("integer", "")})
     assert out == ["scalar", {"a": 1}]
     # Field not in column_types — passed through unchanged.
-    out = _coerce_row_types(
-        [{"a": "1", "b": "stuff"}], {"a": ("integer", "")}
-    )
+    out = _coerce_row_types([{"a": "1", "b": "stuff"}], {"a": ("integer", "")})
     assert out == [{"a": 1, "b": "stuff"}]
 
 
@@ -2262,9 +2260,7 @@ async def test_apply_param_transforms_skips_date_range_when_socrata_column_missi
         command_methods={"x": "get"},
     )
     try:
-        await d.dispatch(
-            Request(command="x", params={"start_date": "2026-01-01"})
-        )
+        await d.dispatch(Request(command="x", params={"start_date": "2026-01-01"}))
     finally:
         await d.aclose()
     # Where-clause never built; the user's start_date param ends up
@@ -2305,8 +2301,8 @@ async def test_fetch_until_n_distinct_dates_paginates_and_breaks_on_short_page()
     dates are seen OR the upstream returns a short page, whichever comes
     first."""
     from openbb_cli.dispatchers.http import (
-        _fetch_until_n_distinct_dates,
         _SOCRATA_PAGE_SIZE,
+        _fetch_until_n_distinct_dates,
     )
 
     pages = [
@@ -2414,7 +2410,7 @@ async def test_fetch_until_n_distinct_dates_breaks_when_n_plus_one_seen():
 async def test_fetch_all_pages_paginates_until_short_page_or_empty():
     """``_fetch_all_pages`` keeps requesting until the upstream returns a
     short page OR an empty list (the ``limit=0`` semantic)."""
-    from openbb_cli.dispatchers.http import _fetch_all_pages, _SOCRATA_PAGE_SIZE
+    from openbb_cli.dispatchers.http import _SOCRATA_PAGE_SIZE, _fetch_all_pages
 
     pages = [
         [{"x": i} for i in range(_SOCRATA_PAGE_SIZE)],
