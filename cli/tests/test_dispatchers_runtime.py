@@ -247,3 +247,34 @@ def test_parser_server_explicit_overrides_env(monkeypatch):
     p = build_parser()
     ns = p.parse_args(["--server", "http://explicit"])
     assert ns.server == "http://explicit"
+
+
+def test_parser_include_and_exclude_are_repeatable():
+    """Both ``--include`` and ``--exclude`` accept repeated values, each
+    appended to a list — supports ``--include 'a.*' --include 'b.*'`` for
+    multi-pattern selection."""
+    p = build_parser()
+    ns = p.parse_args(
+        [
+            "--generate-extension",
+            "--spec",
+            "x.spec",
+            "--include",
+            "equity.*",
+            "--include",
+            "shipping.*",
+            "--exclude",
+            "equity.fundamentals.*",
+        ]
+    )
+    assert ns.include == ["equity.*", "shipping.*"]
+    assert ns.exclude == ["equity.fundamentals.*"]
+
+
+def test_parser_include_exclude_default_to_none_when_omitted():
+    """Both flags default to ``None`` (not ``[]``) so callers can
+    distinguish "not supplied" from "supplied but empty"."""
+    p = build_parser()
+    ns = p.parse_args(["x.foo"])
+    assert ns.include is None
+    assert ns.exclude is None

@@ -581,6 +581,58 @@ def _generate_spec(
     return 0
 
 
+def _filter_spec_commands(
+    spec_doc: dict[str, Any],
+    *,
+    include: list[str] | None,
+    exclude: list[str] | None,
+) -> dict[str, Any]:
+    """Apply ``--include`` / ``--exclude`` glob filters to a spec's commands.
+
+    Returns the spec with its ``commands`` mapping filtered. The original
+    document is not mutated — a shallow copy is taken so callers can keep
+    the unfiltered version around.
+
+    Resolution rules:
+
+    * ``include`` is a strict whitelist when supplied: a command is kept
+      iff its dotted name (e.g. ``equity.price.historical``) matches at
+      least one include pattern. Any command not matched is dropped, and
+      ``exclude`` is ignored entirely — that's the priority semantic the
+      user requested.
+    * Otherwise, ``exclude`` (when supplied) is a strict blacklist: a
+      command is dropped iff its name matches at least one exclude
+      pattern.
+    * Neither supplied → no-op pass-through.
+
+    Patterns use ``fnmatchcase`` glob syntax: ``*`` matches any run of
+    characters (including dots), ``?`` matches one, ``[seq]`` matches a
+    character class. Case-sensitive on purpose — command names are
+    canonical.
+    """
+    if not include and not exclude:
+        return spec_doc
+    from fnmatch import fnmatchcase
+
+    commands: dict[str, Any] = spec_doc.get("commands") or {}
+    include_patterns = include or []
+    exclude_patterns = exclude or []
+
+    def _matches(name: str, patterns: list[str]) -> bool:
+        return any(fnmatchcase(name, pat) for pat in patterns)
+
+    filtered: dict[str, Any] = {}
+    for name, cmd in commands.items():
+        if include_patterns:
+            if _matches(name, include_patterns):
+                filtered[name] = cmd
+            continue
+        if exclude_patterns and _matches(name, exclude_patterns):
+            continue
+        filtered[name] = cmd
+    return {**spec_doc, "commands": filtered}
+
+
 def _generate_extension(
     spec_entries: list[tuple[str | None, str]],
     output_path: str,
@@ -589,6 +641,8 @@ def _generate_extension(
     project_name: str | None,
     package_name: str | None,
     router_name: str | None,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> int:
     """Generate a full installable OpenBB extension from a ``.spec`` file.
 
@@ -608,11 +662,18 @@ def _generate_extension(
         Python package directory name.
     router_name : str, optional
         Router identifier.
+    include : list of str, optional
+        Glob patterns. Only commands whose dotted name matches at least
+        one pattern are emitted. Takes priority over ``exclude``.
+    exclude : list of str, optional
+        Glob patterns. Commands whose dotted name matches any pattern
+        are dropped. Ignored when ``include`` is also supplied.
 
     Returns
     -------
     int
-        Process exit code: 0 on success, 2 on missing-spec / bad-input.
+        Process exit code: 0 on success, 2 on missing-spec / bad-input
+        / empty filter result.
     """
     if len(spec_entries) != 1:
         sys.stderr.write(
@@ -625,6 +686,20 @@ def _generate_extension(
     from openbb_cli.dispatchers.spec import load_spec
 
     spec_doc = load_spec(spec_path)
+    original_count = len(spec_doc.get("commands") or {})
+    spec_doc = _filter_spec_commands(spec_doc, include=include, exclude=exclude)
+    filtered_count = len(spec_doc.get("commands") or {})
+    if (include or exclude) and filtered_count == 0:
+        sys.stderr.write(
+            "--generate-extension: --include / --exclude filters matched no "
+            f"commands (started with {original_count}). Check your patterns.\n"
+        )
+        return 2
+    if include or exclude:
+        sys.stdout.write(
+            f"filter: {filtered_count}/{original_count} commands kept "
+            f"(include={include or '-'}, exclude={exclude or '-'})\n"
+        )
     output = Path(output_path)
     derived_provider = provider_name or output.name or "generated_extension"
     package_set = generate_packages(
@@ -900,6 +975,8 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
             project_name=args.project_name,
             package_name=args.package_name,
             router_name=args.router_name,
+            include=getattr(args, "include", None),
+            exclude=getattr(args, "exclude", None),
         )
 
     if args.interactive:

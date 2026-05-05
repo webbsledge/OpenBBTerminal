@@ -839,3 +839,176 @@ def test_build_spec_dispatcher_multi_rejects_unnamed_entry(tmp_path):
     )
     with pytest.raises(ValueError, match="missing namespace"):
         cli._build_spec_dispatcher([("a", str(spec)), (None, str(spec))], None, None)
+
+
+# --- _filter_spec_commands: --include / --exclude ---
+
+
+def _stub_spec(*names: str) -> dict:
+    """Build a minimal spec_doc with the named dotted commands."""
+    return {
+        "base_url": "http://x",
+        "api_prefix": "/api/v1",
+        "commands": {n: {"method": "get"} for n in names},
+    }
+
+
+def test_filter_spec_commands_passthrough_when_neither_supplied():
+    """Without ``include`` or ``exclude`` the spec is returned untouched."""
+    spec = _stub_spec("a.b", "c.d")
+    out = cli._filter_spec_commands(spec, include=None, exclude=None)
+    assert out is spec
+
+
+def test_filter_spec_commands_include_keeps_only_matching():
+    """``--include 'equity.*'`` keeps every command under the equity
+    namespace and drops the rest."""
+    spec = _stub_spec(
+        "equity.price.historical",
+        "equity.fundamentals.balance",
+        "fixedincome.rate",
+        "shipping.disruptions",
+    )
+    out = cli._filter_spec_commands(spec, include=["equity.*"], exclude=None)
+    kept = sorted(out["commands"])
+    assert kept == ["equity.fundamentals.balance", "equity.price.historical"]
+
+
+def test_filter_spec_commands_include_supports_multiple_patterns():
+    """Multiple ``--include`` patterns OR together — a command kept if it
+    matches any one of them."""
+    spec = _stub_spec("equity.price", "fixedincome.rate", "shipping.x")
+    out = cli._filter_spec_commands(
+        spec, include=["equity.*", "shipping.*"], exclude=None
+    )
+    assert sorted(out["commands"]) == ["equity.price", "shipping.x"]
+
+
+def test_filter_spec_commands_exclude_drops_matching():
+    """``--exclude 'equity.fundamentals.*'`` drops the fundamentals
+    subtree and keeps everything else."""
+    spec = _stub_spec(
+        "equity.price.historical",
+        "equity.fundamentals.balance",
+        "fixedincome.rate",
+    )
+    out = cli._filter_spec_commands(
+        spec, include=None, exclude=["equity.fundamentals.*"]
+    )
+    assert sorted(out["commands"]) == ["equity.price.historical", "fixedincome.rate"]
+
+
+def test_filter_spec_commands_include_takes_priority_over_exclude():
+    """When both are supplied, ``--include`` wins — ``--exclude`` is
+    ignored entirely (per the documented priority rule). Only commands
+    matching include are kept; exclude doesn't get to subtract from the
+    whitelist.
+    """
+    spec = _stub_spec(
+        "equity.price",
+        "equity.fundamentals.balance",
+        "shipping.x",
+    )
+    out = cli._filter_spec_commands(
+        spec,
+        include=["equity.*"],
+        exclude=["equity.fundamentals.*"],
+    )
+    # Both ``equity.*`` matches survive — exclude was ignored.
+    assert sorted(out["commands"]) == [
+        "equity.fundamentals.balance",
+        "equity.price",
+    ]
+
+
+def test_filter_spec_commands_does_not_mutate_original():
+    """The original ``spec_doc.commands`` is preserved; the filter
+    returns a new dict so callers can keep the unfiltered version."""
+    spec = _stub_spec("a", "b", "c")
+    original_commands = spec["commands"]
+    cli._filter_spec_commands(spec, include=["a"], exclude=None)
+    assert sorted(original_commands) == ["a", "b", "c"]
+
+
+def _stub_command_spec() -> dict:
+    """A minimum-viable command entry that satisfies SpecDocument validation."""
+    return {"method": "get", "url_path": "/x", "parameters": []}
+
+
+def test_generate_extension_aborts_when_filter_matches_nothing(tmp_path, capsys):
+    """Empty filter result is a user error — exit 2 with a stderr message
+    rather than emitting an empty extension package."""
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    spec_path = tmp_path / "x.spec"
+    write_spec(
+        spec_path,
+        {
+            "version": SPEC_VERSION,
+            "base_url": "http://x",
+            "api_prefix": "/api/v1",
+            "commands": {"equity.price": _stub_command_spec()},
+        },
+    )
+    rc = cli._generate_extension(
+        [(None, str(spec_path))],
+        str(tmp_path / "out"),
+        provider_name=None,
+        project_name=None,
+        package_name=None,
+        router_name=None,
+        include=["nope.*"],
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "matched no commands" in err
+
+
+def test_generate_extension_filters_commands_before_codegen(tmp_path, capsys):
+    """``--include`` reaches all the way through to ``generate_packages``:
+    the filtered spec is what codegen actually sees, so the emitted
+    package only contains the matched commands.
+    """
+    from openbb_cli.dispatchers.spec import SPEC_VERSION, write_spec
+
+    spec_path = tmp_path / "x.spec"
+    write_spec(
+        spec_path,
+        {
+            "version": SPEC_VERSION,
+            "base_url": "http://x",
+            "api_prefix": "/api/v1",
+            "commands": {
+                "equity.price": _stub_command_spec(),
+                "equity.balance": _stub_command_spec(),
+                "shipping.disruptions": _stub_command_spec(),
+            },
+        },
+    )
+    captured: dict = {}
+
+    def fake_generate_packages(spec_doc, **kwargs):  # noqa: ARG001
+        captured["spec_commands"] = sorted(spec_doc.get("commands") or {})
+        package_set = MagicMock()
+        package_set.write.return_value = []
+        package_set.packages = []
+        return package_set
+
+    with patch(
+        "openbb_cli.codegen.package_gen.generate_packages",
+        side_effect=fake_generate_packages,
+    ):
+        rc = cli._generate_extension(
+            [(None, str(spec_path))],
+            str(tmp_path / "out"),
+            provider_name=None,
+            project_name=None,
+            package_name=None,
+            router_name=None,
+            include=["equity.*"],
+        )
+    assert rc == 0
+    # Codegen received only the equity.* commands.
+    assert captured["spec_commands"] == ["equity.balance", "equity.price"]
+    out = capsys.readouterr().out
+    assert "filter: 2/3 commands kept" in out

@@ -269,6 +269,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=("Router identifier for --generate-extension (default: <provider-name>)."),
     )
+    parser.add_argument(
+        "--include",
+        metavar="PATTERN",
+        action="append",
+        default=None,
+        help=(
+            "Include only commands whose dotted name matches PATTERN "
+            "(repeat for multiple). ``*`` is a wildcard, e.g. "
+            "``--include 'equity.*'`` keeps every command under the "
+            "``equity`` namespace. When supplied, --include takes "
+            "priority over --exclude (any non-matching command is "
+            "dropped regardless of --exclude)."
+        ),
+    )
+    parser.add_argument(
+        "--exclude",
+        metavar="PATTERN",
+        action="append",
+        default=None,
+        help=(
+            "Drop commands whose dotted name matches PATTERN (repeat "
+            "for multiple). ``*`` is a wildcard, e.g. "
+            "``--exclude 'equity.fundamentals.*'`` drops the whole "
+            "fundamentals subtree. Ignored when --include is also "
+            "supplied — see --include."
+        ),
+    )
     mode.add_argument(
         "--list-commands",
         action="store_true",
