@@ -135,10 +135,13 @@ class BaseController(metaclass=ABCMeta):
 
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
+            # ``register_key`` lives under ``extra`` on the OBBject — the
+            # registry surfaces the OBBject (minus ``results``) verbatim,
+            # so reach through ``extra`` for the key to complete on.
             key_completions = {
-                data.get("key"): None
+                (data.get("extra") or {}).get("register_key"): None
                 for data in registry_all.values()
-                if data.get("key")
+                if (data.get("extra") or {}).get("register_key")
             }
 
             choices["results"]["--index"] = (

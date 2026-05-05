@@ -393,10 +393,13 @@ class CLIController(BaseController):
 
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
+            # ``register_key`` lives under ``extra`` (it's an OBBject
+            # extra field stamped in via ``--register-key NAME``); read
+            # from there so completions still surface user-named entries.
             key_completions = {
-                data.get("key"): None
+                (data.get("extra") or {}).get("register_key"): None
                 for data in registry_all.values()
-                if data.get("key")
+                if (data.get("extra") or {}).get("register_key")
             }
 
             choices["results"] = {
@@ -509,8 +512,14 @@ class CLIController(BaseController):
             for key, value in list(session.obbject_registry.all.items())[
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
+                # ``command`` lives under ``extra`` — the registry surfaces
+                # the full OBBject (minus ``results``), and ``command``
+                # belongs to OBBject's ``extra`` slot. Empty string
+                # fallback covers OBBjects from non-CLI sources that
+                # never got the command stamped in.
+                command = (value.get("extra") or {}).get("command", "")
                 mt.add_raw(
-                    f"[yellow]OBB{key}[/yellow]: {value['command']}",
+                    f"[yellow]OBB{key}[/yellow]: {command}",
                     left_spacing=True,
                 )
 

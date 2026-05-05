@@ -1551,6 +1551,132 @@ async def test_dispatch_keeps_api_siblings_separate_from_results_metadata():
 # --- Regression coverage for the OBBject-wrap edge cases ---
 
 
+def test_is_plotly_figure_recognizes_canonical_shape():
+    """A real Plotly figure dict (``data`` list of typed traces +
+    ``layout`` dict) trips the detector — without this guard the generic
+    unpack would tear the figure apart."""
+    from openbb_cli.dispatchers.http import _is_plotly_figure
+
+    fig = {
+        "data": [
+            {"type": "scattergeo", "lat": [0], "lon": [0]},
+            {"type": "scatter", "x": [1, 2], "y": [3, 4]},
+        ],
+        "layout": {"title": "Map"},
+    }
+    assert _is_plotly_figure(fig) is True
+
+
+def test_is_plotly_figure_rejects_lookalikes():
+    """Conservative: random ``{data, layout}`` payloads from APIs that
+    happen to share the key names but aren't Plotly figures don't
+    trigger the chart wrap."""
+    from openbb_cli.dispatchers.http import _is_plotly_figure
+
+    # Not a dict.
+    assert _is_plotly_figure([{"data": [], "layout": {}}]) is False
+    # Missing ``layout``.
+    assert _is_plotly_figure({"data": [{"type": "scatter"}]}) is False
+    # ``layout`` not a dict.
+    assert _is_plotly_figure({"data": [{"type": "scatter"}], "layout": []}) is False
+    # ``data`` not a list.
+    assert _is_plotly_figure({"data": {"type": "scatter"}, "layout": {}}) is False
+    # Empty ``data``.
+    assert _is_plotly_figure({"data": [], "layout": {"x": 1}}) is False
+    # ``data`` items don't carry a ``type`` (look like generic rows).
+    assert _is_plotly_figure({"data": [{"x": 1}], "layout": {"y": 2}}) is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_plotly_figure_payload_to_obbject_chart():
+    """A Plotly-figure-shaped server response lands at
+    ``OBBject.chart.content`` with ``format="plotly"`` — preserves the
+    full figure structure (data + layout) instead of letting the
+    generic unwrap shred it into a list of half-traces.
+    """
+    from openbb_core.app.model.obbject import OBBject
+
+    figure = {
+        "data": [
+            {
+                "type": "scattergeo",
+                "lat": [12.5, 13.0],
+                "lon": [-77.0, -76.5],
+                "name": "Red",
+            }
+        ],
+        "layout": {
+            "title": {"text": "Disruptions"},
+            "geo": {"projection": "natural earth"},
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=figure)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher("http://t", client=client, command_methods={"chart_cmd": "get"})
+    try:
+        resp = await d.dispatch(
+            Request(command="chart_cmd", params={"region": "global"})
+        )
+    finally:
+        await d.aclose()
+    assert resp.ok
+    assert isinstance(resp.result, OBBject)
+    # The figure rides at BOTH ``results`` and ``chart.content`` so
+    # callers reading ``obbject.results`` see the actual figure (not
+    # ``None``), and chart-aware renderers (``obbject.charting.show()``)
+    # also keep working off the canonical ``chart`` slot.
+    assert resp.result.results == figure
+    assert resp.result.chart is not None
+    assert resp.result.chart.format == "plotly"
+    assert resp.result.chart.content == figure
+    # Execution metadata still rides under ``extra.metadata`` like
+    # every other dispatch.
+    meta = resp.result.extra["metadata"]
+    assert meta.route == "/chart_cmd"
+    assert meta.arguments["standard_params"] == {"region": "global"}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_plotly_figure_falls_back_to_raw_dict_without_openbb_core(
+    monkeypatch,
+):
+    """Without ``openbb_core``, the Plotly wrap can't construct an
+    OBBject. Fall back to returning the raw figure dict so the figure
+    structure is still preserved end-to-end."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _block_chart_imports(name, *args, **kwargs):
+        if name.startswith("openbb_core.app.model"):
+            raise ImportError(f"simulated missing {name}")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _block_chart_imports)
+
+    figure = {
+        "data": [{"type": "scatter", "x": [1], "y": [2]}],
+        "layout": {"title": "x"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=figure)
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher("http://t", client=client, command_methods={"x": "get"})
+    try:
+        resp = await d.dispatch(Request(command="x"))
+    finally:
+        await d.aclose()
+    # Raw figure dict preserved — both data and layout intact.
+    assert resp.result == figure
+
+
 def test_command_to_route_translates_dotted_to_slash_form():
     """Dotted command paths land in ``Metadata.route`` as the slash form
     ``command_runner`` uses, with a leading slash."""

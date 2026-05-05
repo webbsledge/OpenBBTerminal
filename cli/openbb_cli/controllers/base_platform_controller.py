@@ -430,8 +430,12 @@ class PlatformController(BaseController):
             for key, value in list(session.obbject_registry.all.items())[
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
+                # ``command`` lives under ``extra`` — the registry surfaces
+                # the full OBBject (minus ``results``), and ``command``
+                # belongs to OBBject's ``extra`` slot.
+                command = (value.get("extra") or {}).get("command", "")
                 mt.add_raw(
-                    f"[yellow]OBB{key}[/yellow]: {value['command']}",
+                    f"[yellow]OBB{key}[/yellow]: {command}",
                     left_spacing=True,
                 )
 

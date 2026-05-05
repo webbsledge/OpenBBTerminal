@@ -567,6 +567,88 @@ def _coerce_row_types(
     return coerced
 
 
+def _is_plotly_figure(payload: Any) -> bool:
+    """Detect a Plotly figure-shaped payload.
+
+    A Plotly figure is a top-level dict with both ``data`` (a list of
+    trace objects, each itself a dict carrying a ``type`` field
+    naming a Plotly trace kind: ``scatter``, ``scattergeo``, ``bar``,
+    ``heatmap`` etc.) and ``layout`` (a dict). Without this guard the
+    generic ``unpack_response`` strips the structure: it sees one
+    list-keyed field (``data``) and treats it as a row array, putting
+    ``layout`` into ``metadata`` and losing the figure semantics.
+
+    Conservative on purpose — both keys must be present in the right
+    shapes, and at least one trace must declare a ``type``. Random
+    APIs that happen to expose ``data`` + ``layout`` won't trigger
+    this unless the data list also looks like Plotly traces.
+    """
+    if not isinstance(payload, dict):
+        return False
+    data = payload.get("data")
+    layout = payload.get("layout")
+    if not isinstance(data, list) or not isinstance(layout, dict):
+        return False
+    if not data:
+        return False
+    return any(
+        isinstance(trace, dict) and isinstance(trace.get("type"), str) for trace in data
+    )
+
+
+def _wrap_plotly_figure(
+    payload: dict[str, Any],
+    *,
+    command: str,
+    params: dict[str, Any] | None,
+    timestamp: datetime | None,
+    duration_ns: int | None,
+) -> Any:
+    """Wrap a Plotly figure dict in an ``OBBject`` with ``results=figure``.
+
+    The figure IS the result — the full Plotly dict (``data`` + ``layout``
+    and any other Plotly keys) rides at ``OBBject.results`` so callers
+    reading ``obbject.results`` see the actual content the endpoint
+    returned, instead of ``None`` with the data buried under ``chart``.
+    ``OBBject.chart`` also carries a ``Chart`` mirror of the figure so
+    chart-aware renderers (``obbject.charting.show()``, etc.) keep
+    working — same data, two valid access points.
+
+    Execution metadata (route / args / timing) lands at
+    ``extra["metadata"]`` exactly like every other dispatch.
+
+    Falls back to returning the raw payload dict when ``openbb_core``
+    isn't importable, preserving the figure structure even in
+    minimal-install environments.
+    """
+    try:
+        from openbb_core.app.model.charts.chart import Chart
+        from openbb_core.app.model.metadata import Metadata
+        from openbb_core.app.model.obbject import OBBject
+    except ImportError:
+        return payload
+
+    extra: dict[str, Any] = {}
+    if timestamp is not None and duration_ns is not None:
+        with contextlib.suppress(Exception):
+            extra["metadata"] = Metadata(
+                arguments={
+                    "provider_choices": {},
+                    "standard_params": dict(params or {}),
+                    "extra_params": {},
+                },
+                duration=duration_ns,
+                route=_command_to_route(command),
+                timestamp=timestamp,
+            )
+
+    return OBBject(
+        results=payload,
+        chart=Chart(content=payload, format="plotly"),
+        extra=extra,
+    )
+
+
 def _shape_result(payload: Any) -> Any:
     """Apply the same envelope unwrap codegen does, then return a tidy result.
 
@@ -744,7 +826,22 @@ class HttpDispatcher:
         response calls for an OBBject envelope (no spec, no sibling
         metadata) — keeping the simplest possible shape for
         single-row OpenBB Platform calls without a response_schema.
+
+        Plotly figure payloads (``{data: [...traces...], layout: {...}}``)
+        bypass the regular unwrap and land at ``OBBject.chart.content``
+        with ``format="plotly"`` — the canonical OBBject home for charts.
+        Without this guard the generic envelope-stripper would treat
+        ``data`` as a row array and silently drop the ``layout``,
+        leaving callers with a list of half-traces.
         """
+        if _is_plotly_figure(payload):
+            return _wrap_plotly_figure(
+                payload,
+                command=command,
+                params=params,
+                timestamp=timestamp,
+                duration_ns=duration_ns,
+            )
         shaped = _shape_result(payload)
         cmd_spec = (self._spec_doc.get("commands") or {}).get(command) or {}
         column_types = _row_column_types(cmd_spec)
