@@ -67,6 +67,92 @@ def test_get_field_type_strips_nonetype_text():
     assert "NoneType" not in out
 
 
+def test_get_field_type_strips_openbb_module_path_inside_generic_container():
+    """A Union member like ``list[openbb_<provider>.<module>.MyData]`` keeps
+    the ``list[...]`` container but drops the dotted module path inside —
+    the docstring shows ``list[MyData]``, not ``list[openbb_x.y.MyData]`` and
+    not just the truncated tail ``MyData]``.
+
+    Uses ``typing.Union[...]`` rather than ``X | Y`` so the test lands in
+    the Union branch on every supported Python. On 3.10-3.13,
+    ``get_origin(X | Y)`` returns ``types.UnionType`` (not ``typing.Union``),
+    so ``X | Y`` syntax falls into the else branch and bypasses the
+    container-aware strip we're trying to cover here. 3.14 unified
+    ``types.UnionType`` with ``typing.Union``, masking the gap on dev
+    machines but leaving Linux/Windows CI without coverage.
+    """
+    from typing import Union
+
+    class MyData:
+        """Stand-in provider Data class — its fully-qualified name lands
+        inside ``str(list[MyData])`` so the generator's container-aware
+        strip path is exercised."""
+
+    # Forge the ``__module__`` so the generator's ``"openbb_" in type_name``
+    # check trips, simulating a real provider Data class shipped under
+    # an ``openbb_*`` package.
+    MyData.__module__ = "openbb_someprovider.models.my_data"
+    MyData.__qualname__ = "MyData"
+
+    out = DocstringGenerator.get_field_type(
+        Union[list[MyData], None], is_required=False
+    )
+    # Container preserved, dotted prefix stripped.
+    assert "list[MyData]" in out
+    # The prefix must not leak through.
+    assert "openbb_someprovider" not in out
+    # And the bare ``MyData]`` (truncation that drops ``list[``) must not
+    # appear either — that's the bug the bracket-aware branch fixes.
+    assert "MyData]" in out and not out.endswith(" MyData]")
+    # ``None`` still appended for the optional union.
+    assert out.endswith("| None")
+
+
+def test_get_field_type_pep604_union_syntax_takes_union_branch():
+    """``list[X] | None`` (PEP 604) must hit the same Union branch as
+    ``Union[list[X], None]``. On Python 3.10-3.13 the two forms produce
+    different ``get_origin`` results — ``types.UnionType`` vs
+    ``typing.Union`` — so the generator's check accepts both. Regression
+    guard for the platform-dependent coverage gap.
+    """
+    from typing import Union
+
+    class MyData:
+        """Stand-in provider Data class."""
+
+    MyData.__module__ = "openbb_someprovider.models.my_data"
+    MyData.__qualname__ = "MyData"
+
+    # Both syntaxes must produce the same docstring output.
+    union_form = DocstringGenerator.get_field_type(
+        Union[list[MyData], None],  # noqa: UP007 — explicit form is the point
+        is_required=False,
+    )
+    pep604_form = DocstringGenerator.get_field_type(
+        list[MyData] | None, is_required=False
+    )
+    assert union_form == pep604_form
+    # And the container-aware strip fired for both.
+    assert "list[MyData]" in pep604_form
+    assert "openbb_someprovider" not in pep604_form
+
+
+def test_get_field_type_strips_openbb_module_path_for_non_generic():
+    """Non-generic ``openbb_*`` types take the simple ``rsplit('.', 1)``
+    fallback (no ``[`` in the string) — exercises the else-branch
+    paired with the bracket-aware fix."""
+
+    class PlainData:
+        """Stand-in provider Data class with no generic wrapper."""
+
+    PlainData.__module__ = "openbb_someprovider.models.plain"
+    PlainData.__qualname__ = "PlainData"
+
+    out = DocstringGenerator.get_field_type(PlainData | int, is_required=True)
+    assert "PlainData" in out
+    assert "openbb_someprovider" not in out
+
+
 def test_get_obbject_description_default_provider_placeholder():
     out = DocstringGenerator.get_OBBject_description("MyResults", None)
     assert "OBBject" in out

@@ -14,11 +14,6 @@ from typing import (
     TypeVar,
 )
 
-# Convert ``typing.List`` annotations (which the import filter has already
-# stripped to bare ``List``) to ``list``. The word-bounded regex avoids
-# clobbering class names that happen to contain ``List`` as a substring
-# (e.g. ``OBBject_ImfUtilsListDataflows`` → must NOT become
-# ``OBBject_ImfUtilslistDataflows``).
 _LIST_ANNOTATION_RE = re.compile(r"\bList\b")
 
 from importlib_metadata import entry_points
