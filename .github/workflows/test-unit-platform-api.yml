@@ -10,6 +10,7 @@ on:
     branches:
       - develop
       - v5
+      - feature/cli-2
     paths:
       - 'openbb_platform/extensions/platform_api/**'
       - 'openbb_platform/core/**'
