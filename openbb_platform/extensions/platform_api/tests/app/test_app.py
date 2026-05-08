@@ -6,8 +6,9 @@ import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
-import openbb_platform_api.utils.api as api_utils
 import pytest
+
+import openbb_platform_api.utils.api as api_utils
 from openbb_platform_api.utils.api import (
     check_port,
     get_user_settings,
@@ -26,7 +27,7 @@ def mock_env_vars(monkeypatch, tmp_path_factory):
 
 
 def _load_main_with_mocks():
-    # pylint: disable=import-outside-toplevel
+
     from fastapi import FastAPI
 
     stub_app = FastAPI()
@@ -35,7 +36,7 @@ def _load_main_with_mocks():
     api_module = types.ModuleType("openbb_core.api")
     api_module.__path__ = []
     rest_api_module = types.ModuleType("openbb_core.api.rest_api")
-    rest_api_module.app = stub_app  # type: ignore
+    rest_api_module.app = stub_app
     app_module = types.ModuleType("openbb_core.app")
     app_module.__path__ = []
     app_service_module = types.ModuleType("openbb_core.app.service")
@@ -48,15 +49,24 @@ def _load_main_with_mocks():
                 python_settings=types.SimpleNamespace(
                     model_dump=lambda: {"uvicorn": {}}
                 ),
-                cors=types.SimpleNamespace(
-                    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+                # CORS lives under ``api_settings`` in the real
+                # SystemSettings model. The launcher's CORS helper
+                # reads ``system.api_settings.cors`` — keep the
+                # nesting accurate so the helper doesn't blow up
+                # during the module reload.
+                api_settings=types.SimpleNamespace(
+                    prefix="/api",
+                    cors=types.SimpleNamespace(
+                        allow_origins=["*"],
+                        allow_methods=["*"],
+                        allow_headers=["*"],
+                    ),
                 ),
-                api_settings=types.SimpleNamespace(prefix="/api"),
             )
 
     system_service_module.SystemService = DummySystemService  # type:ignore
     env_module = types.ModuleType("openbb_core.env")
-    env_module.Env = lambda: None  # type: ignore
+    env_module.Env = lambda: None
 
     provider_module = types.ModuleType("openbb_core.provider")
     provider_module.__path__ = []
@@ -82,8 +92,8 @@ def _load_main_with_mocks():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             if loop.is_running():
-                return asyncio.ensure_future(result)  # type: ignore
-            return loop.run_until_complete(result)  # type: ignore
+                return asyncio.ensure_future(result)
+            return loop.run_until_complete(result)
         return result
 
     def _to_snake_case_stub(value: str) -> str:
@@ -95,8 +105,8 @@ def _load_main_with_mocks():
         value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
         return re.sub(r"[\s\-]+", "_", value).lower()
 
-    provider_utils_helpers_module.run_async = _run_async_stub  # type: ignore
-    provider_utils_helpers_module.to_snake_case = _to_snake_case_stub  # type: ignore
+    provider_utils_helpers_module.run_async = _run_async_stub
+    provider_utils_helpers_module.to_snake_case = _to_snake_case_stub
 
     modules = {
         "openbb_core": core_module,
@@ -115,8 +125,22 @@ def _load_main_with_mocks():
         sys.modules.pop(name, None)
 
     with patch.dict(sys.modules, modules):
-        sys.modules.pop("openbb_platform_api.main", None)
-        return importlib.import_module("openbb_platform_api.main")
+        # Drop every cached module that closes over the stubbed
+        # ``openbb_core`` deps so reimport binds the route-handler
+        # functions to *this* test's stub ``app`` rather than a
+        # previously cached one.
+        for cached in (
+            "openbb_platform_api.main",
+            "openbb_platform_api.app.app",
+            "openbb_platform_api.app",
+            "openbb_platform_api.service.widgets_service",
+            "openbb_platform_api.service",
+        ):
+            sys.modules.pop(cached, None)
+        # Returning ``app.app`` (where the route handlers and module-
+        # level constants live) lets ``patch.object(main, "APPS_PATH",
+        # ...)`` patch the binding the handlers actually read.
+        return importlib.import_module("openbb_platform_api.app.app")
 
 
 @pytest.mark.parametrize("port_input", [6900, "6900", 6901, "6901"])
@@ -151,7 +175,7 @@ def test_get_user_settings_no_login():
 
 def test_get_widgets_json_no_build():
     dummy_main = types.ModuleType("openbb_platform_api.main")
-    dummy_main.FIRST_RUN = False  # type: ignore
+    dummy_main.FIRST_RUN = False
 
     with (
         patch("builtins.open", mock_open(read_data="{}")),
@@ -187,7 +211,7 @@ def test_parse_args():
 
 
 def test_import_module_app():
-    # pylint: disable=import-outside-toplevel
+
     from fastapi import FastAPI as RealFastAPI
 
     class MockFastAPI(RealFastAPI):
@@ -235,7 +259,7 @@ def test_import_module_app():
 
 
 def test_import_file_app(tmp_path):
-    # pylint: disable=import-outside-toplevel
+
     from fastapi import FastAPI as RealFastAPI
 
     class MockFastAPI(RealFastAPI):
@@ -286,7 +310,7 @@ def test_import_file_app(tmp_path):
 
 
 def test_import_factory_app():
-    # pylint: disable=import-outside-toplevel
+
     from fastapi import FastAPI as RealFastAPI
 
     class MockFastAPI(RealFastAPI):
@@ -349,7 +373,7 @@ class TestPathHandling:
     @pytest.fixture
     def mock_fastapi_env(self):
         """Set up common mocks for FastAPI import tests."""
-        # pylint: disable=import-outside-toplevel
+
         from fastapi import FastAPI as RealFastAPI
 
         class MockFastAPI(RealFastAPI):
@@ -796,9 +820,9 @@ async def test_get_apps_json_creates_missing_file(tmp_path):
         patch.object(main, "DEFAULT_APPS_PATH", str(default_path)),
         patch.object(main, "get_widgets", AsyncMock(return_value={})),
         patch(
-            "openbb_platform_api.main.os.path.exists", side_effect=exists_side_effect
+            "openbb_platform_api.app.app.os.path.exists", side_effect=exists_side_effect
         ),
-        patch("openbb_platform_api.main.os.makedirs") as mock_makedirs,
+        patch("openbb_platform_api.app.app.os.makedirs") as mock_makedirs,
         patch("builtins.open", mock_open(read_data="[]")) as mocked_open,
     ):
         response = await main.get_apps_json()
@@ -840,7 +864,7 @@ async def test_get_apps_json_merges_templates_with_additional_sources(tmp_path):
                 "extra": {},
             },
         ),
-        patch("openbb_platform_api.main.os.path.exists", return_value=True),
+        patch("openbb_platform_api.app.app.os.path.exists", return_value=True),
         patch.object(
             main,
             "get_widgets",
@@ -853,8 +877,8 @@ async def test_get_apps_json_merges_templates_with_additional_sources(tmp_path):
                 return_value={"good": [{"id": "extra"}], "bad": {"id": "invalid"}}
             ),
         ),
-        patch("openbb_platform_api.main.has_additional_apps", return_value=True),
-        patch("openbb_platform_api.main.logger.error") as mock_log_error,
+        patch("openbb_platform_api.app.app.has_additional_apps", return_value=True),
+        patch("openbb_platform_api.app.app.logger.error") as mock_log_error,
         patch("builtins.open", mocked_open),
     ):
         response = await main.get_apps_json()
@@ -876,17 +900,27 @@ async def test_get_apps_json_merges_templates_with_additional_sources(tmp_path):
 
 
 def test_get_widgets_json_merges_with_additional_sources(monkeypatch):
+    """Router-attached widgets get merged into the auto-generated set
+    when their path isn't excluded. State (``FIRST_RUN`` /
+    ``PATH_WIDGETS``) lives on the canonical service module — the
+    legacy ``api_utils`` re-exports route through ``__getattr__`` and
+    can't be monkey-patched to feed the function, so target the source
+    module directly.
+    """
+
+    from openbb_platform_api.service import widgets_service
+
     base_widgets = {"default": {"name": "Default Widget"}}
     additional_widgets = {"extra": {"name": "Extra Widget"}}
 
-    monkeypatch.setattr(api_utils, "FIRST_RUN", False, raising=False)
+    monkeypatch.setattr(widgets_service, "FIRST_RUN", False, raising=False)
     monkeypatch.setattr(
         "openbb_platform_api.utils.widgets.build_json",
         MagicMock(return_value=base_widgets.copy()),
         raising=False,
     )
     monkeypatch.setattr(
-        api_utils,
+        widgets_service,
         "PATH_WIDGETS",
         {"custom": {"extra": additional_widgets["extra"]}},
         raising=False,

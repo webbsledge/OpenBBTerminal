@@ -145,7 +145,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "symbol",
@@ -316,7 +317,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "consumer_sentiment",
@@ -479,7 +481,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "activity_index",
@@ -758,7 +761,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "topic",
@@ -934,7 +938,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "symbol",
@@ -1314,7 +1319,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "country",
@@ -1593,7 +1599,7 @@
                         "formatterFn": null,
                         "headerName": "Period",
                         "headerTooltip": "The date representing the beginning of the reporting period.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString"
                     },
                     {
                         "field": "balance_percent_of_gdp",
@@ -1916,14 +1922,14 @@
                         "formatterFn": null,
                         "headerName": "Observation Start",
                         "headerTooltip": "The date of the first observation in the series.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString"
                     },
                     {
                         "field": "observation_end",
                         "formatterFn": null,
                         "headerName": "Observation End",
                         "headerTooltip": "The date of the last observation in the series.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString"
                     },
                     {
                         "field": "frequency",
@@ -2240,7 +2246,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     }
                 ],
                 "enableAdvanced": true
@@ -2468,7 +2475,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     }
                 ],
                 "enableAdvanced": true
@@ -2546,7 +2554,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "level",
@@ -2912,7 +2921,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "region",
@@ -3118,7 +3128,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "symbol",
@@ -3250,7 +3261,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of the data.",
-                        "cellDataType": "date"
+                        "cellDataType": "dateString",
+                        "sort": "desc"
                     },
                     {
                         "field": "symbol",
@@ -3869,7 +3881,8 @@
                         "formatterFn": null,
                         "headerName": "Date",
                         "headerTooltip": "The date of publication.",
-                        "cellDataType": "date"
+                        "cellDataType": "date",
+                        "sort": "desc"
                     },
                     {
                         "field": "title",

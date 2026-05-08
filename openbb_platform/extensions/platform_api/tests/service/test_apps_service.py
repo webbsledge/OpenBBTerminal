@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi import FastAPI
+
 from openbb_platform_api.utils.merge_apps import (
     get_additional_apps,
     has_additional_apps,
@@ -53,3 +54,29 @@ async def test_get_additional_apps_collects_valid_routes():
     app = _build_app(include_extra=True)
     apps = await get_additional_apps(app)
     assert apps == {"/module/": [{"appId": "module", "endpoint": "/module/data"}]}
+
+
+@pytest.mark.asyncio
+async def test_get_additional_apps_skips_routes_with_no_endpoint_or_root_path():
+    """Routes whose endpoint is None or whose path is the root
+    ``/apps.json`` are explicitly skipped during the merge.
+    """
+    from fastapi.routing import APIRoute
+
+    app = FastAPI()
+
+    @app.get("/module/apps.json")
+    async def module_apps():
+        return [{"appId": "module"}]
+
+    fake_route = APIRoute(
+        path="/garbage/apps.json",
+        endpoint=lambda: None,
+        methods=["GET"],
+    )
+    fake_route.endpoint = None  # ty: ignore[invalid-assignment]
+    app.routes.append(fake_route)
+
+    result = await get_additional_apps(app)
+    assert "/module/" in result
+    assert "/garbage/" not in result

@@ -4,6 +4,7 @@ import copy
 
 import pytest
 from fastapi import FastAPI
+
 from openbb_platform_api.utils.merge_widgets import (
     fix_router_widgets,
     get_additional_widgets,
@@ -134,3 +135,45 @@ async def test_get_and_fix_widget_paths_integrates_collection_and_fixing():
     assert fixed["wsEndpoint"] == "/api/stream"
     assert fixed["imgUrl"] == "/api/assets/icon.png"
     assert fixed["params"][0]["endpoint"] == "/api/param"
+
+
+@pytest.mark.asyncio
+async def test_get_additional_widgets_skips_routes_with_no_endpoint():
+    """A route entry whose ``endpoint`` is missing/None gets skipped —
+    exercises the ``not getattr(r, "endpoint", None)`` continue arm
+    (line 39).
+    """
+    from fastapi.routing import APIRoute
+
+    app = FastAPI()
+
+    @app.get("/module/widgets.json")
+    async def module_widgets():
+        return {"module": {"widgetId": "module"}}
+
+    fake_route = APIRoute(
+        path="/garbage/widgets.json",
+        endpoint=lambda: None,
+        methods=["GET"],
+    )
+    fake_route.endpoint = None  # ty: ignore[invalid-assignment]
+    app.routes.append(fake_route)
+
+    result = await get_additional_widgets(app)
+    assert "/module/" in result
+    assert "/garbage/" not in result
+
+
+@pytest.mark.asyncio
+async def test_get_and_fix_widget_paths_returns_empty_when_no_additional_widgets():
+    """When no router-attached widget routes are present, the wrapped
+    path-fix pass short-circuits to ``{}`` — exercises line 123.
+    """
+    app = FastAPI()
+
+    @app.get("/widgets.json")
+    async def root_widgets():
+        return {}
+
+    result = await get_and_fix_widget_paths(app)
+    assert result == {}
