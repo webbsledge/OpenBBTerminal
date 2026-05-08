@@ -740,8 +740,16 @@ class TestPathHandling:
 class TestPathDetectionHelpers:
     """Test path detection logic for cross-platform compatibility."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Unix-style absolute paths only"
+    )
     def test_is_absolute_path_detection_unix(self):
-        """Test absolute path detection for Unix paths."""
+        """Test absolute path detection for Unix paths.
+
+        ``Path('/home/user/app.py').is_absolute()`` only returns ``True``
+        on POSIX — on Windows ``WindowsPath`` requires a drive letter
+        for absoluteness, so we gate this case to non-Windows platforms.
+        """
         from pathlib import Path
 
         # Unix absolute paths

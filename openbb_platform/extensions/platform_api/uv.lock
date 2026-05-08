@@ -1600,6 +1600,7 @@ source = { editable = "." }
 dependencies = [
     { name = "deepdiff" },
     { name = "openbb-core" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.dev-dependencies]
@@ -1612,6 +1613,7 @@ dev = [
 requires-dist = [
     { name = "deepdiff", specifier = ">=8.6.2" },
     { name = "openbb-core", editable = "../../core" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
 
 [package.metadata.requires-dev]

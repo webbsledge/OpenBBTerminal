@@ -16,34 +16,64 @@ This module preserves every legacy import path so external callers
 keep working — new code should import from the dedicated modules.
 """
 
-from openbb_platform_api.app.args import LAUNCH_SCRIPT_DESCRIPTION, parse_args
-from openbb_platform_api.app.bootstrap import import_app
-from openbb_platform_api.service import widgets_service
-from openbb_platform_api.service.widgets_service import (
-    get_widgets_json,
-    logger,
-)
-from openbb_platform_api.utils.network import check_port, get_user_settings
+from importlib import import_module
+
+#: ``shim_attr -> (source_module, source_attr)`` mapping. Every legacy
+#: name lives here; ``__getattr__`` consults this on each access.
+_LAZY_TARGETS: dict[str, tuple[str, str]] = {
+    "LAUNCH_SCRIPT_DESCRIPTION": (
+        "openbb_platform_api.app.args",
+        "LAUNCH_SCRIPT_DESCRIPTION",
+    ),
+    "parse_args": ("openbb_platform_api.app.args", "parse_args"),
+    "import_app": ("openbb_platform_api.app.bootstrap", "import_app"),
+    "get_widgets_json": (
+        "openbb_platform_api.service.widgets_service",
+        "get_widgets_json",
+    ),
+    "logger": ("openbb_platform_api.service.widgets_service", "logger"),
+    "FIRST_RUN": ("openbb_platform_api.service.widgets_service", "FIRST_RUN"),
+    "PATH_WIDGETS": (
+        "openbb_platform_api.service.widgets_service",
+        "PATH_WIDGETS",
+    ),
+    "check_port": ("openbb_platform_api.utils.network", "check_port"),
+    "get_user_settings": (
+        "openbb_platform_api.utils.network",
+        "get_user_settings",
+    ),
+}
 
 
 def __getattr__(name):
-    """Re-export the mutable launcher state from ``widgets_service``.
+    """Resolve a legacy name against its current source module.
 
-    ``FIRST_RUN`` and ``PATH_WIDGETS`` are state, not constants — code
-    flips ``FIRST_RUN`` to ``False`` after the first request, so a
-    plain top-level import would silently snapshot the boot-time value.
-    Routing the attribute access through ``__getattr__`` keeps the
-    legacy import path live without forking the state.
+    Each access re-imports the source module and returns the fresh
+    attribute. ``importlib.import_module`` returns the cached module
+    when nothing's been mutated, so the cost is a dict lookup in the
+    common case — and a real re-import in the test-pollution case
+    (which is exactly when the lazy resolution matters).
     """
-    if name == "FIRST_RUN":
-        return widgets_service.FIRST_RUN
-    if name == "PATH_WIDGETS":
-        return widgets_service.PATH_WIDGETS
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    target = _LAZY_TARGETS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_path, attr = target
+    return getattr(import_module(module_path), attr)
 
 
-__all__ = [
+def __dir__() -> list[str]:
+    """Surface the lazy names for ``dir()`` and IDE autocomplete."""
+    return sorted(_LAZY_TARGETS)
+
+
+# ``noqa: F822`` because every name is provided lazily through
+# ``__getattr__`` — ruff's static check doesn't see the indirection,
+# but ``import openbb_platform_api.utils.api as api; api.parse_args``
+# resolves correctly at runtime.
+__all__ = [  # noqa: F822
+    "FIRST_RUN",
     "LAUNCH_SCRIPT_DESCRIPTION",
+    "PATH_WIDGETS",
     "check_port",
     "get_user_settings",
     "get_widgets_json",

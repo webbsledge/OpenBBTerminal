@@ -123,3 +123,30 @@ def test_utils_api_shim_unknown_attr_raises():
 
     with pytest.raises(AttributeError):
         _ = api_shim.no_such_attribute
+
+
+def test_utils_api_shim_dir_lists_lazy_targets():
+    """``dir(api_shim)`` surfaces the lazy re-exported names so IDE
+    autocomplete / ``inspect.getmembers`` users see the same surface
+    they'd get from a non-shim module. The set must include each
+    legacy name we're proxying.
+    """
+    from openbb_platform_api.utils import api as api_shim
+
+    listed = dir(api_shim)
+    # Spot-check the whole legacy surface — if any of these names
+    # disappears the shim has silently regressed.
+    for name in (
+        "LAUNCH_SCRIPT_DESCRIPTION",
+        "parse_args",
+        "import_app",
+        "get_widgets_json",
+        "logger",
+        "FIRST_RUN",
+        "PATH_WIDGETS",
+        "check_port",
+        "get_user_settings",
+    ):
+        assert name in listed
+    # Output is stable / sorted so callers can rely on ordering.
+    assert listed == sorted(listed)

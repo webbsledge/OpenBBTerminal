@@ -301,9 +301,11 @@ def parse_args() -> dict:  # noqa: PLR0912
         )
 
         if not str(_agents_path).endswith(".json"):
-            _agents_path = (
-                f"{_agents_path}{'' if _agents_path.endswith('/') else '/'}agents.json"
-            )
+            # ``os.path.join`` produces platform-native separators so the
+            # path round-trips cleanly through ``Path``/``str`` on
+            # Windows — the prior f-string with a literal ``/`` produced
+            # mixed ``C:\dir/agents.json`` on Windows.
+            _agents_path = os.path.join(str(_agents_path), "agents.json")
 
         if str(_agents_path).startswith("./"):
             _agents_path = str(cwd.joinpath(_agents_path).resolve())
@@ -319,7 +321,9 @@ def parse_args() -> dict:  # noqa: PLR0912
         if str(_widgets_path).endswith(".json"):
             widgets_file_path = _widgets_path
         else:
-            widgets_file_path = f"{_widgets_path}{'' if str(_widgets_path).endswith('/') else '/'}widgets.json"
+            # Platform-native join — see ``apps-json`` branch above for
+            # rationale (avoids mixed ``C:\dir/widgets.json`` on Windows).
+            widgets_file_path = os.path.join(str(_widgets_path), "widgets.json")
 
         # Resolve relative paths to absolute
         if str(widgets_file_path).startswith("./"):
@@ -343,12 +347,18 @@ def parse_args() -> dict:  # noqa: PLR0912
         if str(_apps_path).endswith(".json"):
             apps_file_path = _apps_path
         else:
-            # Check if "workspace_apps.json" exists in the given path
-            possible_workspace_file = f"{_apps_path}{'' if str(_apps_path).endswith('/') else '/'}workspace_apps.json"
+            # ``os.path.join`` gives platform-native separators (``\`` on
+            # Windows, ``/`` elsewhere), so the produced string round-trips
+            # through ``str(Path(...))`` cleanly on every OS — the previous
+            # f-string concatenation hard-coded ``/`` and produced mixed
+            # separators on Windows like ``C:\tmp\dir/apps.json``.
+            possible_workspace_file = os.path.join(
+                str(_apps_path), "workspace_apps.json"
+            )
             if os.path.isfile(possible_workspace_file):
                 apps_file_path = possible_workspace_file
             else:
-                apps_file_path = f"{_apps_path}{'' if str(_apps_path).endswith('/') else '/'}apps.json"
+                apps_file_path = os.path.join(str(_apps_path), "apps.json")
 
         # Resolve relative paths to absolute
         if str(apps_file_path).startswith("./"):

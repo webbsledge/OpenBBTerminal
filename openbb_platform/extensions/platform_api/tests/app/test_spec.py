@@ -669,13 +669,17 @@ def test_parse_args_loads_spec_table_with_headers_and_base_url(tmp_path, monkeyp
     spec_file.write_text(json.dumps(SAMPLE_SPEC))
 
     config_file = tmp_path / "openbb.toml"
+    # ``.as_posix()`` keeps forward slashes on Windows so the TOML
+    # parser doesn't interpret ``\U`` / ``\r`` / etc. inside the
+    # interpolated path as hex/escape sequences. Forward slashes are
+    # accepted by Python's ``os.path``/``Path`` on every platform.
     config_file.write_text(
         f'''
 [env]
 OPENBB_UPSTREAM_TOKEN = "tok-from-env"
 
 [spec]
-path = "{spec_file}"
+path = "{spec_file.as_posix()}"
 base_url = "https://prod.example.com"
 
 [spec.headers]
@@ -719,10 +723,13 @@ def test_parse_args_skips_spec_header_with_unresolved_var(
     spec_file.write_text(json.dumps(SAMPLE_SPEC))
 
     config_file = tmp_path / "openbb.toml"
+    # ``.as_posix()`` keeps forward slashes on Windows so the TOML
+    # parser doesn't interpret ``\U`` / ``\r`` / etc. inside the
+    # interpolated path as hex/escape sequences.
     config_file.write_text(
         f'''
 [spec]
-path = "{spec_file}"
+path = "{spec_file.as_posix()}"
 
 [spec.headers]
 Authorization = "Bearer $NEVER_SET_ANYWHERE"

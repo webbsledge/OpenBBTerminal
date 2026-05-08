@@ -107,18 +107,23 @@ def test_parse_args_string_value_passthrough():
 
 def test_parse_args_agents_json_appends_filename_when_directory():
     """A path that doesn't end in ``.json`` is treated as a directory —
-    the launcher appends ``/agents.json``.
+    the launcher appends ``agents.json`` via ``os.path.join`` so the
+    separator matches the host OS (``\\`` on Windows, ``/`` elsewhere).
     """
+    import os
+
     with patch("sys.argv", ["openbb-api", "--agents-json", "/some/dir"]):
         out = parse_args()
-        assert out["agents-json"] == "/some/dir/agents.json"
+        assert out["agents-json"] == os.path.join("/some/dir", "agents.json")
 
 
 def test_parse_args_agents_json_directory_with_trailing_slash():
     """No double-slash when the directory already ends with ``/``."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--agents-json", "/some/dir/"]):
         out = parse_args()
-        assert out["agents-json"] == "/some/dir/agents.json"
+        assert out["agents-json"] == os.path.join("/some/dir/", "agents.json")
 
 
 def test_parse_args_agents_json_resolves_relative_path(tmp_path, monkeypatch):
@@ -132,9 +137,11 @@ def test_parse_args_agents_json_resolves_relative_path(tmp_path, monkeypatch):
 
 def test_parse_args_copilots_path_alias_routes_to_agents_json():
     """``--copilots-path`` is a legacy alias — same resolution as ``--agents-json``."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--copilots-path", "/copilots"]):
         out = parse_args()
-        assert out["agents-json"] == "/copilots/agents.json"
+        assert out["agents-json"] == os.path.join("/copilots", "agents.json")
         assert "copilots-path" not in out
 
 
@@ -153,16 +160,20 @@ def test_parse_args_widgets_json_with_explicit_filename():
 
 def test_parse_args_widgets_json_directory_appends_filename():
     """Without a ``.json`` suffix the path is treated as a directory."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--widgets-json", "/dir"]):
         out = parse_args()
-        assert out["widgets-json"] == "/dir/widgets.json"
+        assert out["widgets-json"] == os.path.join("/dir", "widgets.json")
 
 
 def test_parse_args_widgets_json_directory_with_trailing_slash():
     """Trailing slash is preserved without doubling."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--widgets-json", "/dir/"]):
         out = parse_args()
-        assert out["widgets-json"] == "/dir/widgets.json"
+        assert out["widgets-json"] == os.path.join("/dir/", "widgets.json")
 
 
 def test_parse_args_widgets_json_resolves_relative_path(tmp_path, monkeypatch):
@@ -175,9 +186,11 @@ def test_parse_args_widgets_json_resolves_relative_path(tmp_path, monkeypatch):
 
 def test_parse_args_widgets_path_alias_routes_to_widgets_json():
     """``--widgets-path`` is the legacy alias."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--widgets-path", "/dir"]):
         out = parse_args()
-        assert out["widgets-json"] == "/dir/widgets.json"
+        assert out["widgets-json"] == os.path.join("/dir", "widgets.json")
 
 
 def test_parse_args_widgets_json_existing_file_implies_no_build(tmp_path):
@@ -218,9 +231,14 @@ def test_parse_args_apps_json_directory_prefers_workspace_apps_when_exists(tmp_p
 
 def test_parse_args_apps_json_directory_falls_back_to_apps_json(tmp_path):
     """Directory with no ``workspace_apps.json`` → use ``apps.json``."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--apps-json", str(tmp_path)]):
         out = parse_args()
-        assert out["apps-json"] == f"{tmp_path}/apps.json"
+        # ``os.path.join`` matches the production code's platform-native
+        # join (the prior ``f"{tmp_path}/apps.json"`` produced ``/`` on
+        # Windows where the production path uses ``\``).
+        assert out["apps-json"] == os.path.join(str(tmp_path), "apps.json")
 
 
 def test_parse_args_apps_json_resolves_relative_path(tmp_path, monkeypatch):
@@ -233,9 +251,14 @@ def test_parse_args_apps_json_resolves_relative_path(tmp_path, monkeypatch):
 
 def test_parse_args_templates_path_alias_routes_to_apps_json():
     """``--templates-path`` is the legacy alias for ``--apps-json``."""
+    import os
+
     with patch("sys.argv", ["openbb-api", "--templates-path", "/dir"]):
         out = parse_args()
-        assert out["apps-json"] == "/dir/apps.json"
+        # Use ``os.path.join`` so the expected value matches the
+        # production code's platform-native join (Windows produces
+        # ``\dir\apps.json`` from a leading-slash input).
+        assert out["apps-json"] == os.path.join("/dir", "apps.json")
 
 
 # ---------------------------------------------------------------------------
