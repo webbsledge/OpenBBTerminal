@@ -6,6 +6,29 @@ from openbb_core.provider.abstract.data import Data
 from pydantic import ConfigDict, Field, model_validator
 
 
+def _is_pandas_dataframe(obj: Any) -> bool:
+    """Detect a pandas ``DataFrame`` without importing pandas.
+
+    The launcher's runtime should not pull pandas in for an
+    ``isinstance(content, pd.DataFrame)`` check — pandas is an
+    optional extra of ``openbb-core[pandas]`` and most spec-driven
+    launches never need it. We walk ``type(obj).__mro__`` looking
+    for a base class named ``DataFrame`` whose module is ``pandas``
+    (or a sub-package thereof), which catches both actual pandas
+    instances and any user-defined ``DataFrame`` subclass — same
+    semantics as ``isinstance(obj, pd.DataFrame)`` but without the
+    import. The module pin keeps this from matching unrelated
+    ``DataFrame`` classes from other libraries.
+    """
+    for cls in type(obj).__mro__:
+        if cls.__name__ != "DataFrame":
+            continue
+        module = getattr(cls, "__module__", "") or ""
+        if module == "pandas" or module.startswith("pandas."):
+            return True
+    return False
+
+
 class MetricResponseModel(Data):
     """
     Metric Widget Response Model.
@@ -209,7 +232,6 @@ class OmniWidgetResponseModel(Data):
 
         import json  # noqa
         import re
-        import pandas as pd
 
         content = getattr(values, "content", None)
 
@@ -250,7 +272,11 @@ class OmniWidgetResponseModel(Data):
             isinstance(item, dict) for item in content
         ):
             values.parse_as = "table"
-        elif isinstance(content, pd.DataFrame):
+        elif _is_pandas_dataframe(content):
+            # Detect via class metadata so the launcher doesn't need
+            # pandas in its runtime dep tree — pandas is an optional
+            # extra of ``openbb-core`` and most spec-driven launches
+            # never touch it.
             values.parse_as = "table"
             try:
                 content = json.loads(content.to_json(orient="records"))
@@ -262,14 +288,15 @@ class OmniWidgetResponseModel(Data):
         ):
             values.parse_as = "table"
             try:
-                df = pd.DataFrame(content)
-                # ``df.to_json(orient="records")`` is typed as
-                # ``str | None`` because pandas allows passing
-                # ``path_or_buf=`` to write to disk; without that arg
-                # the return is always a string. Coerce to ``str`` for
-                # ty's benefit.
-                content = json.loads(str(df.to_json(orient="records")))
-            except Exception as e:
+                # Stdlib transpose: ``{"a": [1, 2], "b": [3, 4]}`` →
+                # ``[{"a": 1, "b": 3}, {"a": 2, "b": 4}]``. Avoids
+                # pulling pandas into the launcher's hot path; the
+                # zip-based form is faster anyway for the typical
+                # widget-payload shapes.
+                keys = list(content.keys())
+                rows = list(zip(*content.values(), strict=True))
+                content = [dict(zip(keys, row, strict=True)) for row in rows]
+            except (TypeError, ValueError) as e:
                 raise ValueError(
                     "Failed to convert dictionary of lists to list of records"
                 ) from e

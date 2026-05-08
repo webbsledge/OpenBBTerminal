@@ -231,26 +231,15 @@ def test_omni_response_figure_to_json_failure_raises_value_error():
 
 
 def test_omni_response_dict_of_lists_serialization_failure_raises_value_error():
-    """Same defensive arm for the dict-of-lists branch."""
-    import openbb_platform_api.models.response as response_mod
-
-    real_pd = response_mod.__dict__.get("pd")
-    pd = pytest.importorskip("pandas")
-    original_dataframe = pd.DataFrame
-
-    class _BadDF(pd.DataFrame):
-        @property
-        def _constructor(self):
-            return _BadDF
-
-        def to_json(self, *args, **kwargs):  # noqa: ARG002
-            raise RuntimeError("simulated dict-to-json failure")
-
-    pd.DataFrame = _BadDF  # ty: ignore[invalid-assignment]
-    try:
-        with pytest.raises(ValueError, match="dictionary of lists"):
-            OmniWidgetResponseModel(content={"a": [1, 2], "b": [3, 4]})
-    finally:
-        pd.DataFrame = original_dataframe  # ty: ignore[invalid-assignment]
-        if real_pd is not None:
-            response_mod.pd = real_pd  # ty: ignore[unresolved-attribute]
+    """The dict-of-lists branch transposes via stdlib ``zip(strict=True)``
+    rather than pandas, so any input where the per-key lists have
+    different lengths surfaces as a ``ValueError`` from the transpose.
+    Mirrors the DataFrame-branch defensive arm but without an
+    optional-pandas dependency.
+    """
+    with pytest.raises(ValueError, match="dictionary of lists"):
+        # ``zip(*..., strict=True)`` raises when the iterables have
+        # mismatched lengths — the transpose can't produce a
+        # meaningful list-of-records, so the validator surfaces the
+        # failure with the per-branch error message.
+        OmniWidgetResponseModel(content={"a": [1, 2, 3], "b": [3, 4]})
