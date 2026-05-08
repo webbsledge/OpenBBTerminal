@@ -6,7 +6,9 @@
 * ``merge_widgets`` — discover & merge router-attached widget endpoints.
 """
 
-from openbb_platform_api.utils.network import check_port, get_user_settings
+# Relative import for reliable submodule attribute binding on
+# Python 3.10 — see CPython issue #40500.
+from .network import check_port, get_user_settings
 
 __all__ = [
     "check_port",

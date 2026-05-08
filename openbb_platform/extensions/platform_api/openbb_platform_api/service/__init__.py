@@ -6,19 +6,14 @@ Each service owns one of the launcher's data-orchestration flows
 catalogue-building logic stay separable.
 """
 
-from openbb_platform_api.service.agents_service import (
-    get_additional_agents,
-    has_additional_agents,
-)
-from openbb_platform_api.service.apps_service import (
-    get_additional_apps,
-    has_additional_apps,
-)
-from openbb_platform_api.service.widgets_service import (
-    FIRST_RUN,
-    PATH_WIDGETS,
-    get_widgets_json,
-)
+# Relative imports for reliable submodule attribute binding on
+# Python 3.10 — see CPython issue #40500. Absolute ``from
+# openbb_platform_api.service.X import ...`` works but doesn't
+# always set ``X`` as an attribute on this package, breaking
+# ``mock.patch("openbb_platform_api.service.X.Y")`` resolution.
+from .agents_service import get_additional_agents, has_additional_agents
+from .apps_service import get_additional_apps, has_additional_apps
+from .widgets_service import FIRST_RUN, PATH_WIDGETS, get_widgets_json
 
 __all__ = [
     "FIRST_RUN",
