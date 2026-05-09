@@ -35,6 +35,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
+      # ``watchfiles`` (pyo3 0.26) and ``rpds-py`` (pyo3 0.27) — both
+      # transitives of fastmcp — fail their build-script version check
+      # on Python 3.15. The pyo3 build script's documented escape hatch
+      # is this flag: build against the stable ABI when the configured
+      # Python version is newer than pyo3's max supported. No-op on
+      # 3.10–3.14 (those have prebuilt wheels) and on packages whose
+      # pyo3 already supports 3.15 natively.
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     permissions:
       contents: read
     strategy:
