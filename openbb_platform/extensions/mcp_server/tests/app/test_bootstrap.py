@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.bootstrap``."""
 
-# pylint: disable=W0621
-
 import sys
 from pathlib import Path
 
@@ -89,9 +87,7 @@ def test_import_app_missing_file():
 
 
 def test_import_app_module_colon_fallback_file_path(tmp_path, monkeypatch):
-    """``module:attr`` where the module isn't importable falls back to a
-    relative file lookup with ``.py`` appended.
-    """
+    """``module:attr`` with unimportable module falls back to file lookup."""
     f = tmp_path / "fallback.py"
     f.write_text("from fastapi import FastAPI\napp = FastAPI(title='Fallback')\n")
     monkeypatch.chdir(tmp_path)
@@ -106,16 +102,14 @@ def test_import_app_module_colon_fallback_file_path(tmp_path, monkeypatch):
 def test_import_app_module_colon_fallback_raises_when_file_missing(
     monkeypatch, tmp_path
 ):
-    """Both module import AND file fallback failing raise ``FileNotFoundError``."""
+    """Both module import and file fallback failing raise ``FileNotFoundError``."""
     monkeypatch.chdir(tmp_path)
     with pytest.raises(FileNotFoundError, match="Neither module"):
         import_app("not_real_module:app")
 
 
 def test_import_app_loader_returns_none_for_bad_spec(monkeypatch, tmp_path):
-    """When ``spec_from_file_location`` returns ``None``, a clear
-    RuntimeError surfaces.
-    """
+    """``spec_from_file_location`` returning ``None`` raises RuntimeError."""
     f = tmp_path / "good.py"
     f.write_text("from fastapi import FastAPI\napp = FastAPI()\n")
 
@@ -130,16 +124,7 @@ def test_import_app_loader_returns_none_for_bad_spec(monkeypatch, tmp_path):
 
 
 def test_import_app_handles_windows_style_colon_notation(tmp_path):
-    """Path ``X:something:attr`` (3 colon-separated segments) hits the
-    Windows-drive + colon-notation branch of ``_is_module_colon_notation``.
-
-    The branch decides ``True`` (treat as colon notation) when the
-    drive-letter prefix is followed by a SECOND colon. We construct
-    such a path that won't actually exist as a Windows drive (so the
-    fallback file-load raises FileNotFoundError) — exercises the
-    ``len(parts) > 2`` arm of the helper without needing to be on
-    Windows.
-    """
+    """Drive-letter + colon-notation (``C:\\...:attr``) hits the colon arm."""
     fake_drive_path = "C:\\nonexistent\\path.py:my_app"
     with pytest.raises((FileNotFoundError, ImportError)):
         import_app(fake_drive_path)

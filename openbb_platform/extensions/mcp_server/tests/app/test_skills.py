@@ -1,7 +1,5 @@
 """Unit tests for skill provider loading in the MCP server."""
 
-# pylint: disable=protected-access,unused-argument
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,11 +44,6 @@ def _patch_transforms():
         patch("openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()),
     ):
         yield
-
-
-# ---------------------------------------------------------------------------
-# SkillsDirectoryProvider tests
-# ---------------------------------------------------------------------------
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -127,11 +120,6 @@ def test_no_provider_when_skills_dir_missing(
     create_mcp_server(settings, FastAPI())
 
     assert mock_mcp.add_provider.call_count == 0
-
-
-# ---------------------------------------------------------------------------
-# Vendor provider tests
-# ---------------------------------------------------------------------------
 
 
 def test_vendor_skills_provider_map_contains_expected_keys():
@@ -212,7 +200,6 @@ def test_unknown_vendor_provider_logs_warning(
     assert mock_mcp.add_provider.call_count == 0
     mock_logger.warning.assert_called()
     warning_call = mock_logger.warning.call_args
-    # First positional arg is the format string
     assert "Unknown skills provider" in warning_call[0][0]
 
 
@@ -237,11 +224,6 @@ def test_skills_reload_passed_to_vendor_providers(
     provider = calls[0][0][0]
     assert isinstance(provider, ClaudeSkillsProvider)
     assert provider._reload is True
-
-
-# ---------------------------------------------------------------------------
-# Default system prompt nudge tests
-# ---------------------------------------------------------------------------
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -360,11 +342,6 @@ def test_explicit_instructions_not_overridden(
     assert mock_mcp.instructions == "My explicit instructions."
 
 
-# ---------------------------------------------------------------------------
-# MCPSettings integration tests
-# ---------------------------------------------------------------------------
-
-
 def test_skills_reload_default_is_false():
     """skills_reload defaults to False."""
     assert MCPSettings().skills_reload is False
@@ -386,11 +363,6 @@ def test_include_exclude_tags_removed():
     settings = MCPSettings()
     assert not hasattr(settings, "include_tags")
     assert not hasattr(settings, "exclude_tags")
-
-
-# ---------------------------------------------------------------------------
-# StaticPrompt curly-brace safety (unchanged behaviour)
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

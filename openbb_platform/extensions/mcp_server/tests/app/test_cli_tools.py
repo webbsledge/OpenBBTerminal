@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.cli_tools``."""
 
-# pylint: disable=W0621
-
 import sys
 import types
 from typing import Any
@@ -13,9 +11,7 @@ from openbb_mcp_server.app import cli_tools
 
 @pytest.fixture
 def fake_dispatchers(monkeypatch):
-    """Stub out ``openbb_cli.dispatchers`` so tests don't need the real
-    package installed AND so we can capture dispatcher invocations.
-    """
+    """Stub out ``openbb_cli.dispatchers`` for capture-and-replay testing."""
 
     class FakeRequest:
         def __init__(self, command, params=None, id=None):
@@ -101,13 +97,8 @@ class FakeMCP:
         return decorator
 
 
-# ---------------------------------------------------------------------------
-# _openbb_cli_available
-# ---------------------------------------------------------------------------
-
-
 def test_openbb_cli_available_reports_false_when_missing(monkeypatch):
-    """When ``openbb_cli`` isn't importable, the gate returns False."""
+    """``_openbb_cli_available`` is False when ``openbb_cli`` isn't importable."""
     monkeypatch.setitem(sys.modules, "openbb_cli", None)
     monkeypatch.setitem(sys.modules, "openbb_cli.dispatchers", None)
     assert cli_tools._openbb_cli_available() is False
@@ -118,13 +109,8 @@ def test_openbb_cli_available_reports_true_when_present(fake_dispatchers):
     assert cli_tools._openbb_cli_available() is True
 
 
-# ---------------------------------------------------------------------------
-# register_cli_tools
-# ---------------------------------------------------------------------------
-
-
 def test_register_cli_tools_returns_false_when_missing(monkeypatch, caplog):
-    """No openbb-cli installed → register_cli_tools returns False + logs."""
+    """No openbb-cli installed: ``register_cli_tools`` returns False."""
     monkeypatch.setitem(sys.modules, "openbb_cli", None)
     monkeypatch.setitem(sys.modules, "openbb_cli.dispatchers", None)
 
@@ -146,14 +132,9 @@ def test_register_cli_tools_registers_three_tools(fake_dispatchers):
     }
 
 
-# ---------------------------------------------------------------------------
-# openbb_dispatch
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_dispatch_local_path(fake_dispatchers, monkeypatch):
-    """No server_url → LocalDispatcher used."""
+    """No ``server_url`` routes through ``LocalDispatcher``."""
     monkeypatch.delenv("OPENBB_SERVER_URL", raising=False)
     mcp = FakeMCP()
     cli_tools.register_cli_tools(mcp)
@@ -218,11 +199,6 @@ async def test_dispatch_caches_http_per_url(fake_dispatchers, monkeypatch):
     assert urls == ["https://one", "https://two"]
 
 
-# ---------------------------------------------------------------------------
-# openbb_batch_dispatch
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_batch_dispatch_runs_each_request(fake_dispatchers, monkeypatch):
     """Batch returns one result per input, in the same order."""
@@ -251,11 +227,6 @@ async def test_batch_dispatch_routes_to_http_when_url_set(
         requests=[{"command": "x"}], server_url="https://api"
     )
     assert out[0]["result"] == {"http_url": "https://api"}
-
-
-# ---------------------------------------------------------------------------
-# openbb_describe_command
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -339,18 +310,13 @@ async def test_describe_http_sync_method(fake_dispatchers, monkeypatch):
     assert out == {"sync_http": "y"}
 
 
-# ---------------------------------------------------------------------------
-# Helper coverage
-# ---------------------------------------------------------------------------
-
-
 def test_is_coroutine_function_helper():
     """``_is_coroutine_function`` mirrors ``inspect.iscoroutinefunction``."""
 
-    async def coro():  # pragma: no cover — only used for inspection
+    async def coro():  # pragma: no cover
         return None
 
-    def sync():  # pragma: no cover — only used for inspection
+    def sync():  # pragma: no cover
         return None
 
     assert cli_tools._is_coroutine_function(coro) is True

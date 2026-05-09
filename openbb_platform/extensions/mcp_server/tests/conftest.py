@@ -1,14 +1,6 @@
-"""Test bootstrap for ``openbb-mcp-server``.
-
-Pre-imports openbb-core submodules that the test suite patches via
-dotted ``mock.patch`` paths AND explicitly binds them as attributes on
-their parent namespace packages. ``openbb_core.api`` and
-``openbb_core.app.service`` are namespace packages on Python 3.10
-(no ``__init__.py``); ``__import__("openbb_core.api.app_loader")``
-populates ``sys.modules`` but doesn't always set ``app_loader`` as
-an attribute on ``openbb_core.api``, breaking ``mock.patch`` resolution.
-The explicit ``setattr`` after import locks the binding.
-"""
+"""Test bootstrap: pre-import openbb-core submodules and bind them as
+attributes on their namespace-package parents so ``mock.patch`` resolution
+works on Python 3.10."""
 
 import sys
 

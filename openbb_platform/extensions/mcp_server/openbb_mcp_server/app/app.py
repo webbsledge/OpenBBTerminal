@@ -1,7 +1,5 @@
 """OpenBB MCP Server."""
 
-# pylint: disable=C0302, R0912, W0212
-
 import asyncio
 import json
 import os
@@ -179,7 +177,7 @@ def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> None:
     try:
         with open(settings.server_prompts_file, encoding="utf-8") as f:
             prompts_json: list = json.load(f) or []
-    except Exception as e:  # pylint: disable=broad-except
+    except Exception as e:  # noqa: BLE001
         logger.error("Failed to load prompts from JSON file: %s", e)
         return
 
@@ -234,7 +232,7 @@ def _add_prompts_from_json(mcp: FastMCP, settings: MCPSettings) -> None:
                         argument_defaults[validated_arg["name"]] = validated_arg[
                             "default"
                         ]
-                except Exception as e:  # pylint: disable=broad-except
+                except Exception as e:  # noqa: BLE001
                     logger.error(
                         "Skipping argument definition in server prompt, %s, due to error: %s\nDefinition: %s",
                         prompt_name,
@@ -343,7 +341,6 @@ def _add_skills_default_prompt(mcp: FastMCP) -> None:
     logger.info("Added default system prompt with skill awareness nudge.")
 
 
-# pylint: disable=R0914,R0915
 def create_mcp_server(
     settings: MCPSettings,
     fastapi_app: FastAPI,
@@ -372,7 +369,6 @@ def create_mcp_server(
     """
     auth_provider = None
     if auth and isinstance(auth, list | tuple) and len(auth) == 2 and all(auth):
-        # pylint: disable=import-outside-toplevel
         from .auth import get_auth_provider
 
         auth_provider = get_auth_provider(settings)
@@ -401,7 +397,6 @@ def create_mcp_server(
                 }
             )
 
-    # pylint: disable=R0912
     def customize_components(
         route: HTTPRoute,
         component: OpenAPITool | OpenAPIResource | OpenAPIResourceTemplate,
@@ -946,7 +941,7 @@ async def stdio_main(mcp_server):
     def signal_handler():
         """Signal handler to exit the process immediately."""
         logger.info("Shutdown signal received. Terminating process.")
-        os._exit(0)  # pylint: disable=protected-access
+        os._exit(0)  # noqa: SLF001
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, signal_handler)

@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.main``."""
 
-# pylint: disable=W0621
-
 import sys
 from unittest.mock import patch
 
@@ -9,9 +7,7 @@ import pytest
 
 
 def test_main_help_short_circuits(capsys):
-    """``--help`` prints LAUNCH_SCRIPT_DESCRIPTION and exits 0 BEFORE
-    triggering ``bootstrap_launcher_config`` or any heavy import.
-    """
+    """``--help`` exits 0 before any heavy import runs."""
     from openbb_mcp_server import main as main_mod
 
     with patch.object(sys, "argv", ["openbb-mcp", "--help"]):
@@ -23,7 +19,7 @@ def test_main_help_short_circuits(capsys):
 
 
 def test_main_dash_h_short_circuits(capsys):
-    """``-h`` short-form behaves the same as ``--help``."""
+    """``-h`` matches ``--help`` behavior."""
     from openbb_mcp_server import main as main_mod
 
     with patch.object(sys, "argv", ["openbb-mcp", "-h"]):
@@ -59,16 +55,12 @@ def test_main_help_uses_args_module_constant(capsys):
             main_mod.main()
 
     out = capsys.readouterr().out
-    # The help string is what we stored — sanity check a uniquely-shaped
-    # snippet from the docstring is present in stdout.
     assert "openbb.toml" in out
     assert LAUNCH_SCRIPT_DESCRIPTION.strip() in out
 
 
 def test_back_compat_main_alias_in_app_app():
-    """The legacy ``openbb_mcp_server.app.app:main`` symbol still
-    resolves and forwards to the new entry point.
-    """
+    """Legacy ``openbb_mcp_server.app.app:main`` forwards to the new entry."""
     from openbb_mcp_server.app import app as app_mod
 
     with (

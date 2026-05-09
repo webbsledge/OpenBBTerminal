@@ -1,13 +1,4 @@
-"""Coverage-completion tests for ``openbb_mcp_server.app.app`` helpers.
-
-The existing ``test_app.py`` covers the happy paths through
-``create_mcp_server`` and a few utility helpers; this file fills in
-the remaining branches (defensive error arms, prompt loaders, the
-install_skill flow, SSEShutdownWrapper edge cases) so the module
-hits 100% line coverage.
-"""
-
-# pylint: disable=W0621
+"""Coverage-completion tests for ``openbb_mcp_server.app.app`` helpers."""
 
 import asyncio
 from pathlib import Path
@@ -38,9 +29,7 @@ from openbb_mcp_server.models.settings import MCPSettings
 
 @pytest.fixture(autouse=True)
 def _patch_transforms():
-    """Stub PromptsAsTools/ResourcesAsTools transforms — both require a
-    real FastMCP server instance and our tests use mocks.
-    """
+    """Stub ``PromptsAsTools`` / ``ResourcesAsTools`` for mock-based tests."""
     with (
         patch("openbb_mcp_server.app.app.PromptsAsTools", new=MagicMock()),
         patch("openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()),
@@ -50,17 +39,13 @@ def _patch_transforms():
 
 @pytest.fixture(autouse=True)
 def _propagate_app_logger():
-    """The fastmcp ``get_logger`` returns a child logger that doesn't always
-    propagate to root by default. Force-propagate so ``caplog`` sees
-    everything ``app.py`` emits.
-    """
+    """Force-propagate the fastmcp child logger so ``caplog`` sees its output."""
     import logging as _logging
 
     from openbb_mcp_server.app.app import logger as app_logger
 
     original = app_logger.propagate
     app_logger.propagate = True
-    # Walk parents to ensure the propagation chain is unbroken.
     parent = app_logger.parent
     parents_state: list = []
     while parent and parent is not _logging.root:
@@ -71,11 +56,6 @@ def _propagate_app_logger():
     app_logger.propagate = original
     for p, prop in parents_state:
         p.propagate = prop
-
-
-# ---------------------------------------------------------------------------
-# Lightweight helpers
-# ---------------------------------------------------------------------------
 
 
 def test_get_mcp_config_handles_non_dict_value():
@@ -142,11 +122,6 @@ def test_read_system_prompt_file_returns_none_for_directory(tmp_path):
     assert out is None
 
 
-# ---------------------------------------------------------------------------
-# _build_runtime_middleware
-# ---------------------------------------------------------------------------
-
-
 def test_build_runtime_middleware_uses_system_service_cors():
     """CORS allow-list is read from SystemService and wrapped in Middleware."""
     fake_cors = MagicMock(
@@ -167,11 +142,6 @@ def test_build_runtime_middleware_uses_system_service_cors():
     assert len(out) == 1
     mw = out[0]
     assert mw.kwargs["allow_origins"] == ["https://example.com"]
-
-
-# ---------------------------------------------------------------------------
-# _setup_file_system_prompt
-# ---------------------------------------------------------------------------
 
 
 def test_setup_file_system_prompt_no_op_when_file_missing(tmp_path):
@@ -227,11 +197,6 @@ def test_setup_file_system_prompt_does_not_overwrite_instructions(tmp_path):
     assert mcp.instructions == "preexisting"
 
 
-# ---------------------------------------------------------------------------
-# _add_prompts_from_json
-# ---------------------------------------------------------------------------
-
-
 def test_add_prompts_from_json_no_op_when_file_unset():
     """Missing settings.server_prompts_file → no-op."""
     mcp = MagicMock()
@@ -263,7 +228,6 @@ def test_add_prompts_from_json_skips_invalid_entries(tmp_path, caplog):
 
     _add_prompts_from_json(mcp, settings)
 
-    # Four were skipped; one was added.
     assert mcp.add_prompt.call_count == 1
 
 
@@ -291,11 +255,6 @@ def test_add_prompts_from_json_argument_with_default_is_optional(tmp_path):
     mcp = MagicMock()
     _add_prompts_from_json(mcp, settings)
     assert mcp.add_prompt.call_count == 1
-
-
-# ---------------------------------------------------------------------------
-# _add_inline_prompts
-# ---------------------------------------------------------------------------
 
 
 def test_add_inline_prompts_registers_each(monkeypatch):
@@ -343,11 +302,6 @@ def test_add_inline_prompts_with_argument_default(caplog):
     assert mcp.add_prompt.called
 
 
-# ---------------------------------------------------------------------------
-# _add_skills_default_prompt
-# ---------------------------------------------------------------------------
-
-
 def test_add_skills_default_prompt_registers_and_sets_instructions():
     """Adds a default skill-awareness prompt and seeds instructions."""
     mcp = MagicMock()
@@ -355,11 +309,6 @@ def test_add_skills_default_prompt_registers_and_sets_instructions():
     _add_skills_default_prompt(mcp)
     mcp.add_prompt.assert_called_once()
     assert "skill" in (mcp.instructions or "").lower()
-
-
-# ---------------------------------------------------------------------------
-# customize_components — branch coverage
-# ---------------------------------------------------------------------------
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -548,9 +497,6 @@ def test_customize_components_invalid_mcp_config_logged(
         return_value=ValueError("bad config"),
     ):
         customize(http_route, tool)
-    # Tool customization continued — a fresh name was assigned. Single-
-    # segment local path → category="test", subcategory="general",
-    # tool="test" → name = "test_test".
     assert tool.name == "test_test"
 
 
@@ -639,9 +585,6 @@ def test_customize_components_enable_override_in_mcp_config(
         parameters={},
         director=MagicMock(),
     )
-    # Customize fires the ``enable_override`` branch — observable via
-    # the category_index registration call (always invoked once the
-    # tool body completes successfully through the override branch).
     customize(http_route, tool)
     idx.register.assert_called_once()
 
@@ -652,9 +595,7 @@ def test_customize_components_enable_override_in_mcp_config(
 def test_customize_components_disable_override_explicit_false(
     mock_from_fastapi, mock_category_index, mock_process_routes
 ):
-    """``mcp_config.enable=False`` overrides the category-default match
-    by SKIPPING addition to ``_enabled_tools``.
-    """
+    """``mcp_config.enable=False`` skips a category-default match."""
     settings = MCPSettings(default_tool_categories=["all"])  # type: ignore
     fastapi_app = FastAPI()
 
@@ -691,7 +632,6 @@ def test_customize_components_disable_override_explicit_false(
         director=MagicMock(),
     )
     customize(http_route, tool)
-    # Description trimming + tag merge happened.
     assert "custom" in tool.tags
 
 
@@ -749,11 +689,6 @@ def test_customize_components_attaches_prompt_metadata(
     assert "explain_it" in (tool.description or "")
 
 
-# ---------------------------------------------------------------------------
-# create_mcp_server skill-loading + tool-discovery branches
-# ---------------------------------------------------------------------------
-
-
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
 @patch("openbb_mcp_server.app.app.CategoryIndex")
 @patch("openbb_mcp_server.app.app.FastMCP.from_fastapi")
@@ -808,7 +743,6 @@ def test_create_mcp_server_loads_vendor_skills(
     mock_from_fastapi.return_value = mock_mcp
 
     create_mcp_server(settings, fastapi_app)
-    # claude was added; unknown_vendor was logged + skipped.
     assert mock_mcp.add_provider.called
 
 
@@ -848,8 +782,6 @@ def test_create_mcp_server_registers_admin_tools_with_discovery(
 
     create_mcp_server(settings, fastapi_app)
 
-    # available_categories, available_tools, activate_tools,
-    # deactivate_tools, activate_category, install_skill — six tools.
     tool_names = {fn.__name__ for fn in captured_tools}
     assert {
         "available_categories",
@@ -920,11 +852,6 @@ def test_create_mcp_server_with_auth_provider(
     mock_auth.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# SSEShutdownWrapper
-# ---------------------------------------------------------------------------
-
-
 def test_sse_shutdown_wrapper_handles_runtime_error_with_response_started():
     """Mid-stream RuntimeError after ``response.start`` is swallowed."""
     sent: list = []
@@ -946,39 +873,25 @@ def test_sse_shutdown_wrapper_handles_runtime_error_with_response_started():
             _send,
         )
     )
-    # Response start landed; body raised the suppressed RuntimeError.
     assert sent[0]["type"] == "http.response.start"
 
 
 def test_sse_shutdown_wrapper_synthesizes_response_when_runtime_error_pre_start():
-    """RuntimeError from send BEFORE the start frame fires the wrapper's
-    synthesize-200-fallback branch.
-
-    Triggered when the inner app's first send is an ``http.response.body``
-    (no start yet) and the underlying transport raises the canonical
-    ``Expected ASGI message ...`` error mid-shutdown.
-    """
+    """Body-before-start RuntimeError fires the synthesize-200 fallback."""
     sent: list = []
     underlying_error_count = {"n": 0}
 
     async def _send(message):
-        # Body-without-start triggers the canonical RuntimeError in real
-        # ASGI servers — simulate that here on the FIRST body frame, then
-        # accept the wrapper's synthesized ``response.start`` and
-        # ``response.body`` frames normally.
         if message["type"] == "http.response.body" and underlying_error_count["n"] == 0:
             underlying_error_count["n"] += 1
             raise RuntimeError("Expected ASGI message 'http.response.start'")
         sent.append(message)
 
     async def _inner(scope, receive, send):
-        # Inner app skips ``response.start`` and goes straight to a body
-        # frame — that's the malformed ASGI sequence the wrapper protects.
         await send({"type": "http.response.body", "body": b"oops"})
 
     wrapped = SSEShutdownWrapper(_inner)
     asyncio.run(wrapped({"type": "http", "path": "/sse/"}, MagicMock(), _send))
-    # Wrapper's synthetic 200 + 'Connection closed' body landed on send.
     assert any(
         m["type"] == "http.response.body" and b"Connection closed" in m.get("body", b"")
         for m in sent
@@ -1009,24 +922,16 @@ def test_sse_shutdown_wrapper_passes_through_unrelated_message_types():
     """Messages other than http.response.start/body fall through unchanged."""
 
     async def _send(message):
-        # Should not be invoked because safe_send only forwards
-        # specific message types.
         return message
 
     sent: list = []
 
     async def _inner(scope, receive, send):
-        # Send an unknown type to exercise the no-op fall-through.
         await send({"type": "http.disconnect"})
 
     wrapped = SSEShutdownWrapper(_inner)
     asyncio.run(wrapped({"type": "http", "path": "/sse/"}, MagicMock(), _send))
     assert sent == []
-
-
-# ---------------------------------------------------------------------------
-# stdio_main
-# ---------------------------------------------------------------------------
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -1073,8 +978,6 @@ def test_customize_components_compresses_output_schema(
     )
     tool.output_schema = {"bar": {"type": "string"}}  # type: ignore
     customize(http_route, tool)
-    # No assertion on schema content — coverage of the branch is what
-    # matters; compress_schema is a fastmcp utility we don't redefine.
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -1083,8 +986,7 @@ def test_customize_components_compresses_output_schema(
 def test_customize_components_should_enable_false_fallback(
     mock_from_fastapi, mock_category_index, mock_process_routes
 ):
-    """When no enable override AND no matching tag → should_enable=False."""
-    # default_tool_categories list has a name that won't match the route.
+    """No enable override AND no matching tag → should_enable=False."""
     settings = MCPSettings(default_tool_categories=["nonexistent"])  # type: ignore
     fastapi_app = FastAPI()
 
@@ -1121,7 +1023,6 @@ def test_customize_components_should_enable_false_fallback(
         director=MagicMock(),
     )
     customize(http_route, tool)
-    # No mcp.enable call expected — the tool stayed disabled.
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -1130,9 +1031,7 @@ def test_customize_components_should_enable_false_fallback(
 def test_create_mcp_server_fixed_toolset_calls_enable(
     mock_from_fastapi, mock_category_index, mock_process_routes
 ):
-    """In fixed-toolset mode (discovery off) with matched tools, ``mcp.enable``
-    is called with the resolved toolset.
-    """
+    """Fixed-toolset mode with matches calls ``mcp.enable`` on the toolset."""
     settings = MCPSettings(default_tool_categories=["equity"])  # type: ignore
     fastapi_app = FastAPI()
 
@@ -1143,9 +1042,6 @@ def test_create_mcp_server_fixed_toolset_calls_enable(
     route = next(r for r in fastapi_app.routes if isinstance(r, APIRoute))
     route.openapi_extra = {}
 
-    # Component callback is invoked from inside FastMCP.from_fastapi —
-    # simulate that by populating the _enabled_tools set via a stub
-    # callback that fires synchronously during create_mcp_server.
     mock_processed = MagicMock()
     mock_processed.route_lookup = {("/api/v1/equity/price", "GET"): route}
     mock_processed.route_maps = []
@@ -1159,7 +1055,6 @@ def test_create_mcp_server_fixed_toolset_calls_enable(
     mock_mcp = MagicMock()
 
     def _from_fastapi(**kwargs):
-        # Trigger the customize function so _enabled_tools gets populated.
         customize = kwargs["mcp_component_fn"]
         http_route = HTTPRoute(path="/api/v1/equity/price", method="GET")
         tool = OpenAPITool(
@@ -1170,7 +1065,6 @@ def test_create_mcp_server_fixed_toolset_calls_enable(
             parameters={},
             director=MagicMock(),
         )
-        # Tag the tool so it matches default_tool_categories=["equity"].
         tool.tags.add("equity")
         customize(http_route, tool)
         return mock_mcp
@@ -1179,11 +1073,6 @@ def test_create_mcp_server_fixed_toolset_calls_enable(
 
     create_mcp_server(settings, fastapi_app)
     mock_mcp.enable.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# install_skill tool
-# ---------------------------------------------------------------------------
 
 
 @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
@@ -1413,12 +1302,7 @@ def test_install_skill_unknown_target_raises(
 def test_install_skill_targets_vendor_provider(
     mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
-    """``target='claude'`` writes into the matching vendor SkillsDirectoryProvider.
-
-    ``_VENDOR_SKILLS_PROVIDERS`` is monkeypatched with a stub vendor
-    class so we can construct a writable instance with a controlled
-    root — the real ClaudeSkillsProvider has hardcoded roots.
-    """
+    """``target='claude'`` writes into the matching vendor SkillsDirectoryProvider."""
     from fastmcp.server.providers.skills import SkillsDirectoryProvider
 
     class _FakeClaude(SkillsDirectoryProvider):
@@ -1501,9 +1385,7 @@ def test_install_skill_targets_vendor_provider(
 def test_install_skill_skips_non_skills_directory_providers(
     mock_from_fastapi, mock_category_index, mock_process_routes, tmp_path
 ):
-    """Non-SkillsDirectoryProvider providers in mcp.providers are skipped
-    during target lookup — exercises the ``continue`` arm.
-    """
+    """Non-SkillsDirectoryProvider entries in ``mcp.providers`` are skipped."""
     from fastmcp.server.providers.skills import SkillsDirectoryProvider
 
     skills_root = tmp_path / "skills"
@@ -1527,8 +1409,6 @@ def test_install_skill_skips_non_skills_directory_providers(
         instructions = None
 
         def __init__(self):
-            # First a non-skills provider (a bare object) — must be
-            # SKIPPED via the ``continue``. Then the real bundled provider.
             self.providers = [
                 object(),
                 SkillsDirectoryProvider(roots=skills_root.resolve()),
@@ -1657,7 +1537,6 @@ def test_install_skill_unknown_target_lists_vendor_options(
                 )
             )
     msg = str(exc_info.value)
-    # Both vendors enumerated in available targets.
     assert "claude" in msg
     assert "cursor" in msg
 
@@ -1729,23 +1608,11 @@ def test_install_skill_provider_with_empty_roots_raises(
     create_mcp_server(settings, FastAPI())
 
     install_skill = captured_tools["install_skill"]
-    # bundled lookup matches via roots set membership — empty _roots means
-    # bundled won't match, falling through to "not found" error. To
-    # exercise the empty-roots branch we'd need the lookup to succeed
-    # but _roots to then be empty — point default_skills_dir at the
-    # provider's (empty) root by short-circuiting it via a re-resolve.
     settings.default_skills_dir = str(skills_root.resolve())
-    provider._roots = [skills_root.resolve()]  # noqa: SLF001 — match for lookup
-    # Now make _roots empty AFTER the match, so the line-825 branch fires.
+    provider._roots = [skills_root.resolve()]  # noqa: SLF001
     original_get = provider._roots
 
     async def _run_with_emptied_roots():
-        # We need the lookup to find provider, then see empty _roots.
-        # The lookup is ``if bundled_root in provider._roots`` so we can't
-        # empty it before. Instead, monkey-patch the provider's _roots
-        # attribute to a sentinel that satisfies ``in`` but is empty for
-        # length checks.
-
         class _RootsSentinel(list):
             def __contains__(self, _item):
                 return True
@@ -1831,11 +1698,9 @@ def test_install_skill_updates_existing(
 
     install_skill = captured_tools["install_skill"]
 
-    # Install once.
     asyncio.run(
         install_skill(skill_name="dup", files={"SKILL.md": "v1"}, target="bundled")
     )
-    # Install again.
     out = asyncio.run(
         install_skill(skill_name="dup", files={"SKILL.md": "v2"}, target="bundled")
     )
@@ -1866,8 +1731,6 @@ async def test_stdio_main_signal_handler_calls_os_exit(monkeypatch):
     server.run = MagicMock(return_value=None)
 
     await stdio_main(server)
-    # Trigger the captured signal handler — patches os._exit so the test
-    # process doesn't actually exit.
     with patch.object(app_module.os, "_exit") as mock_exit:
         captured["handler"]()
     mock_exit.assert_called_once_with(0)

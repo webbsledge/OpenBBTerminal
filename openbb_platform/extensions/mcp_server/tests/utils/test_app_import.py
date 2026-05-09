@@ -1,13 +1,4 @@
-"""Unit tests for the ``openbb_mcp_server.utils.app_import`` shim.
-
-The shim re-exports ``import_app`` and ``parse_args`` from the V5
-locations under ``openbb_mcp_server.app.bootstrap`` /
-``.app.args``. These tests verify both the lazy ``__getattr__``
-re-export (so external scripts that imported from the legacy path
-keep working) AND the underlying behavior of the new modules.
-"""
-
-# pylint: disable=W0621
+"""Unit tests for the ``openbb_mcp_server.utils.app_import`` shim."""
 
 import sys
 from pathlib import Path
@@ -40,15 +31,8 @@ def not_a_factory():
     return app_file
 
 
-# ---------------------------------------------------------------------------
-# Compat-shim wiring
-# ---------------------------------------------------------------------------
-
-
 def test_shim_lazy_resolution_matches_source():
-    """``utils.app_import.import_app`` re-exports
-    ``app.bootstrap.import_app`` via lazy ``__getattr__``.
-    """
+    """``utils.app_import.import_app`` re-exports ``app.bootstrap.import_app``."""
     from openbb_mcp_server.app import bootstrap as bootstrap_mod
     from openbb_mcp_server.utils import app_import as shim
 
@@ -82,18 +66,11 @@ def test_shim_dir_lists_lazy_targets():
 
 
 def test_shim_cl_doc_proxies_launch_script_description():
-    """The legacy ``cl_doc`` name maps to the new
-    ``LAUNCH_SCRIPT_DESCRIPTION`` constant on ``app.args``.
-    """
+    """Legacy ``cl_doc`` resolves to ``app.args.LAUNCH_SCRIPT_DESCRIPTION``."""
     from openbb_mcp_server.app import args as args_mod
     from openbb_mcp_server.utils import app_import as shim
 
     assert shim.cl_doc is args_mod.LAUNCH_SCRIPT_DESCRIPTION
-
-
-# ---------------------------------------------------------------------------
-# import_app behavior
-# ---------------------------------------------------------------------------
 
 
 def test_import_app_from_module_colon_notation(dummy_app_file: Path):
@@ -138,9 +115,7 @@ def test_import_app_factory_not_callable(dummy_app_file: Path):
 
 
 def test_import_app_factory_warning_when_flag_omitted(dummy_app_file: Path, capsys):
-    """Without ``factory=True``, a callable is still invoked but a soft
-    warning is emitted to stdout — mirrors uvicorn's behavior.
-    """
+    """Without ``factory=True``, a callable is invoked and a soft warning prints."""
     app = import_app(f"{dummy_app_file}:create_app")
     assert isinstance(app, FastAPI)
     captured = capsys.readouterr()
@@ -168,9 +143,7 @@ def test_import_app_attribute_not_found(dummy_app_file: Path):
 def test_import_app_module_colon_with_failed_import_falls_back_to_file(
     tmp_path: Path, monkeypatch
 ):
-    """``some.module:app`` where ``some.module`` isn't importable falls
-    back to treating the prefix as a file path (with ``.py`` appended).
-    """
+    """Unimportable ``module:app`` falls back to a ``module.py`` file lookup."""
     app_content = """
 from fastapi import FastAPI
 
@@ -181,9 +154,6 @@ app = FastAPI(title="Fallback App")
     monkeypatch.chdir(tmp_path)
 
     try:
-        # ``fallback_app:app`` — there's no module named ``fallback_app``
-        # importable from any sys.path entry, so the loader falls back
-        # to ``fallback_app.py`` in the current directory.
         app = import_app("fallback_app:app")
         assert isinstance(app, FastAPI)
         assert app.title == "Fallback App"
@@ -194,17 +164,10 @@ app = FastAPI(title="Fallback App")
 def test_import_app_module_colon_with_failed_import_raises_when_file_missing(
     tmp_path: Path, monkeypatch
 ):
-    """If both the module import fails AND the file doesn't exist, the
-    error message names both attempts.
-    """
+    """Both module import and file fallback failing yields ``Neither module``."""
     monkeypatch.chdir(tmp_path)
     with pytest.raises(FileNotFoundError, match="Neither module"):
         import_app("does_not_exist:app")
-
-
-# ---------------------------------------------------------------------------
-# parse_args behavior — new dict-shaped API
-# ---------------------------------------------------------------------------
 
 
 def test_parse_args_simple():
@@ -260,8 +223,6 @@ def test_parse_args_help():
 
 def test_parse_args_factory_no_name_error(tmp_path: Path):
     """``--factory true --name ""`` for a path without a colon raises."""
-    # Use a real file to bypass the import_app file-existence check; the
-    # ValueError fires on the name check before import_app runs.
     app_file = tmp_path / "some_app.py"
     app_file.write_text("from fastapi import FastAPI\napp = FastAPI()\n")
 
@@ -285,14 +246,7 @@ def test_parse_args_factory_no_name_error(tmp_path: Path):
 
 
 def test_parse_args_factory_no_name_error_with_windows_drive_path():
-    """``--app C:\\\\path\\\\app.py --factory true --name ""`` still raises.
-
-    Regression for the bug where ``parse_args`` treated the Windows
-    drive-letter colon as ``module:attr`` notation, split on it, and
-    populated ``--name`` with the path tail — letting the
-    factory-needs-name check pass and the import attempt to use
-    ``"\\path\\app.py"`` as the FastAPI attribute name.
-    """
+    """Windows drive-letter path doesn't fool the factory-name check."""
     test_args = [
         "openbb-mcp",
         "--app",
@@ -313,11 +267,7 @@ def test_parse_args_factory_no_name_error_with_windows_drive_path():
 
 
 def test_parse_args_module_colon_notation_extracts_name(tmp_path: Path):
-    """``--app module.path:create_app`` still pulls ``create_app`` out
-    as the factory name even when ``--name`` is left at its default.
-    Confirms the drive-letter heuristic doesn't break legitimate
-    ``module:attr`` parsing.
-    """
+    """``--app PATH:create_app`` resolves ``create_app`` as the factory name."""
     app_file = tmp_path / "factory_app.py"
     app_file.write_text(
         "from fastapi import FastAPI\n"
@@ -391,11 +341,6 @@ def test_parse_args_spec_and_app_mutually_exclusive(tmp_path: Path):
         pytest.raises(ValueError, match="--spec and --app are mutually exclusive"),
     ):
         parse_args()
-
-
-# =============================================================================
-# Path Handling Tests - Cross-Platform Compatibility
-# =============================================================================
 
 
 class TestPathHandling:

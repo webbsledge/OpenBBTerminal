@@ -1,7 +1,5 @@
 """Unit tests for server prompts functionality."""
 
-# pylint: disable=protected-access,unused-argument
-
 import json
 from unittest.mock import MagicMock, patch
 

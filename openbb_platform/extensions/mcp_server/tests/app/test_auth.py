@@ -10,8 +10,6 @@ from starlette.requests import Request
 from openbb_mcp_server.app.auth import TokenAuthProvider, get_auth_provider
 from openbb_mcp_server.models.settings import MCPSettings
 
-# pylint: disable=W0621
-
 
 @pytest.fixture
 def mock_settings():

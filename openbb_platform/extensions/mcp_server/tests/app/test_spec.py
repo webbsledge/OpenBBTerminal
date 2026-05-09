@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.spec``."""
 
-# pylint: disable=W0621
-
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,22 +25,10 @@ from openbb_mcp_server.app.spec import (
 
 
 def _stamp(spec: dict) -> dict:
-    """Stamp ``spec`` with a fresh ``content_sha256`` so it loads.
-
-    ``content_sha256`` is required on every spec — every helper that
-    writes a spec to disk (or feeds one to ``build_app_from_spec``)
-    runs the dict through this so the integrity check passes. The
-    stamp is computed AFTER any other field edits the test makes,
-    matching the openbb-cli generator's stamp-at-write semantics.
-    """
+    """Stamp ``spec`` with a fresh ``content_sha256`` so it loads."""
     spec = {k: v for k, v in spec.items() if k != "content_sha256"}
     spec["content_sha256"] = _content_hash(spec)
     return spec
-
-
-# ---------------------------------------------------------------------------
-# Fixture
-# ---------------------------------------------------------------------------
 
 
 SAMPLE_SPEC: dict = {
@@ -104,11 +90,6 @@ def spec_file(tmp_path):
     return f
 
 
-# ---------------------------------------------------------------------------
-# load_spec
-# ---------------------------------------------------------------------------
-
-
 def test_load_spec_returns_dict(spec_file):
     """A valid spec file parses cleanly."""
     spec = load_spec(spec_file)
@@ -163,11 +144,6 @@ def test_load_spec_missing_commands(tmp_path):
         load_spec(f)
 
 
-# ---------------------------------------------------------------------------
-# Spec provenance + integrity verification
-# ---------------------------------------------------------------------------
-
-
 def test_load_spec_rejects_structurally_invalid_command(tmp_path):
     """Pydantic schema rejects a command missing ``url_path``/``method``."""
     f = tmp_path / "bad.spec"
@@ -185,9 +161,7 @@ def test_load_spec_rejects_structurally_invalid_command(tmp_path):
 
 
 def test_load_spec_rejects_non_string_base_url_via_pydantic(tmp_path):
-    """A ``base_url`` that's the wrong type still fails with the legacy
-    error message (the structural check runs after the legacy guards).
-    """
+    """A non-string ``base_url`` fails with the legacy error message."""
     f = tmp_path / "bad.spec"
     f.write_text(json.dumps({"version": 5, "base_url": 42, "commands": {}}))
     with pytest.raises(ValueError, match="base_url"):
@@ -195,9 +169,7 @@ def test_load_spec_rejects_non_string_base_url_via_pydantic(tmp_path):
 
 
 def test_load_spec_accepts_optional_provenance_fields(tmp_path):
-    """``generator``/``generated_at``/``source_url``/``api_version`` are
-    optional; their presence is preserved on the returned dict.
-    """
+    """Optional provenance fields are preserved on the returned dict."""
     payload = _stamp(
         {
             "version": 5,
@@ -241,7 +213,7 @@ def test_load_spec_rejects_tampered_content_hash(tmp_path):
         "version": 5,
         "base_url": "https://x",
         "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
-        "content_sha256": "0" * 64,  # deliberately wrong
+        "content_sha256": "0" * 64,
     }
     f = tmp_path / "tampered.spec"
     f.write_text(json.dumps(payload))
@@ -250,10 +222,7 @@ def test_load_spec_rejects_tampered_content_hash(tmp_path):
 
 
 def test_load_spec_rejects_spec_missing_content_sha256(tmp_path):
-    """``content_sha256`` is REQUIRED — every openbb-cli spec carries
-    one, so an absent field indicates corruption / forgery and the
-    launcher refuses to load.
-    """
+    """A spec without ``content_sha256`` is rejected."""
     payload = {
         "version": 5,
         "base_url": "https://x",
@@ -266,9 +235,7 @@ def test_load_spec_rejects_spec_missing_content_sha256(tmp_path):
 
 
 def test_content_hash_is_stable_across_key_order():
-    """Hashing is canonical (sorted keys) so payload dict ordering doesn't
-    move the digest.
-    """
+    """Hashing is canonical (sorted keys); dict ordering doesn't move it."""
     from openbb_mcp_server.app.spec import _content_hash
 
     a = {"version": 5, "base_url": "x", "commands": {}}
@@ -301,10 +268,7 @@ def test_load_spec_accepts_deploy_config_hash_pin(tmp_path):
 
 
 def test_load_spec_rejects_when_deploy_config_pin_mismatches(tmp_path):
-    """``expected_content_sha256`` mismatch → ValueError with explicit
-    ``deploy-config pin check`` wording so ops can distinguish a
-    config-pin failure from in-file tampering.
-    """
+    """``expected_content_sha256`` mismatch raises with ``deploy-config pin check``."""
     payload = _stamp(
         {
             "version": 5,
@@ -319,9 +283,7 @@ def test_load_spec_rejects_when_deploy_config_pin_mismatches(tmp_path):
 
 
 def test_load_spec_deploy_pin_works_alongside_in_file_hash(tmp_path):
-    """In-file ``content_sha256`` (always present) AND
-    ``expected_content_sha256`` matching → both checks pass.
-    """
+    """Matching in-file hash and ``expected_content_sha256`` both pass."""
     payload = _stamp(
         {
             "version": 5,
@@ -336,10 +298,7 @@ def test_load_spec_deploy_pin_works_alongside_in_file_hash(tmp_path):
 
 
 def test_build_app_from_spec_exposes_provenance_metadata(tmp_path):
-    """Every recorded provenance field flows onto ``app.state`` so
-    callers (telemetry, MCP clients, custom middleware) can fingerprint
-    the active spec.
-    """
+    """Provenance fields flow onto ``app.state`` for downstream callers."""
     payload = _stamp(
         {
             "version": 5,
@@ -364,11 +323,6 @@ def test_build_app_from_spec_exposes_provenance_metadata(tmp_path):
     assert state.openbb_spec_source_url == "https://upstream.example.com/openapi.json"
     assert state.openbb_spec_content_sha256 == payload["content_sha256"]
     assert state.openbb_spec_api_version == "3.1.0"
-
-
-# ---------------------------------------------------------------------------
-# build_apps_from_specs — multi-spec mounting
-# ---------------------------------------------------------------------------
 
 
 def _make_spec_dict(base_url: str = "https://x", cmd_path: str = "/p") -> dict:
@@ -477,11 +431,7 @@ def test_build_apps_from_specs_state_carries_provenance(tmp_path):
 
 
 def test_build_apps_from_specs_per_spec_middleware_hooks_applied(monkeypatch):
-    """Per-spec ``middleware_hooks`` flow through to the sub-app's
-    middleware stack (validated by counting registered middleware
-    classes — Starlette can't expose dispatch handles at runtime in a
-    way ty handles cleanly).
-    """
+    """Per-spec ``middleware_hooks`` flow through to the sub-app's stack."""
     import sys
     import types
 
@@ -489,7 +439,7 @@ def test_build_apps_from_specs_per_spec_middleware_hooks_applied(monkeypatch):
 
     mod = types.ModuleType("test_multi_spec_hooks_mw")
 
-    async def mw_hook(request, call_next):  # pragma: no cover — registration only
+    async def mw_hook(request, call_next):  # pragma: no cover
         return await call_next(request)
 
     mod.mw_hook = mw_hook
@@ -503,7 +453,6 @@ def test_build_apps_from_specs_per_spec_middleware_hooks_applied(monkeypatch):
             }
         }
     )
-    # Find the mounted sub-app's user middleware list.
     from starlette.routing import Mount
 
     for route in parent.routes:
@@ -519,9 +468,7 @@ def test_build_apps_from_specs_per_spec_middleware_hooks_applied(monkeypatch):
 
 
 def test_build_apps_from_specs_per_spec_auth_hooks_applied(monkeypatch):
-    """Per-spec ``auth_hooks`` flow through identically — the auth list
-    runs as the outermost layer of that sub-app's middleware stack.
-    """
+    """Per-spec ``auth_hooks`` flow through identically to middleware hooks."""
     import sys
     import types
 
@@ -575,11 +522,6 @@ def test_build_apps_from_specs_rejects_non_string_hook_entry():
         build_apps_from_specs({"a": {"spec": _make_spec_dict(), "auth_hooks": [123]}})
 
 
-# ---------------------------------------------------------------------------
-# _spec_param_to_openapi + synthesize_openapi_from_spec
-# ---------------------------------------------------------------------------
-
-
 def test_spec_param_to_openapi_scalar():
     """Scalar params produce a flat schema with type, default, enum, description."""
     out = _spec_param_to_openapi(
@@ -619,7 +561,6 @@ def test_synthesize_openapi_from_spec_basic():
     assert doc["openapi"] == "3.1.0"
     assert "/v1/ping" in doc["paths"]
     assert "/v1/items" in doc["paths"]
-    # Malformed entries skipped.
     assert "skip_me" not in str(doc["paths"])
     ping = doc["paths"]["/v1/ping"]["get"]
     assert ping["operationId"] == "ping"
@@ -655,11 +596,6 @@ def test_synthesize_openapi_command_without_response_schema():
     assert doc["paths"]["/y"]["get"]["responses"]["200"] == {
         "content": {"application/json": {}}
     }
-
-
-# ---------------------------------------------------------------------------
-# build_app_from_spec
-# ---------------------------------------------------------------------------
 
 
 def test_build_app_from_spec_state(spec_file):
@@ -713,11 +649,6 @@ def test_build_app_from_spec_skips_malformed_params(tmp_path):
     assert any(r.path == "/x" for r in app.routes)
 
 
-# ---------------------------------------------------------------------------
-# Header filters
-# ---------------------------------------------------------------------------
-
-
 def test_filter_request_headers_drops_hop_by_hop():
     """Hop-by-hop headers are stripped before forwarding upstream."""
     out = _filter_request_headers(
@@ -730,16 +661,6 @@ def test_filter_response_headers_drops_hop_by_hop():
     """Same on the response side."""
     out = _filter_response_headers({"X": "keep", "Transfer-Encoding": "drop"})
     assert out == {"X": "keep"}
-
-
-# ---------------------------------------------------------------------------
-# _rewrite_query_string
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# _substitute_path_params
-# ---------------------------------------------------------------------------
 
 
 def test_substitute_path_params_replaces_placeholders():
@@ -774,9 +695,7 @@ def test_substitute_path_params_ignores_extra_kwargs():
 
 
 def test_build_app_from_spec_resolves_path_params(monkeypatch):
-    """End-to-end: a synthesized route with a path param hits the upstream
-    URL with the param value substituted (not the template).
-    """
+    """A synthesized route with a path param hits upstream with the param substituted."""
     spec = {
         "version": 5,
         "base_url": "https://upstream.example.com",
@@ -829,7 +748,6 @@ def test_build_app_from_spec_resolves_path_params(monkeypatch):
     client = TestClient(app)
     response = client.get("/breakdown/asset_class")
     assert response.status_code == 200
-    # The upstream URL has the resolved value, not ``{axis}``.
     assert captured["url"].endswith("/breakdown/asset_class")
     assert "{axis}" not in captured["url"]
 
@@ -851,11 +769,6 @@ def test_rewrite_query_string_keeps_blank_values():
     """``?foo=`` round-trips correctly."""
     out = _rewrite_query_string("foo=", {})
     assert out == "foo="
-
-
-# ---------------------------------------------------------------------------
-# _trim_uniform_zero_time_*
-# ---------------------------------------------------------------------------
 
 
 def test_trim_uniform_zero_time_columns_top_level_list():
@@ -895,9 +808,7 @@ def test_trim_uniform_zero_time_columns_dict_without_envelope_passes_through():
 
 
 def test_trim_uniform_zero_time_columns_envelope_no_op_returns_payload():
-    """Envelope dict whose inner list needs no trimming returns the
-    original payload (same identity).
-    """
+    """Envelope dict whose inner list needs no trimming returns same identity."""
     payload = {"results": [{"d": "2024-01-01T13:45:00"}]}
     out = _trim_uniform_zero_time_columns(payload)
     assert out is payload
@@ -906,7 +817,6 @@ def test_trim_uniform_zero_time_columns_envelope_no_op_returns_payload():
 def test_trim_uniform_zero_time_in_records_skips_non_dict_records():
     """Heterogeneous lists with non-dict entries flow through untouched."""
     out = _trim_uniform_zero_time_in_records([{"d": "2024-01-01T00:00:00"}, "scalar"])
-    # The scalar doesn't disqualify the column trim, but it stays as-is.
     assert "scalar" in out
     assert out[0] == {"d": "2024-01-01"}
 
@@ -928,11 +838,6 @@ def test_trim_uniform_zero_time_in_records_mixed_string_and_number_skipped():
     src = [{"x": 1}, {"x": "2024-01-01T00:00:00"}]
     out = _trim_uniform_zero_time_in_records(src)
     assert out is src  # unchanged identity
-
-
-# ---------------------------------------------------------------------------
-# _proxy_request
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -977,9 +882,7 @@ async def test_proxy_request_forwards_and_strips_zero_time():
 
 
 def test_build_app_from_spec_serves_via_test_client(monkeypatch, spec_file):
-    """The synthesized app passes a Starlette TestClient round-trip; the
-    proxy handler is exercised end-to-end with a stubbed aiohttp.
-    """
+    """The synthesized app passes a Starlette TestClient round-trip."""
     app = build_app_from_spec(load_spec(spec_file))
 
     captured: dict = {}
@@ -1021,7 +924,6 @@ def test_build_app_from_spec_serves_via_test_client(monkeypatch, spec_file):
     response = client.get("/v1/ping?limit=10")
     assert response.status_code == 200
     assert response.json() == [{"date": "2024-01-01"}]
-    # The wire_name_map renamed ``limit`` → ``$limit`` upstream.
     assert "%24limit=10" in captured["url"]
 
 
@@ -1066,10 +968,6 @@ def test_proxy_post_body_is_forwarded(monkeypatch, spec_file):
     client = TestClient(app)
     response = client.post("/v1/items", json={"name": "x"})
     assert response.status_code == 201
-    # Starlette's TestClient JSON-encodes without whitespace, so the
-    # forwarded body matches whatever httpx produces — assert by parsing
-    # rather than byte-equality so the test isn't coupled to encoder
-    # whitespace conventions.
     assert json.loads(captured["data"]) == {"name": "x"}
 
 

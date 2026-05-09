@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.config``."""
 
-# pylint: disable=W0621
-
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -31,11 +29,6 @@ def _reset_bootstrap_state():
     reset_bootstrapped_config()
 
 
-# ---------------------------------------------------------------------------
-# extract_config_file_from_argv
-# ---------------------------------------------------------------------------
-
-
 def test_extract_config_file_two_token_form():
     """``--config-file PATH`` extracts PATH."""
     assert (
@@ -58,9 +51,7 @@ def test_extract_config_file_missing_returns_none():
 
 
 def test_extract_config_file_empty_value_returns_none():
-    """``--config-file --next-flag`` is treated as missing — the next token
-    is another flag, not a value.
-    """
+    """``--config-file --other-flag`` returns None (next token is a flag)."""
     assert extract_config_file_from_argv(["--config-file", "--port"]) is None
 
 
@@ -78,11 +69,6 @@ def test_extract_config_file_defaults_to_sys_argv():
 def test_extract_config_file_trailing_flag_no_value():
     """``--config-file`` at end of argv (no value follows) returns None."""
     assert extract_config_file_from_argv(["--config-file"]) is None
-
-
-# ---------------------------------------------------------------------------
-# resolve_explicit_config_path
-# ---------------------------------------------------------------------------
 
 
 def test_resolve_explicit_cli_wins():
@@ -113,11 +99,6 @@ def test_resolve_explicit_uses_os_environ_by_default(monkeypatch):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setenv("OPENBB_MCP_CONFIG", "/from/env.toml")
     assert resolve_explicit_config_path() == "/from/env.toml"
-
-
-# ---------------------------------------------------------------------------
-# load_launcher_config
-# ---------------------------------------------------------------------------
 
 
 def test_load_launcher_config_runs_cascade(tmp_path):
@@ -152,11 +133,6 @@ def test_load_launcher_config_tolerates_missing_explicit_path(tmp_path):
     assert isinstance(out, dict)
 
 
-# ---------------------------------------------------------------------------
-# expand_env_refs
-# ---------------------------------------------------------------------------
-
-
 def test_expand_env_refs_substitutes_present_vars():
     """``$VAR`` and ``${VAR}`` resolve from the supplied env mapping."""
     env = {"FOO": "bar", "PORT": "8000"}
@@ -185,11 +161,6 @@ def test_expand_env_refs_leaves_invalid_dollar_alone():
     expanded, missing = expand_env_refs("$5 dollars - $@", {})
     assert expanded == "$5 dollars - $@"
     assert missing == []
-
-
-# ---------------------------------------------------------------------------
-# apply_launcher_env
-# ---------------------------------------------------------------------------
 
 
 def test_apply_launcher_env_sets_unset_keys():
@@ -240,11 +211,6 @@ def test_apply_launcher_env_defaults_to_os_environ(monkeypatch):
     assert os.environ.get("MCP_TEST_APPLY_DEFAULT") == "yes"
 
 
-# ---------------------------------------------------------------------------
-# merge_launcher_kwargs
-# ---------------------------------------------------------------------------
-
-
 def test_merge_launcher_kwargs_cli_wins():
     """CLI kwargs override the launcher TOML defaults."""
     cli = {"port": "9999"}
@@ -259,11 +225,6 @@ def test_merge_launcher_kwargs_returns_cli_unchanged_when_no_section():
     cli = {"port": "9999"}
     assert merge_launcher_kwargs(cli, None) == cli
     assert merge_launcher_kwargs(cli, {}) == cli
-
-
-# ---------------------------------------------------------------------------
-# bootstrap_launcher_config + get / reset
-# ---------------------------------------------------------------------------
 
 
 def test_bootstrap_launcher_config_stores_result(tmp_path):
@@ -323,9 +284,7 @@ def test_extract_config_file_returns_none_when_value_missing_or_dash():
 
 
 def test_apply_launcher_env_populates_expanded_value_in_target():
-    """Order-of-insertion lets a later entry reference an earlier one
-    that was just applied within the same call.
-    """
+    """Later entries can reference earlier ones applied in the same call."""
     target: dict = {}
     applied = apply_launcher_env(
         {"BASE": "value", "DERIVED": "${BASE}-suffix"}, env=target
@@ -335,11 +294,10 @@ def test_apply_launcher_env_populates_expanded_value_in_target():
 
 
 def test_load_launcher_config_apply_to_env_path(monkeypatch, tmp_path):
-    """Sanity: ``apply_to_env=True`` is accepted (delegates to core loader)."""
+    """``apply_to_env=True`` is accepted (delegates to core loader)."""
     monkeypatch.delenv("OPENBB_LOAD_APPLY_ENV_TEST", raising=False)
     cfg = tmp_path / "openbb.toml"
     cfg.write_text('[env]\nOPENBB_LOAD_APPLY_ENV_TEST = "1"\n')
-    # apply_to_services=False so no core mutations; apply_to_env passthrough.
     load_launcher_config(explicit_path=str(cfg), apply_to_services=False)
 
 

@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.app.launch_mcp`` and helpers."""
 
-# pylint: disable=W0621
-
 import asyncio
 from unittest.mock import MagicMock
 
@@ -10,9 +8,7 @@ import pytest
 
 @pytest.fixture
 def patch_app_module(monkeypatch):
-    """Reduce ``app.app`` to a controllable surface so launch_mcp can run
-    without standing up a real FastMCP transport.
-    """
+    """Stub ``app.app`` so ``launch_mcp`` runs without a real FastMCP transport."""
     from openbb_mcp_server.app import app as app_module
 
     fake_mcp_server = MagicMock(name="MCPServer")
@@ -65,9 +61,7 @@ def _patch_parse_args(
 
 
 def test_launch_mcp_streamable_http_runs(patch_app_module, monkeypatch):
-    """Streamable-HTTP transport spawns the MCP server with the merged
-    middleware list (CORS + hooks + SSE wrapper).
-    """
+    """Streamable-HTTP transport runs with the merged middleware list."""
     app_module = patch_app_module["module"]
     _patch_parse_args(monkeypatch, app_module)
     monkeypatch.setattr(
@@ -107,9 +101,7 @@ def test_launch_mcp_stdio_runs_via_asyncio(patch_app_module, monkeypatch):
 
 
 def test_launch_mcp_uses_imported_app_when_provided(patch_app_module, monkeypatch):
-    """When ``parse_args`` returns a non-None ``app``, it is preferred
-    over the default ``openbb_core.api.rest_api`` app.
-    """
+    """A non-None ``app`` from ``parse_args`` overrides the default REST app."""
     app_module = patch_app_module["module"]
     user_app = MagicMock(name="UserApp")
     _patch_parse_args(monkeypatch, app_module, app=user_app)
@@ -156,9 +148,7 @@ def test_launch_mcp_general_exception_exits_one(patch_app_module, monkeypatch):
 def test_launch_mcp_routes_hook_middleware_into_run_kwargs(
     patch_app_module, monkeypatch
 ):
-    """Auth + middleware hooks from the bootstrapped config flow into
-    the ``mcp.run(middleware=...)`` list.
-    """
+    """Auth + middleware hooks flow into the ``mcp.run(middleware=...)`` list."""
     app_module = patch_app_module["module"]
     _patch_parse_args(monkeypatch, app_module)
     monkeypatch.setattr(
@@ -208,9 +198,7 @@ def test_launch_mcp_passes_extra_uvicorn_kwargs(patch_app_module, monkeypatch):
 
 
 def test_launch_mcp_omits_uvicorn_config_when_empty(patch_app_module, monkeypatch):
-    """When http_run_kwargs has no ``uvicorn_config``, the kwarg is omitted
-    from the ``mcp.run`` call.
-    """
+    """Empty ``http_run_kwargs`` omits ``uvicorn_config`` from the run call."""
     app_module = patch_app_module["module"]
     _patch_parse_args(monkeypatch, app_module)
     monkeypatch.setattr(
@@ -225,11 +213,6 @@ def test_launch_mcp_omits_uvicorn_config_when_empty(patch_app_module, monkeypatc
     assert "uvicorn_config" not in kwargs
 
 
-# ---------------------------------------------------------------------------
-# stdio_main + SSEShutdownWrapper
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_stdio_main_invokes_run(monkeypatch):
     """``stdio_main`` ultimately calls ``mcp.run('stdio')`` via executor."""
@@ -238,9 +221,7 @@ async def test_stdio_main_invokes_run(monkeypatch):
     server = MagicMock(name="MCPServer")
     server.run = MagicMock(return_value=None)
 
-    # Prevent signal handler installation from blowing up under pytest's
-    # event loop (loops created by pytest-asyncio may not support
-    # ``add_signal_handler`` on macOS).
+    # pytest-asyncio loops on macOS may not support ``add_signal_handler``.
     fake_loop = MagicMock()
     fake_loop.add_signal_handler = MagicMock()
 

@@ -1,7 +1,5 @@
 """Tests for ``openbb_mcp_server.app.args``."""
 
-# pylint: disable=W0621
-
 import json
 import sys
 from unittest.mock import patch
@@ -16,9 +14,6 @@ from openbb_mcp_server.app.args import (
 )
 from openbb_mcp_server.app.spec import _content_hash
 
-# ``content_sha256`` is required on every spec — stamp the canonical
-# hash at module load so every test that writes ``SAMPLE_SPEC`` to
-# disk produces a spec ``load_spec`` will accept.
 SAMPLE_SPEC: dict = {
     "version": 5,
     "base_url": "https://upstream.example.com",
@@ -37,11 +32,6 @@ def _reset_state():
     reset_bootstrapped_config()
     yield
     reset_bootstrapped_config()
-
-
-# ---------------------------------------------------------------------------
-# _expand_spec_headers
-# ---------------------------------------------------------------------------
 
 
 def test_expand_spec_headers_substitutes(monkeypatch):
@@ -72,11 +62,6 @@ def test_expand_spec_headers_skips_non_string_keys():
     assert 1 not in out
 
 
-# ---------------------------------------------------------------------------
-# parse_args — basic shape
-# ---------------------------------------------------------------------------
-
-
 def test_parse_args_returns_expected_dict_shape():
     """Default invocation returns the documented dict structure."""
     with patch.object(sys, "argv", ["openbb-mcp"]):
@@ -100,11 +85,6 @@ def test_launch_script_description_documents_key_flags():
     """Sanity check the docstring covers the flags we care about."""
     for flag in ("--app", "--spec", "--config-file", "--transport"):
         assert flag in LAUNCH_SCRIPT_DESCRIPTION
-
-
-# ---------------------------------------------------------------------------
-# Flag normalization
-# ---------------------------------------------------------------------------
 
 
 def test_parse_args_use_colors_pair():
@@ -132,12 +112,7 @@ def test_parse_args_json_value_decoded():
 
 
 def test_parse_args_invalid_json_falls_back_to_string():
-    """Malformed JSON-shaped value drops back to raw string.
-
-    Value must START with ``[`` AND END with ``]`` to enter the JSON
-    branch — ``[bad]`` does, but its body isn't valid JSON, so the
-    JSONDecodeError fallback runs.
-    """
+    """Malformed JSON-shaped value drops back to raw string."""
     with patch.object(sys, "argv", ["openbb-mcp", "--something", "[bad-json]"]):
         out = parse_args()
         assert out["uvicorn_overrides"]["something"] == "[bad-json]"
@@ -148,11 +123,6 @@ def test_parse_args_bare_flag_is_true():
     with patch.object(sys, "argv", ["openbb-mcp", "--lonely"]):
         out = parse_args()
         assert out["uvicorn_overrides"]["lonely"] is True
-
-
-# ---------------------------------------------------------------------------
-# MCP-specific routing
-# ---------------------------------------------------------------------------
 
 
 def test_parse_args_mcp_overrides_routed():
@@ -191,11 +161,6 @@ def test_parse_args_uvicorn_passthrough_for_unknowns():
     ):
         out = parse_args()
         assert out["uvicorn_overrides"]["host"] == "0.0.0.0"  # noqa: S104
-
-
-# ---------------------------------------------------------------------------
-# --spec / --app
-# ---------------------------------------------------------------------------
 
 
 def test_parse_args_spec_loads_app(tmp_path):
@@ -270,14 +235,7 @@ def test_parse_args_factory_without_name_raises(tmp_path):
 
 
 def test_parse_args_factory_no_name_with_windows_drive_path():
-    """Windows drive-letter path doesn't fool the factory-name check.
-
-    Regression: ``parse_args`` used to do a bare ``if ":" in app_path``
-    and split on the colon to pick up ``module:attr`` names. On Windows
-    that turned ``C:\\path\\app.py`` into ``("C", "\\path\\app.py")``
-    and clobbered the empty ``--name`` with the path tail, slipping
-    past the factory-needs-name check.
-    """
+    """Windows drive-letter path doesn't fool the factory-name check."""
     test_args = [
         "openbb-mcp",
         "--app",
@@ -302,22 +260,15 @@ def test_is_module_colon_notation_detects_real_colon_notation():
 
 def test_is_module_colon_notation_rejects_bare_paths_and_drives():
     """Bare paths and Windows drive-letter paths do NOT qualify."""
-    # No colon at all.
     assert _is_module_colon_notation("/abs/path/app.py") is False
     assert _is_module_colon_notation("relative/app.py") is False
-    # Single drive-letter colon — only one colon, not module:attr.
     assert _is_module_colon_notation(r"C:\path\app.py") is False
     assert _is_module_colon_notation("D:/projects/app.py") is False
 
 
 def test_is_module_colon_notation_drive_letter_with_attr_suffix():
-    """``C:\\path\\app.py:create_app`` has TWO colons → module:attr."""
+    """``C:\\path\\app.py:create_app`` has two colons; treat as module:attr."""
     assert _is_module_colon_notation(r"C:\path\app.py:create_app") is True
-
-
-# ---------------------------------------------------------------------------
-# TOML overlay
-# ---------------------------------------------------------------------------
 
 
 def test_parse_args_loads_mcp_table_from_explicit_config(tmp_path):
@@ -326,7 +277,6 @@ def test_parse_args_loads_mcp_table_from_explicit_config(tmp_path):
     cfg.write_text(
         '[mcp]\nhost = "0.0.0.0"\nport = 7000\n'  # noqa: S104
     )
-    # No --host on CLI → picks up TOML default; --port given so CLI wins.
     with patch.object(
         sys,
         "argv",
@@ -371,12 +321,7 @@ Authorization = "Bearer $MCP_INJECTED_TOKEN"
 
 
 def test_parse_args_passes_deploy_config_hash_pin_to_load_spec(tmp_path):
-    """``[mcp.spec].content_sha256`` from the deploy TOML is forwarded
-    to ``load_spec`` — when it mismatches, ``parse_args`` raises with
-    the pin-check error so a misconfigured deployment fails at startup.
-    """
-    # Build a fully-stamped spec; the deploy TOML pins a deliberately
-    # wrong expected hash to trigger the pin-check failure.
+    """A mismatched ``[mcp.spec].content_sha256`` raises the pin-check error."""
     payload: dict = {
         "version": 5,
         "base_url": "https://upstream.example.com",
@@ -402,9 +347,7 @@ content_sha256 = "{"f" * 64}"
 
 
 def test_parse_args_deploy_config_hash_pin_matches(tmp_path):
-    """When ``[mcp.spec].content_sha256`` matches the recomputed hash,
-    the spec loads cleanly and the proxy app is built normally.
-    """
+    """A matching ``[mcp.spec].content_sha256`` lets the spec load cleanly."""
     payload: dict = {
         "version": 5,
         "base_url": "https://upstream.example.com",
@@ -431,15 +374,13 @@ content_sha256 = "{expected}"
 
 
 def test_collect_multi_spec_entries_filters_non_spec_subtables():
-    """Sibling tables under ``[mcp.spec]`` (``headers``/``auth``/...)
-    aren't mistaken for nested spec entries.
-    """
+    """Sibling tables under ``[mcp.spec]`` aren't treated as nested entries."""
     from openbb_mcp_server.app.args import _collect_multi_spec_entries
 
     section = {
-        "path": "/single.spec",  # single-spec sibling — not a nested entry
-        "headers": {"Authorization": "x"},  # not an entry (no path)
-        "equity": {"path": "/eq.spec"},  # legit nested entry
+        "path": "/single.spec",
+        "headers": {"Authorization": "x"},
+        "equity": {"path": "/eq.spec"},
         "scalar_value": "ignored",
     }
     out = _collect_multi_spec_entries(section)
@@ -509,9 +450,7 @@ path = "rel.spec"
 
 
 def test_parse_args_multi_spec_per_spec_content_sha256_pin(tmp_path):
-    """Each ``[mcp.spec.NAME]`` subtable's ``content_sha256`` flows to
-    that spec's ``load_spec`` — a mismatch on one entry kills startup.
-    """
+    """A mismatched per-spec ``content_sha256`` raises at parse_args time."""
     payload: dict = {
         "version": 5,
         "base_url": "https://x",
@@ -534,9 +473,7 @@ content_sha256 = "{"f" * 64}"
 
 
 def test_parse_args_multi_spec_with_per_spec_hooks(tmp_path, monkeypatch):
-    """Per-spec auth + middleware hooks land on the sub-app's middleware
-    stack via the parse_args → load_spec → build_apps_from_specs chain.
-    """
+    """Per-spec auth + middleware hooks land on the sub-app's middleware stack."""
     import types
 
     payload: dict = {
@@ -550,10 +487,10 @@ def test_parse_args_multi_spec_with_per_spec_hooks(tmp_path, monkeypatch):
 
     mod = types.ModuleType("test_multi_spec_args_hooks")
 
-    async def auth(request, call_next):  # pragma: no cover — registration only
+    async def auth(request, call_next):  # pragma: no cover
         return await call_next(request)
 
-    async def mw(request, call_next):  # pragma: no cover — registration only
+    async def mw(request, call_next):  # pragma: no cover
         return await call_next(request)
 
     mod.auth = auth
