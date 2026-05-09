@@ -74,21 +74,6 @@ jobs:
           restore-keys: |
             uv-${{ runner.os }}-py${{ matrix.python_version }}-
 
-      - name: Shim typing.no_type_check_decorator (Python 3.15)
-        # Python 3.15 removed ``typing.no_type_check_decorator`` per its
-        # deprecation cycle. ``beartype`` 0.22.9 (latest, transitively
-        # pulled by ``fastmcp -> key_value``) imports it unconditionally
-        # and fails at module load. Drop a ``sitecustomize.py`` shim
-        # that re-adds the name to ``typing`` so beartype imports clean
-        # until upstream beartype releases a 3.15-aware version.
-        if: matrix.python_version == '3.15'
-        working-directory: ${{ github.workspace }}
-        run: |
-          python -c "import sysconfig, pathlib; \
-            p = pathlib.Path(sysconfig.get_paths()['purelib']) / 'sitecustomize.py'; \
-            p.write_text('import typing\nif not hasattr(typing, \"no_type_check_decorator\"):\n    def no_type_check_decorator(decorator):\n        return decorator\n    typing.no_type_check_decorator = no_type_check_decorator\n'); \
-            print('wrote', p)"
-
       - name: Install openbb-mcp-server
         # ``--group dev`` pulls in openbb-devtools (pytest, pytest-cov,
         # pytest-asyncio, etc.) AND openbb-cli (so the cli_tools tests
@@ -116,6 +101,50 @@ jobs:
           python -m uv pip install --system pydantic
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
             python -m uv pip install --system -e . --group dev
+
+      - name: Patch beartype for Python 3.15
+        # ``beartype`` 0.22.9 (latest, transitively pulled by
+        # ``fastmcp -> key_value``) has two 3.15 incompatibilities:
+        #
+        # 1. Imports ``typing.no_type_check_decorator``, which 3.15
+        #    removed per its deprecation cycle. We re-add it via a
+        #    ``sitecustomize.py`` shim that runs at Python startup.
+        # 2. ``BeartypeSourceFileLoader.source_to_code`` overrides the
+        #    stdlib method with the old 3-arg signature; 3.15 added a
+        #    4th positional ``_optimize`` parameter, so every import
+        #    routed through beartype's claw hook fails. Rewrite the
+        #    override in-place to swallow extra args.
+        #
+        # Upstream beartype hasn't released a 3.15-aware version yet.
+        if: matrix.python_version == '3.15'
+        working-directory: ${{ github.workspace }}
+        run: |
+          python <<'PY'
+          import importlib.util, pathlib, sysconfig
+
+          # 1. typing shim via sitecustomize
+          purelib = pathlib.Path(sysconfig.get_paths()["purelib"])
+          shim = (
+              "import typing\n"
+              "if not hasattr(typing, 'no_type_check_decorator'):\n"
+              "    def no_type_check_decorator(decorator):\n"
+              "        return decorator\n"
+              "    typing.no_type_check_decorator = no_type_check_decorator\n"
+          )
+          (purelib / "sitecustomize.py").write_text(shim)
+
+          # 2. SourceFileLoader signature patch
+          spec = importlib.util.find_spec("beartype.claw._importlib._clawimpload")
+          p = pathlib.Path(spec.origin)
+          src = p.read_text()
+          new = src.replace(
+              "def source_to_code(self, data, path):",
+              "def source_to_code(self, data, path, *_args, **_kwargs):",
+          )
+          if new == src:
+              raise SystemExit("beartype source_to_code signature not found")
+          p.write_text(new)
+          PY
 
       - name: Run unit tests
         run: |
