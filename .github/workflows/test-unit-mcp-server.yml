@@ -74,6 +74,21 @@ jobs:
           restore-keys: |
             uv-${{ runner.os }}-py${{ matrix.python_version }}-
 
+      - name: Shim typing.no_type_check_decorator (Python 3.15)
+        # Python 3.15 removed ``typing.no_type_check_decorator`` per its
+        # deprecation cycle. ``beartype`` 0.22.9 (latest, transitively
+        # pulled by ``fastmcp -> key_value``) imports it unconditionally
+        # and fails at module load. Drop a ``sitecustomize.py`` shim
+        # that re-adds the name to ``typing`` so beartype imports clean
+        # until upstream beartype releases a 3.15-aware version.
+        if: matrix.python_version == '3.15'
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -c "import sysconfig, pathlib; \
+            p = pathlib.Path(sysconfig.get_paths()['purelib']) / 'sitecustomize.py'; \
+            p.write_text('import typing\nif not hasattr(typing, \"no_type_check_decorator\"):\n    def no_type_check_decorator(decorator):\n        return decorator\n    typing.no_type_check_decorator = no_type_check_decorator\n'); \
+            print('wrote', p)"
+
       - name: Install openbb-mcp-server
         # ``--group dev`` pulls in openbb-devtools (pytest, pytest-cov,
         # pytest-asyncio, etc.) AND openbb-cli (so the cli_tools tests
