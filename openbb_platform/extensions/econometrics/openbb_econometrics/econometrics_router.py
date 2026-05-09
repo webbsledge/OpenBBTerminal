@@ -9,67 +9,92 @@ from openbb_core.app.model.example import APIEx, PythonEx
 from openbb_core.app.model.obbject import OBBject
 from openbb_core.app.router import Router
 from openbb_core.provider.abstract.data import Data
-from pydantic import BaseModel, PositiveInt, model_serializer
+from pydantic import BaseModel, Field, PositiveInt
 
 router = Router(prefix="", description="Econometrics analysis tools.")
 
 
 class OLSRegressionResults(BaseModel):
-    """OLS Regression Results that serializes statsmodels objects."""
+    """OLS regression results extracted from a statsmodels fit.
 
-    model: Any
-    results: Any
+    Field shapes mirror the keys produced by the previous custom serializer
+    so OpenAPI consumers (the platform CLI's ``--describe``, generated SDKs,
+    docs) see the actual response surface instead of an opaque
+    ``additionalProperties: true`` stub.
+    """
 
-    class Config:
-        """Pydantic config."""
+    params: dict[str, float] = Field(
+        description="Estimated coefficient for each regressor (including the constant)."
+    )
+    rsquared: float = Field(description="Coefficient of determination R-squared.")
+    rsquared_adj: float = Field(description="Adjusted R-squared.")
+    fvalue: float | None = Field(
+        default=None, description="F-statistic for the joint significance test."
+    )
+    f_pvalue: float | None = Field(
+        default=None, description="P-value associated with the F-statistic."
+    )
+    aic: float = Field(description="Akaike information criterion.")
+    bic: float = Field(description="Bayesian information criterion.")
+    llf: float = Field(description="Log-likelihood of the fitted model.")
+    nobs: int = Field(description="Number of observations used in the fit.")
+    df_model: float = Field(description="Model degrees of freedom.")
+    df_resid: float = Field(description="Residual degrees of freedom.")
+    pvalues: dict[str, float] = Field(
+        description="Two-tailed p-value for each coefficient."
+    )
+    tvalues: dict[str, float] = Field(description="T-statistic for each coefficient.")
+    bse: dict[str, float] = Field(
+        description="Standard error for each coefficient estimate."
+    )
+    conf_int: dict[str, dict[str, float]] = Field(
+        description="Confidence interval bounds keyed by coefficient name."
+    )
 
-        arbitrary_types_allowed = True
-
-    @model_serializer
-    def serialize_model(self) -> dict:
-        """Serialize statsmodels objects to a dictionary."""
-        results = self.results
+    @classmethod
+    def from_statsmodels(cls, results: Any) -> "OLSRegressionResults":
+        """Build the response model from a fitted statsmodels regression result."""
         conf_int = results.conf_int()
         conf_int_dict = (
             conf_int.to_dict()
             if hasattr(conf_int, "to_dict")
             else conf_int.to_dict("index")
         )
-        return {
-            "params": (
+        return cls(
+            params=(
                 results.params.to_dict()
                 if hasattr(results.params, "to_dict")
                 else dict(results.params)
             ),
-            "rsquared": float(results.rsquared),
-            "rsquared_adj": float(results.rsquared_adj),
-            "fvalue": float(results.fvalue) if results.fvalue is not None else None,
-            "f_pvalue": (
+            rsquared=float(results.rsquared),
+            rsquared_adj=float(results.rsquared_adj),
+            fvalue=float(results.fvalue) if results.fvalue is not None else None,
+            f_pvalue=(
                 float(results.f_pvalue) if results.f_pvalue is not None else None
             ),
-            "aic": float(results.aic),
-            "bic": float(results.bic),
-            "llf": float(results.llf),
-            "nobs": int(results.nobs),
-            "df_model": float(results.df_model),
-            "df_resid": float(results.df_resid),
-            "pvalues": (
+            aic=float(results.aic),
+            bic=float(results.bic),
+            llf=float(results.llf),
+            nobs=int(results.nobs),
+            df_model=float(results.df_model),
+            df_resid=float(results.df_resid),
+            pvalues=(
                 results.pvalues.to_dict()
                 if hasattr(results.pvalues, "to_dict")
                 else dict(results.pvalues)
             ),
-            "tvalues": (
+            tvalues=(
                 results.tvalues.to_dict()
                 if hasattr(results.tvalues, "to_dict")
                 else dict(results.tvalues)
             ),
-            "bse": (
+            bse=(
                 results.bse.to_dict()
                 if hasattr(results.bse, "to_dict")
                 else dict(results.bse)
             ),
-            "conf_int": conf_int_dict,
-        }
+            conf_int=conf_int_dict,
+        )
 
 
 @router.command(
@@ -192,7 +217,7 @@ def ols_regression(
     y = get_target_column(basemodel_to_df(data), y_column)
     model = sm.OLS(y, X)
     results = model.fit()
-    return OBBject(results=OLSRegressionResults(model=model, results=results))
+    return OBBject(results=OLSRegressionResults.from_statsmodels(results))
 
 
 @router.command(

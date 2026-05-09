@@ -220,8 +220,8 @@ async def get_defined_screener(
 
 def get_expiration_month(symbol: str) -> str:
     """Get the expiration month for a given symbol."""
-    month = symbol.split(".")[0][-3]
-    year = "20" + symbol.split(".")[0][-2:]
+    month = symbol.split(".", maxsplit=1)[0][-3]
+    year = "20" + symbol.split(".", maxsplit=1)[0][-2:]
     return f"{year}-{MONTH_MAP[month]}"
 
 

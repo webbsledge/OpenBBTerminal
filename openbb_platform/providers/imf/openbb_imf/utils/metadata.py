@@ -955,7 +955,7 @@ class ImfMetadata:
 
         if is_country_dim and dataflow_id:
             # Try dataflow-specific ISO country codelist first
-            base_dataflow = dataflow_id.split("_")[0]
+            base_dataflow = dataflow_id.split("_", maxsplit=1)[0]
             add_candidate(f"CL_{base_dataflow}_ISO_COUNTRY")
             add_candidate(f"CL_{dataflow_id}_COUNTRY")
             add_candidate(f"CL_{base_dataflow}_COUNTRY")
@@ -968,7 +968,7 @@ class ImfMetadata:
                 add_candidate(f"CL_{dataflow_id}_COUNTRY")
                 add_candidate(f"CL_{dataflow_id}_COUNTRY_PUB")
             if "_" in dataflow_id:
-                base_dataflow = dataflow_id.split("_")[0]
+                base_dataflow = dataflow_id.split("_", maxsplit=1)[0]
                 add_candidate(f"CL_{base_dataflow}_{dim_id}")
                 add_candidate(f"CL_{base_dataflow}_{dim_id}_PUB")
 

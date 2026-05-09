@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastmcp.prompts.function_prompt import FunctionPrompt
+
 from openbb_mcp_server.app.app import _VENDOR_SKILLS_PROVIDERS, create_mcp_server
 from openbb_mcp_server.models.settings import MCPSettings
 
@@ -40,8 +41,9 @@ def _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes):
 
 @pytest.fixture(autouse=True)
 def _patch_transforms():
-    with patch("openbb_mcp_server.app.app.PromptsAsTools", new=MagicMock()), patch(
-        "openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()
+    with (
+        patch("openbb_mcp_server.app.app.PromptsAsTools", new=MagicMock()),
+        patch("openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()),
     ):
         yield
 
@@ -178,7 +180,9 @@ def test_multiple_vendor_providers_added(
         CursorSkillsProvider,
     )
 
-    settings = MCPSettings(default_skills_dir=None, skills_providers=["claude", "cursor"])  # type: ignore
+    settings = MCPSettings(
+        default_skills_dir=None, skills_providers=["claude", "cursor"]
+    )  # type: ignore
     mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
@@ -198,7 +202,9 @@ def test_unknown_vendor_provider_logs_warning(
     mock_from_fastapi, mock_category_index, mock_process_routes, mock_logger
 ):
     """Unknown provider names log a warning and do not crash."""
-    settings = MCPSettings(default_skills_dir=None, skills_providers=["unknown_provider"])  # type: ignore
+    settings = MCPSettings(
+        default_skills_dir=None, skills_providers=["unknown_provider"]
+    )  # type: ignore
     mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())
@@ -219,7 +225,9 @@ def test_skills_reload_passed_to_vendor_providers(
     """skills_reload=True is forwarded to vendor providers."""
     from fastmcp.server.providers.skills import ClaudeSkillsProvider
 
-    settings = MCPSettings(default_skills_dir=None, skills_providers=["claude"], skills_reload=True)  # type: ignore
+    settings = MCPSettings(
+        default_skills_dir=None, skills_providers=["claude"], skills_reload=True
+    )  # type: ignore
     mock_mcp = _make_mocks(mock_from_fastapi, mock_category_index, mock_process_routes)
 
     create_mcp_server(settings, FastAPI())

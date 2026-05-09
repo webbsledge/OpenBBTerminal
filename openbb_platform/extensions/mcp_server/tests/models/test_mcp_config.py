@@ -3,6 +3,8 @@
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
+
 from openbb_mcp_server.models.mcp_config import (
     ArgumentDefinitionModel,
     HTTPMethod,
@@ -11,7 +13,6 @@ from openbb_mcp_server.models.mcp_config import (
     is_valid_mcp_config,
     validate_mcp_config,
 )
-from pydantic import ValidationError
 
 
 def test_argument_definition_model():

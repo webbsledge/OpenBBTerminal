@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from mcp.types import TextContent
+
 from openbb_mcp_server.app.app import create_mcp_server
 from openbb_mcp_server.models.category_index import CategoryIndex
 from openbb_mcp_server.models.prompts import StaticPrompt
@@ -92,8 +93,9 @@ def _build_server(
 
 @pytest.fixture(autouse=True)
 def _patch_transforms():
-    with patch("openbb_mcp_server.app.app.PromptsAsTools", new=MagicMock()), patch(
-        "openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()
+    with (
+        patch("openbb_mcp_server.app.app.PromptsAsTools", new=MagicMock()),
+        patch("openbb_mcp_server.app.app.ResourcesAsTools", new=MagicMock()),
     ):
         yield
 
@@ -706,9 +708,9 @@ class TestBundledSkillRendering:
                 if not in_frontmatter and line.startswith("#"):
                     heading = line.lstrip("# ").strip()
                     break
-            assert (
-                heading == expected_heading
-            ), f"Skill '{skill_name}' heading mismatch: got '{heading}', expected '{expected_heading}'"
+            assert heading == expected_heading, (
+                f"Skill '{skill_name}' heading mismatch: got '{heading}', expected '{expected_heading}'"
+            )
 
 
 # ===================================================================
@@ -765,9 +767,9 @@ class TestSkillsIntegration:
             skill_file = SKILLS_DIR / skill_name / "SKILL.md"
             assert skill_file.exists(), f"Missing: {skill_file}"
             content = skill_file.read_text(encoding="utf-8")
-            assert (
-                len(content) > 500
-            ), f"Skill '{skill_name}' SKILL.md is suspiciously short ({len(content)} chars)"
+            assert len(content) > 500, (
+                f"Skill '{skill_name}' SKILL.md is suspiciously short ({len(content)} chars)"
+            )
 
     @patch("openbb_mcp_server.app.app.process_fastapi_routes_for_mcp")
     @patch("openbb_mcp_server.app.app.CategoryIndex")
@@ -798,6 +800,6 @@ class TestSkillsIntegration:
             for c in mock_mcp_instance.add_prompt.call_args_list
             if hasattr(c[0][0], "tags") and "skill" in c[0][0].tags
         ]
-        assert (
-            skill_prompt_calls == []
-        ), "Skills should not be registered as prompts in FastMCP v3 — use add_provider instead"
+        assert skill_prompt_calls == [], (
+            "Skills should not be registered as prompts in FastMCP v3 — use add_provider instead"
+        )

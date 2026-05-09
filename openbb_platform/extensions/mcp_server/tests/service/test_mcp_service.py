@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 from openbb_mcp_server.models.settings import MCPSettings
 from openbb_mcp_server.service.mcp_service import MCPService
 

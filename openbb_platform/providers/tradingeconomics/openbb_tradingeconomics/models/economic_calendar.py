@@ -123,7 +123,7 @@ class TEEconomicCalendarQueryParams(EconomicCalendarQueryParams):
     def importance_to_number(cls, v):
         """Convert importance to number."""
         string_to_value = {"low": 1, "medium": 2, "high": 3}
-        return string_to_value.get(v.lower(), None) if v else None
+        return string_to_value.get(v.lower()) if v else None
 
 
 class TEEconomicCalendarData(EconomicCalendarData):
