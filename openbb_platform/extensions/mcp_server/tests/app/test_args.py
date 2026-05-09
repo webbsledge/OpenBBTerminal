@@ -603,7 +603,7 @@ def test_parse_args_supports_top_level_spec_table(tmp_path):
 
 def test_parse_args_app_with_colon_strips_name_from_path(tmp_path):
     """``--app PATH:attr`` strips the colon-suffix name override."""
-    app_file = tmp_path / "appy.py"
+    app_file = tmp_path / "the_app.py"
     app_file.write_text(
         "from fastapi import FastAPI\nmy_app = FastAPI(title='Colon')\n"
     )
