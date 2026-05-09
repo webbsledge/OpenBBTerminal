@@ -120,20 +120,26 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           python <<'PY'
-          import importlib.util, pathlib, sysconfig
+          # 1. Patch typing in THIS process so the find_spec() below
+          # can actually import beartype without exploding.
+          import typing
+          if not hasattr(typing, "no_type_check_decorator"):
+              typing.no_type_check_decorator = lambda d: d
 
-          # 1. typing shim via sitecustomize
+          # 2. Persist the same shim as a sitecustomize so pytest's
+          # later Python process has it before beartype loads.
+          import pathlib, sysconfig
           purelib = pathlib.Path(sysconfig.get_paths()["purelib"])
-          shim = (
+          (purelib / "sitecustomize.py").write_text(
               "import typing\n"
               "if not hasattr(typing, 'no_type_check_decorator'):\n"
-              "    def no_type_check_decorator(decorator):\n"
-              "        return decorator\n"
-              "    typing.no_type_check_decorator = no_type_check_decorator\n"
+              "    typing.no_type_check_decorator = lambda d: d\n"
           )
-          (purelib / "sitecustomize.py").write_text(shim)
 
-          # 2. SourceFileLoader signature patch
+          # 3. Now safe to resolve beartype's claw loader and rewrite
+          # the SourceFileLoader override's signature for 3.15's new
+          # 4th positional ``_optimize`` parameter.
+          import importlib.util
           spec = importlib.util.find_spec("beartype.claw._importlib._clawimpload")
           p = pathlib.Path(spec.origin)
           src = p.read_text()
