@@ -401,6 +401,125 @@ def test_build_app_post_routes_marked_excluded_unless_special_type():
 
 
 # ---------------------------------------------------------------------------
+# _substitute_path_params — path-template resolution before forwarding
+# ---------------------------------------------------------------------------
+
+
+def test_substitute_path_params_replaces_placeholders():
+    """``{name}`` placeholders are replaced with the resolved value."""
+    from openbb_platform_api.app.spec import _substitute_path_params
+
+    out = _substitute_path_params("/breakdown/{axis}", {"axis": "asset_class"})
+    assert out == "/breakdown/asset_class"
+
+
+def test_substitute_path_params_url_quotes_special_characters():
+    """Values with slashes, spaces, etc. are URL-quoted (segment-safe)."""
+    from openbb_platform_api.app.spec import _substitute_path_params
+
+    out = _substitute_path_params("/items/{name}", {"name": "a b/c"})
+    assert out == "/items/a%20b%2Fc"
+
+
+def test_substitute_path_params_no_op_when_template_lacks_placeholders():
+    """Templates without ``{...}`` flow through unchanged."""
+    from openbb_platform_api.app.spec import _substitute_path_params
+
+    assert _substitute_path_params("/static/path", {"x": "y"}) == "/static/path"
+
+
+def test_substitute_path_params_handles_multiple_placeholders():
+    """Multi-segment templates substitute all matching keys."""
+    from openbb_platform_api.app.spec import _substitute_path_params
+
+    out = _substitute_path_params(
+        "/{cat}/{sub}/leaf", {"cat": "equity", "sub": "price"}
+    )
+    assert out == "/equity/price/leaf"
+
+
+def test_substitute_path_params_ignores_extra_kwargs():
+    """Kwargs without a matching placeholder are silently dropped."""
+    from openbb_platform_api.app.spec import _substitute_path_params
+
+    out = _substitute_path_params("/{x}", {"x": "1", "extra": "ignored"})
+    assert out == "/1"
+
+
+def test_build_app_resolves_path_params_before_forwarding(monkeypatch):
+    """End-to-end regression: a route with a ``{axis}`` template hits the
+    upstream URL with the param value substituted (not the template).
+
+    Caught against the BlackRock spec during the live integration test
+    of ``openbb-mcp`` — the same proxy machinery lives here.
+    """
+    from fastapi.testclient import TestClient
+
+    from openbb_platform_api.app.spec import build_app_from_spec
+
+    spec = {
+        "version": 5,
+        "base_url": "https://upstream.example.com",
+        "commands": {
+            "breakdown": {
+                "url_path": "/breakdown/{axis}",
+                "method": "get",
+                "parameters": [
+                    {
+                        "name": "axis",
+                        "in": "path",
+                        "type": "string",
+                        "required": True,
+                    }
+                ],
+            }
+        },
+    }
+    app = build_app_from_spec(spec)
+
+    captured: dict = {}
+
+    class _StubUpstreamCM:
+        def __init__(self):
+            self.headers = {"Content-Type": "application/json"}
+            self.status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def read(self):
+            return b"{}"
+
+    class _StubSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def request(self, method, url, *, data=None, headers=None):
+            captured["url"] = url
+            return _StubUpstreamCM()
+
+    import aiohttp
+
+    monkeypatch.setattr(aiohttp, "ClientSession", _StubSession)
+
+    client = TestClient(app)
+    response = client.get("/breakdown/asset_class")
+    assert response.status_code == 200
+    # Upstream URL has the resolved value, not ``{axis}``.
+    assert captured["url"].endswith("/breakdown/asset_class")
+    assert "{axis}" not in captured["url"]
+
+
+# ---------------------------------------------------------------------------
 # Proxy handler — request forwarding
 # ---------------------------------------------------------------------------
 

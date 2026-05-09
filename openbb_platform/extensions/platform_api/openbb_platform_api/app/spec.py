@@ -330,10 +330,19 @@ def build_app_from_spec(
         """
 
         async def handler(request: Request):
+            # Substitute FastAPI path-parameter placeholders
+            # (``{axis}`` etc.) with the resolved values from
+            # ``request.path_params`` before forwarding upstream.
+            # The spec records ``url_path`` in its template form
+            # (``/breakdown/{axis}``), so without substitution the
+            # upstream sees the literal ``{axis}`` and rejects the
+            # request — caught against the BlackRock spec during
+            # the live integration test.
+            resolved_path = _substitute_path_params(upstream_path, request.path_params)
             return await _proxy_request(
                 request,
                 method=method,
-                upstream_url=base_url + upstream_path,
+                upstream_url=base_url + resolved_path,
                 extra_headers=app.state.openbb_spec_extra_headers,
                 wire_name_map=wire_name_map,
             )
@@ -394,6 +403,28 @@ def build_app_from_spec(
         )
 
     return app
+
+
+def _substitute_path_params(template: str, params: dict[str, Any]) -> str:
+    """Replace FastAPI ``{name}`` path-param placeholders with resolved values.
+
+    The spec records URL paths in their template form
+    (``/breakdown/{axis}``). FastAPI parses path-params from incoming
+    requests into ``request.path_params``; we splice them back into
+    the template so the upstream URL is fully resolved before the
+    proxy hop. Each value is URL-quoted with ``safe=""`` so segments
+    containing slashes, spaces, or other special characters don't
+    corrupt the path. Templates without ``{...}`` placeholders flow
+    through unchanged.
+    """
+    from urllib.parse import quote
+
+    resolved = template
+    for name, value in params.items():
+        placeholder = "{" + str(name) + "}"
+        if placeholder in resolved:
+            resolved = resolved.replace(placeholder, quote(str(value), safe=""))
+    return resolved
 
 
 def _rewrite_query_string(
