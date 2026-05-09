@@ -69,9 +69,20 @@ jobs:
       - name: Install uv
         run: python -m pip install --upgrade pip uv
 
-      - name: Install openbb-core with dev tooling
+      - name: Install openbb-core
         working-directory: ${{ github.workspace }}/openbb_platform/core
-        run: uv pip install --system -e ".[pandas]" --group dev
+        run: uv pip install --system -e ".[pandas]"
+
+      - name: Install openbb-devtools (test toolchain)
+        # Install editable v2.0.0 BEFORE anything that depends on
+        # ``openbb-devtools``. core/pyproject.toml has no
+        # ``[tool.uv.sources]`` mapping for openbb-devtools, so a bare
+        # ``--group dev`` install would pull the stale PyPI v1.6.6,
+        # which drags in the abandoned ``pytest-freezegun==0.4.2`` —
+        # broken on Python 3.12+ because it imports the removed
+        # ``distutils`` module. Local v2.0.0 uses ``pytest-freezer``.
+        working-directory: ${{ github.workspace }}/openbb_platform/extensions/devtools
+        run: uv pip install --system -e .
 
       - name: Install openbb-cli
         working-directory: ${{ github.workspace }}/cli
