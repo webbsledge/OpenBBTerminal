@@ -121,9 +121,6 @@ def _load_main_with_mocks():
         "openbb_core.provider.utils.helpers": provider_utils_helpers_module,
     }
 
-    for name in list(modules):
-        sys.modules.pop(name, None)
-
     with patch.dict(sys.modules, modules):
         for cached in (
             "openbb_platform_api.main",
