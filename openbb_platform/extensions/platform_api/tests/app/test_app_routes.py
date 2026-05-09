@@ -12,34 +12,7 @@ The legacy ``tests/app/test_app.py`` exercises ``get_apps_json`` and
 
 import json
 import os
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
-
-
-def _restore_modules(saved: dict) -> None:
-    """Restore popped modules to ``sys.modules`` AND rebind them as
-    attributes on their parent packages.
-
-    Popping a submodule via ``sys.modules.pop("pkg.sub")`` doesn't
-    detach ``pkg.sub`` as an attribute on ``pkg``; if test code
-    triggers a re-import of ``sub`` the parent's attribute is
-    overwritten with the new instance, and writing the saved entry
-    back to ``sys.modules`` afterwards leaves the two out of sync —
-    ``import_module("pkg.sub")`` returns the saved instance, but
-    ``from pkg import sub`` returns the freshly-imported one. That
-    divergence causes downstream tests reading state through one path
-    and writing it through the other to silently see stale values.
-    """
-    for name, mod in saved.items():
-        if mod is not None:
-            sys.modules[name] = mod
-        else:
-            sys.modules.pop(name, None)
-        if "." in name:
-            parent_name, _, child = name.rpartition(".")
-            parent = sys.modules.get(parent_name)
-            if parent is not None and mod is not None:
-                setattr(parent, child, mod)
 
 
 def test_root_serves_landing_page_html(tmp_path):
@@ -359,7 +332,6 @@ def _reload_app_module_with_argv(argv: list, *, with_agents_route=False):
     cached_to_pop = [
         "openbb_platform_api.main",
         "openbb_platform_api.app.app",
-        "openbb_platform_api.service.widgets_service",
     ]
     saved = {name: sys.modules.pop(name, None) for name in cached_to_pop}
 
@@ -390,7 +362,12 @@ def _reload_app_module_with_argv(argv: list, *, with_agents_route=False):
         ):
             module = importlib.import_module("openbb_platform_api.app.app")
 
-    _restore_modules(saved)
+    # Restore caches.
+    for name in cached_to_pop:
+        if saved[name] is not None:
+            sys.modules[name] = saved[name]
+        else:
+            sys.modules.pop(name, None)
     return module
 
 
@@ -682,7 +659,6 @@ def test_get_widgets_handler_when_root_widgets_exists_returns_endpoint():
     cached_to_pop = [
         "openbb_platform_api.main",
         "openbb_platform_api.app.app",
-        "openbb_platform_api.service.widgets_service",
     ]
     saved = {name: _sys.modules.pop(name, None) for name in cached_to_pop}
 
@@ -710,7 +686,12 @@ def test_get_widgets_handler_when_root_widgets_exists_returns_endpoint():
     # The pre-existing route's endpoint is bound to ``module.get_widgets``.
     assert module.get_widgets is existing_widgets
 
-    _restore_modules(saved)
+    # Restore environment.
+    for name in cached_to_pop:
+        if saved[name] is not None:
+            _sys.modules[name] = saved[name]
+        else:
+            _sys.modules.pop(name, None)
 
 
 def test_main_help_short_circuit_skips_app_module_import():
@@ -728,7 +709,6 @@ def test_main_help_short_circuit_skips_app_module_import():
     cached_to_pop = [
         "openbb_platform_api.main",
         "openbb_platform_api.app.app",
-        "openbb_platform_api.service.widgets_service",
     ]
     for flag in ("--help", "-h"):
         saved = {name: _sys.modules.pop(name, None) for name in cached_to_pop}
@@ -752,7 +732,11 @@ def test_main_help_short_circuit_skips_app_module_import():
                 "the help short-circuit regressed."
             )
         finally:
-            _restore_modules(saved)
+            for name in cached_to_pop:
+                if saved[name] is not None:
+                    _sys.modules[name] = saved[name]
+                else:
+                    _sys.modules.pop(name, None)
 
 
 def test_app_skips_default_rest_api_import_when_user_app_supplied():
@@ -778,7 +762,6 @@ def test_app_skips_default_rest_api_import_when_user_app_supplied():
     cached_to_pop = [
         "openbb_platform_api.main",
         "openbb_platform_api.app.app",
-        "openbb_platform_api.service.widgets_service",
         # Crucially: clear ``openbb_core.api.rest_api`` so we can detect
         # whether the launcher's import path repopulates it.
         "openbb_core.api.rest_api",
@@ -823,7 +806,11 @@ def test_app_skips_default_rest_api_import_when_user_app_supplied():
     finally:
         # Restore environment so subsequent tests see the original
         # module table.
-        _restore_modules(saved)
+        for name in cached_to_pop:
+            if saved[name] is not None:
+                _sys.modules[name] = saved[name]
+            else:
+                _sys.modules.pop(name, None)
 
 
 # ---------------------------------------------------------------------------
@@ -860,7 +847,6 @@ def _reload_app_with_overrides(
     cached_to_pop = [
         "openbb_platform_api.main",
         "openbb_platform_api.app.app",
-        "openbb_platform_api.service.widgets_service",
     ]
     saved = {name: _sys.modules.pop(name, None) for name in cached_to_pop}
 
@@ -917,7 +903,11 @@ def _reload_app_with_overrides(
         _bs.check_for_platform_extensions = _orig_cfpe
         _sys_svc.SystemService = _orig_sys
 
-    _restore_modules(saved)
+    for name in cached_to_pop:
+        if saved[name] is not None:
+            _sys.modules[name] = saved[name]
+        else:
+            _sys.modules.pop(name, None)
     return module
 
 

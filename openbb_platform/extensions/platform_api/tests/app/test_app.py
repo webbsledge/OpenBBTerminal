@@ -125,21 +125,11 @@ def _load_main_with_mocks():
         sys.modules.pop(name, None)
 
     with patch.dict(sys.modules, modules):
-        # Drop every cached module that closes over the stubbed
-        # ``openbb_core`` deps so reimport binds the route-handler
-        # functions to *this* test's stub ``app`` rather than a
-        # previously cached one.
         for cached in (
             "openbb_platform_api.main",
             "openbb_platform_api.app.app",
-            "openbb_platform_api.app",
-            "openbb_platform_api.service.widgets_service",
-            "openbb_platform_api.service",
         ):
             sys.modules.pop(cached, None)
-        # Returning ``app.app`` (where the route handlers and module-
-        # level constants live) lets ``patch.object(main, "APPS_PATH",
-        # ...)`` patch the binding the handlers actually read.
         return importlib.import_module("openbb_platform_api.app.app")
 
 

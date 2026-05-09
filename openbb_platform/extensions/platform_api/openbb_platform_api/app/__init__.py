@@ -8,6 +8,7 @@
   registers route handlers, exposes ``main`` / ``launch_api``.
 """
 
+from openbb_platform_api.app import args, bootstrap
 from openbb_platform_api.app.args import LAUNCH_SCRIPT_DESCRIPTION, parse_args
 from openbb_platform_api.app.bootstrap import (
     check_for_platform_extensions,
@@ -16,6 +17,8 @@ from openbb_platform_api.app.bootstrap import (
 
 __all__ = [
     "LAUNCH_SCRIPT_DESCRIPTION",
+    "args",
+    "bootstrap",
     "check_for_platform_extensions",
     "import_app",
     "parse_args",
