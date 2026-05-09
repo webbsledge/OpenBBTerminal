@@ -60,9 +60,23 @@ jobs:
       - name: Install openbb-core (so ty can resolve runtime deps)
         run: pip install -e "./openbb_platform/core[pandas]" numpy
       - name: Install openbb-platform-api (so ty can resolve deepdiff/aiohttp)
-        run: pip install -e ./openbb_platform/extensions/platform_api
+        # Install runtime deps directly, then editable platform-api with
+        # ``--no-deps``. Going through pip's resolver against the editable
+        # local openbb-core@2.0.0 fails because pip re-checks PyPI for
+        # ``openbb-core>=2.0.0`` (max published is 1.6.9). The ``--no-deps``
+        # form skips that resolution since every dep is either pre-installed
+        # (openbb-core editable) or installed in this same step.
+        run: |
+          pip install "deepdiff>=8.6.2" "aiohttp" "tomli; python_version<'3.11'"
+          pip install -e ./openbb_platform/extensions/platform_api --no-deps
       - name: Install openbb-mcp-server (so ty can resolve fastmcp)
-        run: pip install -e ./openbb_platform/extensions/mcp_server
+        # Same pattern as platform-api — install fastmcp first, then the
+        # editable package with ``--no-deps`` so pip doesn't backtrack
+        # through fastmcp's transitive constraints and lose track of the
+        # already-installed editable openbb-core@2.0.0.
+        run: |
+          pip install "fastmcp>=3.2.0" "tomli; python_version<'3.11'"
+          pip install -e ./openbb_platform/extensions/mcp_server --no-deps
       - run: codespell --ignore-words=.codespell.ignore --skip="$(tr '\n' ',' < .codespell.skip | sed 's/,$//')" --quiet-level=2
       - run: |
           # Run linters for openbb_platform

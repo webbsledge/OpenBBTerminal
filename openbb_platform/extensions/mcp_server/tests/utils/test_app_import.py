@@ -284,6 +284,60 @@ def test_parse_args_factory_no_name_error(tmp_path: Path):
         parse_args()
 
 
+def test_parse_args_factory_no_name_error_with_windows_drive_path():
+    """``--app C:\\\\path\\\\app.py --factory true --name ""`` still raises.
+
+    Regression for the bug where ``parse_args`` treated the Windows
+    drive-letter colon as ``module:attr`` notation, split on it, and
+    populated ``--name`` with the path tail — letting the
+    factory-needs-name check pass and the import attempt to use
+    ``"\\path\\app.py"`` as the FastAPI attribute name.
+    """
+    test_args = [
+        "openbb-mcp",
+        "--app",
+        r"C:\Users\runner\AppData\Local\Temp\pytest\some_app.py",
+        "--factory",
+        "true",
+        "--name",
+        "",
+    ]
+    with (
+        patch.object(sys, "argv", test_args),
+        pytest.raises(
+            ValueError,
+            match="The factory function name must be provided to the --name parameter",
+        ),
+    ):
+        parse_args()
+
+
+def test_parse_args_module_colon_notation_extracts_name(tmp_path: Path):
+    """``--app module.path:create_app`` still pulls ``create_app`` out
+    as the factory name even when ``--name`` is left at its default.
+    Confirms the drive-letter heuristic doesn't break legitimate
+    ``module:attr`` parsing.
+    """
+    app_file = tmp_path / "factory_app.py"
+    app_file.write_text(
+        "from fastapi import FastAPI\n"
+        "def create_app():\n"
+        "    return FastAPI(title='Factory App')\n"
+    )
+
+    test_args = [
+        "openbb-mcp",
+        "--app",
+        f"{app_file}:create_app",
+        "--factory",
+        "true",
+    ]
+    with patch.object(sys, "argv", test_args):
+        result = parse_args()
+        assert isinstance(result["app"], FastAPI)
+        assert result["app"].title == "Factory App"
+
+
 def test_parse_args_uvicorn_passthrough():
     """Unrecognized launcher flags land in ``uvicorn_overrides``."""
     with patch.object(  # noqa: S104

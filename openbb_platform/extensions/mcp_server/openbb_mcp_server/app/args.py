@@ -16,6 +16,24 @@ from pathlib import Path
 _spec_headers_logger = logging.getLogger("openbb_mcp_server.spec.headers")
 
 
+def _is_module_colon_notation(app_path: str) -> bool:
+    r"""Tell colon-as-name from colon-as-Windows-drive.
+
+    Mirrors the helper in ``app.bootstrap`` so ``parse_args`` doesn't
+    treat the ``C:`` in a Windows absolute path as the start of
+    ``module:attr`` notation. Without this, ``--app C:\\path\\app.py``
+    splits on the drive-letter colon and clobbers ``--name`` with the
+    path tail.
+    """
+    if ":" not in app_path:
+        return False
+    if len(app_path) >= 2 and app_path[1] == ":" and app_path[0].isalpha():
+        # Drive-letter colon. Real ``module:attr`` after the path adds a
+        # second colon, so ``len(parts) > 2`` is the disambiguator.
+        return len(app_path.split(":")) > 2
+    return True
+
+
 def _collect_multi_spec_entries(spec_section: dict) -> dict[str, dict]:
     """Pick out ``[mcp.spec.NAME]`` subtables that look like spec entries.
 
@@ -286,8 +304,8 @@ def parse_args() -> dict:  # noqa: PLR0912
         _name = _kwargs.pop("name", "app")
         _factory = _kwargs.pop("factory", False)
 
-        if ":" in _app_path:
-            _app_instance_name = _app_path.split(":")[-1]
+        if _is_module_colon_notation(_app_path):
+            _app_instance_name = _app_path.rsplit(":", 1)[-1]
             _name = _app_instance_name if _app_instance_name else _name
 
         if _factory and not _name:
