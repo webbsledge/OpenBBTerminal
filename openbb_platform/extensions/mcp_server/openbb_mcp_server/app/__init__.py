@@ -12,21 +12,22 @@
 * ``app`` — the launcher entry point. Holds ``create_mcp_server`` and
   ``launch_mcp``.
 
-Submodules are imported here (rather than via the dotted ``from
-openbb_mcp_server.app.X import …`` form) so they're explicitly bound
-as attributes on this package — ``mock.patch`` resolution stays
-reliable across CPython 3.10's namespace-package quirk and any test
-ordering that re-imports cached parents.
+Each submodule is imported via ``import openbb_mcp_server.app.X`` —
+that form binds ``X`` as an attribute on the package after the
+submodule's body has finished, regardless of the parent package's
+own initialization state. The earlier ``from openbb_mcp_server.app
+import (X, ...)`` form tripped a partially-initialized-module
+ImportError on CPython 3.13 because the from-import resolves
+attributes against the in-progress package object before the
+implicit submodule fallback runs.
 """
 
-from openbb_mcp_server.app import (
-    args,
-    bootstrap,
-    cli_tools,
-    config,
-    middleware,
-    spec,
-)
+import openbb_mcp_server.app.args  # noqa: F401
+import openbb_mcp_server.app.bootstrap  # noqa: F401
+import openbb_mcp_server.app.cli_tools  # noqa: F401
+import openbb_mcp_server.app.config  # noqa: F401
+import openbb_mcp_server.app.middleware  # noqa: F401
+import openbb_mcp_server.app.spec  # noqa: F401
 
 __all__ = [
     "args",

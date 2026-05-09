@@ -1,10 +1,14 @@
 """Utility helpers for ``openbb-mcp``.
 
-Submodules bound explicitly so ``mock.patch`` finds them as
-attributes on this package (CPython 3.10 namespace-package quirk).
+Submodules bound explicitly via ``import openbb_mcp_server.utils.X``
+so ``mock.patch`` finds them as attributes on this package
+(CPython 3.10 namespace-package quirk) and so the package's own
+init doesn't trip CPython 3.13's partially-initialized-module
+ImportError on the ``from package import submodule`` form.
 """
 
-from openbb_mcp_server.utils import app_import, fastapi
+import openbb_mcp_server.utils.app_import  # noqa: F401
+import openbb_mcp_server.utils.fastapi  # noqa: F401
 
 __all__ = [
     "app_import",
