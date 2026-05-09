@@ -58,9 +58,18 @@ jobs:
       - name: Install uv
         run: pip install --upgrade pip uv
 
-      - name: Install openbb-core with dev tooling
+      - name: Install openbb-core
         working-directory: ${{ github.workspace }}/openbb_platform/core
-        run: uv pip install --system -e ".[pandas]" --group dev
+        run: uv pip install --system -e ".[pandas]"
+
+      - name: Install openbb-devtools (ruff + ty + codespell)
+        # Install editable v2.0.0 BEFORE anything that depends on
+        # ``openbb-devtools``. core/pyproject.toml has no
+        # ``[tool.uv.sources]`` mapping for openbb-devtools, so a bare
+        # ``--group dev`` install would pull the stale PyPI v1.6.6,
+        # which doesn't ship ``ty`` (added in v2.0.0).
+        working-directory: ${{ github.workspace }}/openbb_platform/extensions/devtools
+        run: uv pip install --system -e .
 
       - name: Install openbb-platform-api
         working-directory: ${{ github.workspace }}/openbb_platform/extensions/platform_api
