@@ -34,10 +34,13 @@ Trade-offs:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 #: Trailing ``T00:00:00`` patterns we treat as "no real time-of-day"
 #: when EVERY row in a response carries the same shape for a given
@@ -61,20 +64,124 @@ SUPPORTED_SPEC_VERSIONS: frozenset[int] = frozenset({5})
 
 
 # ---------------------------------------------------------------------------
-# Spec loading + structural validation
+# Spec provenance + structural compatibility models
+# ---------------------------------------------------------------------------
+#
+# Mirrors ``openbb_cli.dispatchers.spec.SpecDocument``. Inlining the model
+# (rather than importing from openbb-cli) keeps the launcher's runtime
+# dep tree light — the CLI's spec module pulls argparse translators and
+# openapi walkers that are pure deadweight here.
+
+
+class _CommandParameterModel(BaseModel):
+    """One parameter inside a command's ``parameters`` list."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    name: str
+    type: str = "string"
+    is_list: bool = False
+    required: bool = False
+    default: Any = None
+    choices: list[Any] = Field(default_factory=list)
+
+
+class _CommandSpecModel(BaseModel):
+    """One entry in ``spec["commands"]`` keyed by dotted command path."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url_path: str
+    method: str
+    parameters: list[_CommandParameterModel] = Field(default_factory=list)
+    request_body_schema: dict[str, Any] | None = None
+    response_schema: dict[str, Any] | None = None
+
+
+class _SpecDocumentModel(BaseModel):
+    """The on-disk shape of a ``.spec`` file.
+
+    Validation is structural: every required field must be present
+    with the declared type. ``content_sha256`` is required — every
+    spec produced by ``openbb-cli`` stamps the field at generation
+    time, so an absent value indicates either a corrupted file or
+    a hand-rolled forgery; either way the launcher refuses to load
+    it. Unknown fields are accepted so older launchers stay
+    forward-compat with future spec generators that introduce
+    optional metadata.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    version: int
+    base_url: str
+    api_prefix: str = ""
+    commands: dict[str, _CommandSpecModel]
+    content_sha256: str
+    routers: dict[str, Any] = Field(default_factory=dict)
+    reference: dict[str, Any] = Field(default_factory=dict)
+    generated_at: str | None = None
+    generator: str | None = None
+    source_url: str | None = None
+    api_version: str | None = None
+
+
+def _content_hash(spec_doc: dict[str, Any]) -> str:
+    """Hash the spec doc deterministically, ignoring ``content_sha256``.
+
+    The hash covers the canonical JSON serialization of the doc with
+    the ``content_sha256`` field excluded, so the value is reproducible
+    from the written file alone — same algorithm openbb-cli uses when
+    stamping the spec at generation time.
+    """
+    payload = {k: v for k, v in spec_doc.items() if k != "content_sha256"}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Spec loading + provenance / integrity verification
 # ---------------------------------------------------------------------------
 
 
-def load_spec(path: str | Path) -> dict[str, Any]:
-    """Read, parse, and structurally validate a ``.spec`` file.
+def load_spec(
+    path: str | Path,
+    *,
+    expected_content_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Read, validate, and verify the integrity of a ``.spec`` file.
 
-    Returns the spec as a plain dict so the rest of the launcher can
-    consume it without dragging in ``openbb-cli`` (the CLI's spec
-    module is a heavy import — argparse translators, openapi schema
-    walkers — that the launcher doesn't need).
+    Performs four checks before handing the spec to downstream
+    consumers (the proxy builder, widgets generator, etc.):
+
+    1. **File parseability** — must exist and contain valid JSON
+       under a top-level object.
+    2. **Version compatibility** — ``version`` must be one of
+       ``SUPPORTED_SPEC_VERSIONS``. Mismatches raise with the
+       regenerate hint.
+    3. **Structural schema** — pydantic-validated against
+       ``_SpecDocumentModel`` (required fields, declared types,
+       command shape). Catches deeper malformations than the
+       single-key sanity checks could.
+    4. **Content integrity** — recompute SHA-256 over the canonical
+       JSON serialization and verify against the spec's
+       ``content_sha256``. The field is REQUIRED — every spec from
+       ``openbb-cli`` carries one, and an absent or mismatched
+       value indicates corruption or tampering. When
+       ``expected_content_sha256`` is also supplied (typically from
+       ``[spec].content_sha256`` in the deploy TOML), the recomputed
+       hash must ALSO match the deploy pin so a remotely-distributed
+       spec can be tied to a specific revision in the deployment
+       manifest. Both checks raise distinct errors so the operator
+       sees whether the failure is in-file tampering or version
+       drift between the manifest and the deployed artifact.
+
+    Returns the spec as a plain dict so callers don't pay the
+    pydantic-model overhead on every read.
 
     Raises ``FileNotFoundError`` for missing paths, ``ValueError`` for
-    malformed JSON, unknown spec versions, or missing required fields.
+    every other failure. Each ValueError names the offending file path
+    so multi-spec deployments can pinpoint the bad input.
     """
     p = Path(path)
     if not p.is_file():
@@ -100,6 +207,30 @@ def load_spec(path: str | Path) -> dict[str, Any]:
         )
     if not isinstance(spec.get("commands"), dict):
         raise ValueError(f"Spec missing required ``commands`` table at {path}.")
+    try:
+        _SpecDocumentModel.model_validate(spec)
+    except ValidationError as exc:
+        raise ValueError(
+            f"Spec file at {path} does not conform to the expected schema:\n{exc}"
+        ) from exc
+
+    # ``content_sha256`` is required by the pydantic schema, so we
+    # know it's a non-empty string at this point.
+    recorded_hash = spec["content_sha256"]
+    actual_hash = _content_hash(spec)
+    if recorded_hash != actual_hash:
+        raise ValueError(
+            f"Spec file at {path} failed integrity check: recorded SHA-256 "
+            f"{recorded_hash!r} does not match recomputed {actual_hash!r}. "
+            "The file has been modified since it was generated."
+        )
+    if expected_content_sha256 is not None and expected_content_sha256 != actual_hash:
+        raise ValueError(
+            f"Spec file at {path} failed deploy-config pin check: "
+            f"expected SHA-256 {expected_content_sha256!r} (from deploy "
+            f"config) does not match recomputed {actual_hash!r}. The "
+            "deployed spec is not the version pinned by the operator."
+        )
     return spec
 
 
@@ -299,11 +430,22 @@ def build_app_from_spec(
     # tests, custom middleware) can introspect what the proxy was
     # built from. ``openbb_spec_source`` is the citation label
     # ``widgets_service`` reads to override the auto-generated
-    # ``["Custom"]`` source on every spec-driven widget.
+    # ``["Custom"]`` source on every spec-driven widget. The other
+    # fields are provenance metadata captured at spec-generation time:
+    # ``content_sha256`` (already integrity-verified by ``load_spec``)
+    # is exposed so observability layers can fingerprint the active
+    # spec, ``generator`` / ``generated_at`` / ``source_url`` give a
+    # forensic trail back to the openbb-cli invocation that produced it.
     app.state.openbb_spec = spec
     app.state.openbb_spec_base_url = base_url
     app.state.openbb_spec_source = spec_name
     app.state.openbb_spec_extra_headers = dict(extra_headers or {})
+    app.state.openbb_spec_version = spec.get("version")
+    app.state.openbb_spec_generator = spec.get("generator")
+    app.state.openbb_spec_generated_at = spec.get("generated_at")
+    app.state.openbb_spec_source_url = spec.get("source_url")
+    app.state.openbb_spec_content_sha256 = spec.get("content_sha256")
+    app.state.openbb_spec_api_version = spec.get("api_version")
 
     def _make_handler(
         method: str,
@@ -403,6 +545,142 @@ def build_app_from_spec(
         )
 
     return app
+
+
+def build_apps_from_specs(
+    specs_config: dict[str, dict[str, Any]],
+) -> FastAPI:
+    """Build a parent FastAPI app that mounts each spec at its prefix.
+
+    ``specs_config`` is a dict of ``{name: per_spec_kwargs}`` where each
+    per-spec entry carries:
+
+    * ``spec`` — the loaded spec dict (already validated by
+      ``load_spec``).
+    * ``mount`` — the path prefix to mount the spec's app at, e.g.
+      ``/equity``. Defaults to ``"/" + name`` when not supplied.
+    * ``base_url_override`` / ``extra_headers`` / ``spec_name`` — same
+      semantics as the single-spec ``build_app_from_spec`` kwargs;
+      passed through verbatim so each spec keeps its own upstream
+      target, credential headers, and citation label.
+    * ``auth_hooks`` / ``middleware_hooks`` — optional lists of
+      ``module:async_callable`` references applied as
+      ``BaseHTTPMiddleware`` to that spec's sub-app. Auth runs as
+      the outermost layer, then the middleware list. The hooks are
+      naturally scoped to the sub-app's mount prefix because they're
+      registered on that sub-app instance, not the parent.
+
+    Returns a parent ``FastAPI`` whose ``app.state.openbb_specs`` is
+    a dict of ``{mount: sub_app_state_snapshot}`` — gives the widgets
+    builder, telemetry layers, and tests a single attachment point
+    to introspect every mounted spec.
+
+    Mount prefix collisions raise ``ValueError`` immediately so a
+    misconfigured deployment fails at startup, not on the first
+    routing miss.
+    """
+    if not specs_config:
+        raise ValueError("build_apps_from_specs requires at least one spec entry.")
+
+    parent = FastAPI(title="OpenBB Platform API (multi-spec proxy)")
+
+    used_mounts: dict[str, str] = {}
+    state_by_mount: dict[str, dict[str, Any]] = {}
+
+    for name, entry in specs_config.items():
+        if not isinstance(entry, dict):
+            raise TypeError(
+                f"Spec entry {name!r} must be a dict; got {type(entry).__name__}."
+            )
+        if "spec" not in entry:
+            raise ValueError(
+                f"Spec entry {name!r} is missing the required 'spec' field "
+                "(the loaded spec dict)."
+            )
+
+        # Mount prefix: explicit ``mount`` wins, otherwise derive from
+        # the dict key. Always forced to start with ``/``.
+        mount = entry.get("mount") or f"/{name}"
+        if not mount.startswith("/"):
+            mount = "/" + mount
+        # Normalize trailing slash off (FastAPI mount eats the trailing
+        # slash on its own when forming sub-app paths).
+        normalized_mount = mount.rstrip("/") or "/"
+
+        if normalized_mount in used_mounts:
+            other = used_mounts[normalized_mount]
+            raise ValueError(
+                f"Spec mount collision: {name!r} and {other!r} both target "
+                f"{normalized_mount!r}. Each spec must mount at a distinct "
+                "prefix (set ``mount = ...`` to disambiguate)."
+            )
+        used_mounts[normalized_mount] = name
+
+        sub_app = build_app_from_spec(
+            entry["spec"],
+            base_url_override=entry.get("base_url_override"),
+            extra_headers=entry.get("extra_headers"),
+            spec_name=entry.get("spec_name") or name,
+        )
+
+        # Apply per-spec auth + middleware hooks. Auth runs as the
+        # outermost layer. ``BaseHTTPMiddleware(dispatch=fn)`` adapts
+        # the ``async def fn(request, call_next)`` shape into a
+        # Starlette middleware class without subclassing.
+        from starlette.middleware.base import BaseHTTPMiddleware
+
+        from openbb_platform_api.app.middleware import (
+            _resolve_entrypoint,
+            _validate_middleware_callable,
+        )
+
+        for label, hooks in (
+            ("middleware", entry.get("middleware_hooks")),
+            ("auth", entry.get("auth_hooks")),
+        ):
+            # Reverse so the FIRST entry of each list ends up
+            # OUTERMOST after Starlette's stack-build (add_middleware
+            # inserts at index 0). Auth registered LAST = outermost
+            # overall, so it sees the request before any middleware
+            # hook does.
+            if not hooks:
+                continue
+            if not isinstance(hooks, list):
+                raise TypeError(
+                    f"[spec.{name}.{label}] hooks must be a list of "
+                    f"'module:attr' strings; got {type(hooks).__name__}."
+                )
+            for hook_path in reversed(hooks):
+                if not isinstance(hook_path, str):
+                    raise TypeError(
+                        f"[spec.{name}.{label}] hook entries must be "
+                        f"strings; got {type(hook_path).__name__} "
+                        f"({hook_path!r})."
+                    )
+                fn = _resolve_entrypoint(hook_path)
+                _validate_middleware_callable(fn, hook_path)
+                sub_app.add_middleware(BaseHTTPMiddleware, dispatch=fn)
+
+        parent.mount(normalized_mount, sub_app, name=name)
+
+        # Snapshot the sub-app's ``app.state`` provenance for the
+        # parent's introspection dict — saves consumers from walking
+        # ``parent.routes`` to find each Mount and reach into its
+        # nested app.state.
+        state_by_mount[normalized_mount] = {
+            "name": name,
+            "spec_name": sub_app.state.openbb_spec_source,
+            "base_url": sub_app.state.openbb_spec_base_url,
+            "version": sub_app.state.openbb_spec_version,
+            "generator": sub_app.state.openbb_spec_generator,
+            "generated_at": sub_app.state.openbb_spec_generated_at,
+            "source_url": sub_app.state.openbb_spec_source_url,
+            "content_sha256": sub_app.state.openbb_spec_content_sha256,
+            "api_version": sub_app.state.openbb_spec_api_version,
+        }
+
+    parent.state.openbb_specs = state_by_mount
+    return parent
 
 
 def _substitute_path_params(template: str, params: dict[str, Any]) -> str:

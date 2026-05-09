@@ -8,6 +8,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from openbb_platform_api.app.spec import _content_hash
+
+
+def _stamp(spec: dict) -> dict:
+    """Stamp ``spec`` with a fresh ``content_sha256``.
+
+    Every spec carries a ``content_sha256`` — the launcher refuses
+    to load specs without one. This helper computes the canonical
+    hash AFTER any field edits the test makes, matching the
+    openbb-cli generator's stamp-at-write semantics.
+    """
+    spec = {k: v for k, v in spec.items() if k != "content_sha256"}
+    spec["content_sha256"] = _content_hash(spec)
+    return spec
+
+
 SAMPLE_SPEC = {
     "version": 5,
     "base_url": "https://upstream.example.com/api/v1",
@@ -86,6 +102,7 @@ SAMPLE_SPEC = {
     "routers": {},
     "reference": {},
 }
+SAMPLE_SPEC["content_sha256"] = _content_hash(SAMPLE_SPEC)
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +189,678 @@ def test_load_spec_rejects_non_object_top_level(tmp_path):
     p.write_text("[]")
     with pytest.raises(ValueError, match="top-level"):
         load_spec(p)
+
+
+# ---------------------------------------------------------------------------
+# Spec provenance + integrity verification
+# ---------------------------------------------------------------------------
+
+
+def test_load_spec_rejects_structurally_invalid_command(tmp_path):
+    """Pydantic schema rejects a command missing ``url_path``/``method``."""
+    from openbb_platform_api.app.spec import load_spec
+
+    p = tmp_path / "bad.spec"
+    p.write_text(
+        json.dumps(
+            {
+                "version": 5,
+                "base_url": "https://x",
+                "commands": {"oops": {"description": "no url_path/method"}},
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="does not conform to the expected schema"):
+        load_spec(p)
+
+
+def test_load_spec_accepts_optional_provenance_fields(tmp_path):
+    """``generator``/``generated_at``/``source_url``/``api_version`` are
+    optional; their presence is preserved on the returned dict.
+    """
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://upstream.example.com",
+            "api_version": "3.1.0",
+            "generator": "openbb-cli==2.0.0",
+            "generated_at": "2026-05-08T00:00:00Z",
+            "source_url": "https://upstream.example.com/openapi.json",
+            "commands": {
+                "ping": {"url_path": "/v1/ping", "method": "get", "parameters": []}
+            },
+        }
+    )
+    p = tmp_path / "p.spec"
+    p.write_text(json.dumps(payload))
+    spec = load_spec(p)
+    assert spec["generator"] == "openbb-cli==2.0.0"
+    assert spec["generated_at"] == "2026-05-08T00:00:00Z"
+    assert spec["source_url"] == "https://upstream.example.com/openapi.json"
+    assert spec["api_version"] == "3.1.0"
+
+
+def test_load_spec_verifies_matching_content_hash(tmp_path):
+    """A spec carrying its own correctly-computed SHA-256 loads cleanly."""
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    p = tmp_path / "h.spec"
+    p.write_text(json.dumps(payload))
+    out = load_spec(p)
+    assert out["content_sha256"] == payload["content_sha256"]
+
+
+def test_load_spec_rejects_tampered_content_hash(tmp_path):
+    """A spec whose ``content_sha256`` no longer matches its body fails."""
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = {
+        "version": 5,
+        "base_url": "https://x",
+        "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        "content_sha256": "0" * 64,  # deliberately wrong
+    }
+    p = tmp_path / "tampered.spec"
+    p.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="failed integrity check"):
+        load_spec(p)
+
+
+def test_load_spec_rejects_spec_missing_content_sha256(tmp_path):
+    """``content_sha256`` is REQUIRED — every openbb-cli spec carries
+    one, so an absent field indicates corruption / forgery and the
+    launcher refuses to load.
+    """
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = {
+        "version": 5,
+        "base_url": "https://x",
+        "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+    }
+    p = tmp_path / "no-hash.spec"
+    p.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="content_sha256"):
+        load_spec(p)
+
+
+def test_content_hash_is_stable_across_key_order():
+    """Hashing is canonical (sorted keys) so payload dict ordering doesn't
+    move the digest.
+    """
+    from openbb_platform_api.app.spec import _content_hash
+
+    a = {"version": 5, "base_url": "x", "commands": {}}
+    b = {"commands": {}, "base_url": "x", "version": 5}
+    assert _content_hash(a) == _content_hash(b)
+
+
+def test_content_hash_excludes_sha256_field():
+    """Adding/removing the ``content_sha256`` field doesn't change the hash."""
+    from openbb_platform_api.app.spec import _content_hash
+
+    a = {"version": 5, "base_url": "x", "commands": {}}
+    b = {**a, "content_sha256": "ignored"}
+    assert _content_hash(a) == _content_hash(b)
+
+
+def test_load_spec_accepts_deploy_config_hash_pin(tmp_path):
+    """``expected_content_sha256`` supplied (matching) → loads cleanly."""
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    p = tmp_path / "deploy-pinned.spec"
+    p.write_text(json.dumps(payload))
+    spec = load_spec(p, expected_content_sha256=payload["content_sha256"])
+    assert spec is not None
+
+
+def test_load_spec_rejects_when_deploy_config_pin_mismatches(tmp_path):
+    """``expected_content_sha256`` mismatch → ValueError with explicit
+    ``deploy-config pin check`` wording so ops can distinguish a
+    config-pin failure from in-file tampering.
+    """
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    p = tmp_path / "drift.spec"
+    p.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="deploy-config pin check"):
+        load_spec(p, expected_content_sha256="0" * 64)
+
+
+def test_load_spec_deploy_pin_works_alongside_in_file_hash(tmp_path):
+    """In-file ``content_sha256`` (always present) AND
+    ``expected_content_sha256`` matching → both checks pass.
+    """
+    from openbb_platform_api.app.spec import load_spec
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    p = tmp_path / "double-checked.spec"
+    p.write_text(json.dumps(payload))
+    out = load_spec(p, expected_content_sha256=payload["content_sha256"])
+    assert out["content_sha256"] == payload["content_sha256"]
+
+
+# ---------------------------------------------------------------------------
+# build_apps_from_specs — multi-spec mounting
+# ---------------------------------------------------------------------------
+
+
+def _make_spec_dict(base_url: str = "https://x", cmd_path: str = "/p") -> dict:
+    """Helper: build + stamp a minimal valid spec for multi-spec tests."""
+    return _stamp(
+        {
+            "version": 5,
+            "base_url": base_url,
+            "commands": {
+                "p": {"url_path": cmd_path, "method": "get", "parameters": []}
+            },
+        }
+    )
+
+
+def test_build_apps_from_specs_mounts_each_spec_at_named_prefix():
+    """Each entry mounts under its dict-key prefix by default."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    parent = build_apps_from_specs(
+        {
+            "equity": {"spec": _make_spec_dict()},
+            "crypto": {"spec": _make_spec_dict()},
+        }
+    )
+    assert "/equity" in parent.state.openbb_specs
+    assert "/crypto" in parent.state.openbb_specs
+
+
+def test_build_apps_from_specs_explicit_mount_overrides_default():
+    """``mount`` in the entry overrides the default ``/<name>`` prefix."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    parent = build_apps_from_specs(
+        {"equity": {"spec": _make_spec_dict(), "mount": "/markets/equity"}}
+    )
+    assert "/markets/equity" in parent.state.openbb_specs
+
+
+def test_build_apps_from_specs_normalizes_mount_without_leading_slash():
+    """``mount = "stocks"`` (no leading slash) gets normalized to ``/stocks``."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    parent = build_apps_from_specs(
+        {"x": {"spec": _make_spec_dict(), "mount": "stocks"}}
+    )
+    assert "/stocks" in parent.state.openbb_specs
+
+
+def test_build_apps_from_specs_rejects_mount_collision():
+    """Two specs at the same mount → ValueError."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(ValueError, match="mount collision"):
+        build_apps_from_specs(
+            {
+                "a": {"spec": _make_spec_dict(), "mount": "/dup"},
+                "b": {"spec": _make_spec_dict(), "mount": "/dup"},
+            }
+        )
+
+
+def test_build_apps_from_specs_rejects_empty_config():
+    """An empty specs dict raises with a clear message."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(ValueError, match="at least one spec entry"):
+        build_apps_from_specs({})
+
+
+def test_build_apps_from_specs_rejects_non_dict_entry():
+    """Non-dict entries fail fast."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(TypeError, match="must be a dict"):
+        build_apps_from_specs({"x": "not a dict"})  # type: ignore[arg-type]
+
+
+def test_build_apps_from_specs_rejects_entry_missing_spec_field():
+    """Entry without the required ``spec`` key fails."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(ValueError, match="missing the required 'spec' field"):
+        build_apps_from_specs({"x": {"mount": "/x"}})
+
+
+def test_build_apps_from_specs_state_carries_provenance():
+    """Each mount's state snapshot carries the per-spec provenance."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    spec_a = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://a.example.com",
+            "generator": "openbb-cli==2.0.0",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    parent = build_apps_from_specs({"a": {"spec": spec_a, "spec_name": "a.spec"}})
+    snapshot = parent.state.openbb_specs["/a"]
+    assert snapshot["name"] == "a"
+    assert snapshot["spec_name"] == "a.spec"
+    assert snapshot["base_url"] == "https://a.example.com"
+    assert snapshot["generator"] == "openbb-cli==2.0.0"
+    assert snapshot["content_sha256"] == spec_a["content_sha256"]
+
+
+def test_build_apps_from_specs_per_spec_middleware_hooks_applied(monkeypatch):
+    """Per-spec ``middleware_hooks`` flow through to the sub-app's
+    middleware stack.
+    """
+    import sys
+    import types
+
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    mod = types.ModuleType("test_multi_spec_hooks_mw_papi")
+
+    async def mw_hook(request, call_next):  # pragma: no cover
+        return await call_next(request)
+
+    mod.mw_hook = mw_hook
+    monkeypatch.setitem(sys.modules, "test_multi_spec_hooks_mw_papi", mod)
+
+    parent = build_apps_from_specs(
+        {
+            "a": {
+                "spec": _make_spec_dict(),
+                "middleware_hooks": ["test_multi_spec_hooks_mw_papi:mw_hook"],
+            }
+        }
+    )
+    from starlette.routing import Mount
+
+    for route in parent.routes:
+        if isinstance(route, Mount) and route.name == "a":
+            sub_app = route.app
+            assert any(
+                getattr(m, "kwargs", {}).get("dispatch") is mw_hook
+                for m in sub_app.user_middleware
+            )
+            break
+    else:
+        raise AssertionError("Expected a mounted sub-app named 'a'.")
+
+
+def test_build_apps_from_specs_per_spec_auth_hooks_applied(monkeypatch):
+    """Per-spec ``auth_hooks`` flow through identically."""
+    import sys
+    import types
+
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    mod = types.ModuleType("test_multi_spec_hooks_auth_papi")
+
+    async def auth_hook(request, call_next):  # pragma: no cover
+        return await call_next(request)
+
+    mod.auth_hook = auth_hook
+    monkeypatch.setitem(sys.modules, "test_multi_spec_hooks_auth_papi", mod)
+
+    parent = build_apps_from_specs(
+        {
+            "a": {
+                "spec": _make_spec_dict(),
+                "auth_hooks": ["test_multi_spec_hooks_auth_papi:auth_hook"],
+            }
+        }
+    )
+    from starlette.routing import Mount
+
+    for route in parent.routes:
+        if isinstance(route, Mount) and route.name == "a":
+            sub_app = route.app
+            assert any(
+                getattr(m, "kwargs", {}).get("dispatch") is auth_hook
+                for m in sub_app.user_middleware
+            )
+            break
+    else:
+        raise AssertionError("Expected a mounted sub-app named 'a'.")
+
+
+def test_build_apps_from_specs_rejects_non_list_hook_table():
+    """``middleware_hooks`` must be a list — non-list raises TypeError."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(TypeError, match="must be a list"):
+        build_apps_from_specs(
+            {"a": {"spec": _make_spec_dict(), "middleware_hooks": "not a list"}}
+        )
+
+
+def test_build_apps_from_specs_rejects_non_string_hook_entry():
+    """Non-string hook entries inside the list raise TypeError."""
+    from openbb_platform_api.app.spec import build_apps_from_specs
+
+    with pytest.raises(TypeError, match="hook entries must be strings"):
+        build_apps_from_specs({"a": {"spec": _make_spec_dict(), "auth_hooks": [123]}})
+
+
+# ---------------------------------------------------------------------------
+# parse_args wiring — multi-spec
+# ---------------------------------------------------------------------------
+
+
+def test_collect_multi_spec_entries_filters_non_spec_subtables():
+    """Sibling tables under ``[spec]`` (``headers``/``auth``/...)
+    aren't mistaken for nested spec entries.
+    """
+    from openbb_platform_api.app.args import _collect_multi_spec_entries
+
+    section = {
+        "path": "/single.spec",
+        "headers": {"Authorization": "x"},
+        "equity": {"path": "/eq.spec"},
+        "scalar_value": "ignored",
+    }
+    out = _collect_multi_spec_entries(section)
+    assert out == {"equity": {"path": "/eq.spec"}}
+
+
+def test_parse_args_loads_multi_spec_from_named_subtables(tmp_path):
+    """``[spec.NAME]`` subtables build a parent with each spec mounted."""
+    import sys
+    from unittest.mock import patch
+
+    from openbb_platform_api.app.args import parse_args
+    from openbb_platform_api.app.config import reset_bootstrapped_config
+
+    payload_a = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://a.example.com",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    payload_b = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://b.example.com",
+            "commands": {"q": {"url_path": "/q", "method": "get", "parameters": []}},
+        }
+    )
+    spec_a = tmp_path / "a.spec"
+    spec_a.write_text(json.dumps(payload_a))
+    spec_b = tmp_path / "b.spec"
+    spec_b.write_text(json.dumps(payload_b))
+
+    cfg = tmp_path / "openbb.toml"
+    cfg.write_text(
+        f"""
+[spec.equity]
+path = "{spec_a.as_posix()}"
+
+[spec.crypto]
+path = "{spec_b.as_posix()}"
+"""
+    )
+
+    reset_bootstrapped_config()
+    try:
+        with patch.object(sys, "argv", ["openbb-api", "--config-file", str(cfg)]):
+            out = parse_args()
+        state = out["app"].state
+        assert "/equity" in state.openbb_specs
+        assert "/crypto" in state.openbb_specs
+    finally:
+        reset_bootstrapped_config()
+
+
+def test_parse_args_multi_spec_relative_path_resolved_against_cwd(
+    tmp_path, monkeypatch
+):
+    """Per-spec relative paths resolve against CWD."""
+    import sys
+    from unittest.mock import patch
+
+    from openbb_platform_api.app.args import parse_args
+    from openbb_platform_api.app.config import reset_bootstrapped_config
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    spec = tmp_path / "rel.spec"
+    spec.write_text(json.dumps(payload))
+    cfg = tmp_path / "openbb.toml"
+    cfg.write_text(
+        """
+[spec.rel]
+path = "rel.spec"
+"""
+    )
+    monkeypatch.chdir(tmp_path)
+
+    reset_bootstrapped_config()
+    try:
+        with patch.object(sys, "argv", ["openbb-api", "--config-file", str(cfg)]):
+            out = parse_args()
+        assert "/rel" in out["app"].state.openbb_specs
+    finally:
+        reset_bootstrapped_config()
+
+
+def test_parse_args_multi_spec_per_spec_content_sha256_pin(tmp_path):
+    """Each ``[spec.NAME]`` subtable's ``content_sha256`` flows to that
+    spec's ``load_spec`` — a mismatch on one entry kills startup.
+    """
+    import sys
+    from unittest.mock import patch
+
+    from openbb_platform_api.app.args import parse_args
+    from openbb_platform_api.app.config import reset_bootstrapped_config
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    spec = tmp_path / "pinned.spec"
+    spec.write_text(json.dumps(payload))
+    cfg = tmp_path / "openbb.toml"
+    cfg.write_text(
+        f"""
+[spec.equity]
+path = "{spec.as_posix()}"
+content_sha256 = "{"f" * 64}"
+"""
+    )
+
+    reset_bootstrapped_config()
+    try:
+        with patch.object(sys, "argv", ["openbb-api", "--config-file", str(cfg)]):
+            with pytest.raises(ValueError, match="deploy-config pin check"):
+                parse_args()
+    finally:
+        reset_bootstrapped_config()
+
+
+def test_parse_args_multi_spec_with_per_spec_hooks(tmp_path, monkeypatch):
+    """Per-spec auth + middleware hooks land on the sub-app's middleware
+    stack via the full parse_args → load_spec → build_apps_from_specs
+    chain.
+    """
+    import sys
+    import types
+    from unittest.mock import patch
+
+    from openbb_platform_api.app.args import parse_args
+    from openbb_platform_api.app.config import reset_bootstrapped_config
+
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    spec = tmp_path / "hooks.spec"
+    spec.write_text(json.dumps(payload))
+
+    mod = types.ModuleType("test_multi_spec_args_hooks_papi")
+
+    async def auth(request, call_next):  # pragma: no cover
+        return await call_next(request)
+
+    async def mw(request, call_next):  # pragma: no cover
+        return await call_next(request)
+
+    mod.auth = auth
+    mod.mw = mw
+    monkeypatch.setitem(sys.modules, "test_multi_spec_args_hooks_papi", mod)
+
+    cfg = tmp_path / "openbb.toml"
+    cfg.write_text(
+        f"""
+[spec.equity]
+path = "{spec.as_posix()}"
+[spec.equity.auth]
+hooks = ["test_multi_spec_args_hooks_papi:auth"]
+[spec.equity.middleware]
+hooks = ["test_multi_spec_args_hooks_papi:mw"]
+"""
+    )
+
+    reset_bootstrapped_config()
+    try:
+        with patch.object(sys, "argv", ["openbb-api", "--config-file", str(cfg)]):
+            out = parse_args()
+    finally:
+        reset_bootstrapped_config()
+
+    from starlette.routing import Mount
+
+    for route in out["app"].routes:
+        if isinstance(route, Mount) and route.name == "equity":
+            sub_app = route.app
+            dispatchers = {
+                getattr(m, "kwargs", {}).get("dispatch")
+                for m in sub_app.user_middleware
+            }
+            assert auth in dispatchers
+            assert mw in dispatchers
+            break
+    else:
+        raise AssertionError("Expected mounted sub-app 'equity'.")
+
+
+def test_parse_args_passes_deploy_config_hash_pin_to_load_spec(tmp_path):
+    """``[spec].content_sha256`` from the deploy TOML is forwarded to
+    ``load_spec`` — when it mismatches, ``parse_args`` raises with the
+    pin-check error so a misconfigured deployment fails at startup.
+    """
+    import sys
+    from unittest.mock import patch
+
+    from openbb_platform_api.app.args import parse_args
+    from openbb_platform_api.app.config import reset_bootstrapped_config
+
+    # Build a fully-stamped spec; the deploy TOML pins a deliberately
+    # wrong expected hash to trigger the pin-check failure.
+    payload = _stamp(
+        {
+            "version": 5,
+            "base_url": "https://x",
+            "commands": {"p": {"url_path": "/p", "method": "get", "parameters": []}},
+        }
+    )
+    spec_file = tmp_path / "pinned.spec"
+    spec_file.write_text(json.dumps(payload))
+
+    cfg_file = tmp_path / "openbb.toml"
+    cfg_file.write_text(
+        f"""
+[spec]
+path = "{spec_file.as_posix()}"
+content_sha256 = "{"f" * 64}"
+"""
+    )
+
+    reset_bootstrapped_config()
+    try:
+        with patch.object(sys, "argv", ["openbb-api", "--config-file", str(cfg_file)]):
+            with pytest.raises(ValueError, match="deploy-config pin check"):
+                parse_args()
+    finally:
+        reset_bootstrapped_config()
+
+
+def test_build_app_from_spec_exposes_provenance_metadata(tmp_path):
+    """Every recorded provenance field flows onto ``app.state`` so
+    callers (widgets builder, telemetry, custom middleware) can
+    fingerprint the active spec.
+    """
+    from openbb_platform_api.app.spec import (
+        _content_hash,
+        build_app_from_spec,
+        load_spec,
+    )
+
+    payload = {
+        "version": 5,
+        "base_url": "https://upstream.example.com",
+        "api_version": "3.1.0",
+        "generator": "openbb-cli==2.0.0",
+        "generated_at": "2026-05-08T00:00:00Z",
+        "source_url": "https://upstream.example.com/openapi.json",
+        "commands": {
+            "ping": {"url_path": "/v1/ping", "method": "get", "parameters": []}
+        },
+    }
+    payload["content_sha256"] = _content_hash(payload)
+    p = tmp_path / "prov.spec"
+    p.write_text(json.dumps(payload))
+
+    app = build_app_from_spec(load_spec(p), spec_name="prov.spec")
+    state = app.state
+    assert state.openbb_spec_version == 5
+    assert state.openbb_spec_generator == "openbb-cli==2.0.0"
+    assert state.openbb_spec_generated_at == "2026-05-08T00:00:00Z"
+    assert state.openbb_spec_source_url == "https://upstream.example.com/openapi.json"
+    assert state.openbb_spec_content_sha256 == payload["content_sha256"]
+    assert state.openbb_spec_api_version == "3.1.0"
 
 
 # ---------------------------------------------------------------------------

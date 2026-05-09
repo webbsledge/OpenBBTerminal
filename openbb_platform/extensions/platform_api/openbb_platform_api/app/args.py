@@ -16,6 +16,29 @@ from pathlib import Path
 _spec_headers_logger = logging.getLogger("openbb_platform_api.spec.headers")
 
 
+def _collect_multi_spec_entries(spec_section: dict) -> dict[str, dict]:
+    """Pick out the ``[spec.NAME]`` subtables that look like spec entries.
+
+    Multi-spec form uses ``[spec.equity]`` / ``[spec.crypto]`` / ...
+    subtables, each carrying its own ``path`` (and optional ``mount``,
+    ``base_url``, ``content_sha256``, ``[spec.NAME.headers]``, etc.).
+
+    A subtable counts as a multi-spec entry only when:
+
+    * The value is a dict — protects against scalar reserved keys
+      (``path``, ``base_url``, ``content_sha256``, ``mount``,
+      ``headers`` are single-spec siblings, not entries).
+    * The dict has a ``path`` key — keeps non-spec sibling tables
+      (``[spec.headers]`` from the single-spec form, etc.) out of the
+      multi-spec set.
+    """
+    out: dict[str, dict] = {}
+    for name, value in spec_section.items():
+        if isinstance(value, dict) and isinstance(value.get("path"), str):
+            out[name] = value
+    return out
+
+
 def _expand_spec_headers(
     raw_headers: dict | None,
 ) -> dict[str, str]:
@@ -104,11 +127,19 @@ Two extra tables are launcher-specific:
     OPENBB_API_URL      = "https://${HOST}:${PORT}/v1"
 
     [spec]
-    # Spec-driven proxy mode (alternative to a Python --app). The
-    # path can also be supplied via [launcher] spec or --spec on the
-    # CLI; ``base_url`` and ``headers`` ONLY come from this table.
+    # Single-spec mode: spec-driven proxy with one upstream target.
+    # The path can also be supplied via --spec on the CLI; the rest
+    # of the per-spec config (``base_url``, ``content_sha256``,
+    # ``headers``) ONLY lives here.
     path = "/etc/openbb/cli.spec"
     base_url = "https://upstream.example.com"  # optional override of the spec's recorded base_url
+    # Optional pinned SHA-256. When set, the launcher recomputes the
+    # spec's canonical-JSON hash and refuses to start unless it
+    # matches. Lets ops version-control the expected hash separately
+    # from the spec file itself — useful for remote-distributed
+    # specs whose payload is fetched at boot but whose version is
+    # pinned by the deployment manifest.
+    content_sha256 = "abc123..."
 
     [spec.headers]
     # Static headers injected on every proxied upstream request.
@@ -116,6 +147,28 @@ Two extra tables are launcher-specific:
     # injection point. Same $VAR / ${VAR} substitution as [env].
     Authorization = "Bearer $OPENBB_UPSTREAM_TOKEN"
     X-API-Key     = "$OPENBB_UPSTREAM_KEY"
+
+    # Multi-spec mode (alternative to single-spec): each [spec.NAME]
+    # subtable mounts an independent spec under its own prefix. The
+    # launcher serves a parent FastAPI whose routes union all mounts.
+    # Every per-spec key (base_url, content_sha256, headers, auth,
+    # middleware) is scoped to that subtable.
+    [spec.equity]
+    path = "/etc/openbb/equity.spec"
+    mount = "/equity"                          # optional; defaults to "/<name>"
+    base_url = "https://equity.example.com"
+    content_sha256 = "abc..."
+    [spec.equity.headers]
+    Authorization = "Bearer $EQUITY_TOKEN"
+    [spec.equity.auth]
+    hooks = ["my_pkg.auth:equity_token_check"]
+    [spec.equity.middleware]
+    hooks = ["my_pkg.middleware:equity_rate_limit"]
+
+    [spec.crypto]
+    path = "/etc/openbb/crypto.spec"
+    [spec.crypto.headers]
+    X-API-Key = "$CRYPTO_KEY"
 
     [middleware]
     # HTTP middleware applied to every inbound server request.
@@ -242,39 +295,66 @@ def parse_args() -> dict:  # noqa: PLR0912
     # launcher serves. ``--spec`` synthesizes one from a digested
     # OpenAPI snapshot; ``--app`` imports a user-written one. Reject
     # combinations early so the failure mode is a clear startup error.
-    _spec_in_play = bool(_kwargs.get("spec") or (layered.get("spec") or {}).get("path"))
-    if _spec_in_play and _kwargs.get("app"):
+    spec_section: dict = layered.get("spec") or {}
+    multi_specs = _collect_multi_spec_entries(spec_section)
+    single_spec_path = spec_section.get("path") or _kwargs.pop("spec", None)
+    if (single_spec_path or multi_specs) and _kwargs.get("app"):
         raise ValueError(
             "Error: --spec and --app are mutually exclusive. "
             "--spec synthesizes a proxy app from the spec's commands; "
             "--app imports a user-supplied app. Pick one."
         )
 
-    # Build the spec source-of-truth: the ``[spec]`` table beats the
-    # ``[launcher] spec`` shorthand (and CLI-supplied ``--spec``)
-    # because it can carry richer config (``base_url`` override,
-    # ``[spec.headers]`` for credential injection). When neither path
-    # is supplied, _kwargs["spec"] is None and we skip the spec branch.
-    spec_section: dict = layered.get("spec") or {}
-    spec_path = spec_section.get("path") or _kwargs.pop("spec", None)
-    if spec_path:
-        from openbb_platform_api.app.spec import (
-            build_app_from_spec,
-            load_spec,
-        )
+    if multi_specs:
+        # Multi-spec mode — every ``[spec.NAME]`` subtable becomes a
+        # mounted sub-app. The launcher serves a single parent FastAPI
+        # whose routes are union-ed from all mounts.
+        from typing import Any
 
-        if not Path(spec_path).is_absolute():
-            spec_path = str(cwd.joinpath(spec_path).resolve())
+        from openbb_platform_api.app.spec import build_apps_from_specs, load_spec
 
+        specs_config: dict[str, dict[str, Any]] = {}
+        for name, sub in multi_specs.items():
+            sub_path = sub["path"]
+            if not Path(sub_path).is_absolute():
+                sub_path = str(cwd.joinpath(sub_path).resolve())
+            specs_config[name] = {
+                "spec": load_spec(
+                    sub_path,
+                    expected_content_sha256=sub.get("content_sha256"),
+                ),
+                "mount": sub.get("mount"),
+                "base_url_override": sub.get("base_url"),
+                "extra_headers": _expand_spec_headers(sub.get("headers")),
+                "spec_name": Path(sub_path).name,
+                "auth_hooks": (sub.get("auth") or {}).get("hooks"),
+                "middleware_hooks": (sub.get("middleware") or {}).get("hooks"),
+            }
+        _kwargs["app"] = build_apps_from_specs(specs_config)
+
+    elif single_spec_path:
+        from openbb_platform_api.app.spec import build_app_from_spec, load_spec
+
+        if not Path(single_spec_path).is_absolute():
+            single_spec_path = str(cwd.joinpath(single_spec_path).resolve())
+
+        # Optional ``[spec].content_sha256`` lets ops version-control
+        # the expected hash separately from the spec file itself —
+        # important for remote distribution where the operator's
+        # deployment manifest is the source of truth and the file in
+        # ``[spec].path`` is just a fetched artifact.
         _kwargs["app"] = build_app_from_spec(
-            load_spec(spec_path),
+            load_spec(
+                single_spec_path,
+                expected_content_sha256=spec_section.get("content_sha256"),
+            ),
             base_url_override=spec_section.get("base_url"),
             extra_headers=_expand_spec_headers(spec_section.get("headers")),
             # Full filename ("fertilizer.spec" for
             # "/etc/openbb/fertilizer.spec") — used as the source
             # citation on every auto-generated widget so dashboards
             # don't display a generic "Custom" label for every column.
-            spec_name=Path(spec_path).name,
+            spec_name=Path(single_spec_path).name,
         )
 
     elif _kwargs.get("app"):
