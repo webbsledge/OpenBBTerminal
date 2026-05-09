@@ -1,14 +1,13 @@
 """Test yfinance helpers."""
 
-from unittest.mock import MagicMock, patch
-
 import pandas as pd
 import pytest
+from unittest.mock import patch, MagicMock
 from openbb_yfinance.utils.helpers import (
     df_transform_numbers,
+    get_futures_data,
     get_custom_screener,
     get_defined_screener,
-    get_futures_data,
     get_futures_symbols,
     yf_download,
 )

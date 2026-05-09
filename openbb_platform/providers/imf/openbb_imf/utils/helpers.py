@@ -520,7 +520,7 @@ def parse_agency_from_urn(code_urn: str) -> str | None:
     try:
         # Extract everything after the "=" and before the last ":"
         # Example: "ISORA:CL_RAFIT_LABELS(1.0+.0).CL_TOPIC_1"
-        after_equals = code_urn.rsplit("=", maxsplit=1)[-1]
+        after_equals = code_urn.split("=")[-1]
         # Split by ":" to get agency (first part) and codelist info (second part)
         parts = after_equals.split(":")
         if len(parts) >= 2:
@@ -543,7 +543,7 @@ def parse_indicator_code_from_urn(code_urn: str) -> str | None:
     """
     if not code_urn or "." not in code_urn:
         return None
-    return code_urn.rsplit(".", maxsplit=1)[-1]
+    return code_urn.split(".")[-1]
 
 
 def parse_codelist_id_from_urn(code_urn: str) -> str | None:
@@ -559,7 +559,7 @@ def parse_codelist_id_from_urn(code_urn: str) -> str | None:
         return None
     try:
         # Extract everything after the last colon
-        after_colon = code_urn.rsplit(":", maxsplit=1)[-1]
+        after_colon = code_urn.split(":")[-1]
         # Extract everything before the opening parenthesis
         codelist_id = after_colon.split("(")[0]
         return codelist_id
@@ -714,7 +714,7 @@ def parse_codelist_urn(urn: str) -> str | None:
         return None
 
     try:
-        parts = urn.rsplit("=", maxsplit=1)[-1]
+        parts = urn.split("=")[-1]
         codelist_with_version = parts.split(":")[-1]
         codelist_id = codelist_with_version.split("(")[0]
         return codelist_id
