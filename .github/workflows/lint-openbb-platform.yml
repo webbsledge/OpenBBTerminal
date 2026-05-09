@@ -71,6 +71,13 @@ jobs:
         working-directory: ${{ github.workspace }}/openbb_platform/extensions/devtools
         run: uv pip install --system -e .
 
+      - name: Install openbb-cli
+        # ``openbb_mcp_server.app.cli_tools`` imports
+        # ``openbb_cli.dispatchers``; ty needs the package importable
+        # to resolve those references.
+        working-directory: ${{ github.workspace }}/cli
+        run: uv pip install --system -e .
+
       - name: Install openbb-platform-api
         working-directory: ${{ github.workspace }}/openbb_platform/extensions/platform_api
         run: uv pip install --system -e .

@@ -1,8 +1,8 @@
 """Integration test generator."""
 
 import argparse
-import inspect as _inspect
 from pathlib import Path, PosixPath
+import inspect as _inspect
 from typing import (
     Any,
     Literal,

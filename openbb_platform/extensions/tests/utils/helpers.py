@@ -75,7 +75,7 @@ def filter_eps(eps: EntryPoints | dict, group: str) -> tuple[EntryPoint, ...]:
 
 
 def list_openbb_extensions() -> tuple[set[str], set[str], set[str]]:
-    """List installed openbb extensions and providers.
+    """list installed openbb extensions and providers.
 
     Returns
     -------

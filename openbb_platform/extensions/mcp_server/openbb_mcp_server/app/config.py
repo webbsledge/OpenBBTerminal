@@ -122,7 +122,7 @@ def _validate_explicit_toml(explicit_path: str) -> None:
     if _sys.version_info >= (3, 11):  # pragma: no cover — version-conditional
         import tomllib
     else:  # pragma: no cover — exercised only on the 3.10 backport path
-        import tomli as tomllib  # ty: ignore[unresolved-import]
+        import tomli as tomllib
 
     p = Path(explicit_path)
     if not p.is_file():
