@@ -197,6 +197,33 @@ def test_parse_args():
         assert args == {"flag": True}
 
 
+def test_parse_args_factory_no_name_error_with_windows_drive_path():
+    """Regression: Windows drive-letter colon is not module:attr.
+
+    ``--app C:\\path\\app.py --factory true --name ""`` must still
+    raise the factory-needs-name ``ValueError`` instead of treating
+    the drive-letter colon as ``module:attr`` notation, splitting on
+    it, and using the path tail as the FastAPI attribute name.
+    """
+    test_args = [
+        "script.py",
+        "--app",
+        r"C:\Users\runner\AppData\Local\Temp\pytest\some_app.py",
+        "--factory",
+        "true",
+        "--name",
+        "",
+    ]
+    with (
+        patch("sys.argv", test_args),
+        pytest.raises(
+            ValueError,
+            match="The factory function name must be provided to the --name parameter",
+        ),
+    ):
+        parse_args()
+
+
 def test_import_module_app():
 
     from fastapi import FastAPI as RealFastAPI

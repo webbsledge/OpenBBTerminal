@@ -362,7 +362,14 @@ def parse_args() -> dict:  # noqa: PLR0912
         _name = _kwargs.pop("name", "app")
         _factory = _kwargs.pop("factory", False)
 
-        if ":" in _app_path:
+        def _is_module_colon_notation(path: str) -> bool:
+            if ":" not in path:
+                return False
+            if len(path) >= 2 and path[1] == ":" and path[0].isalpha():
+                return path.count(":") > 1
+            return True
+
+        if _is_module_colon_notation(_app_path):
             _app_instance_name = _app_path.split(":")[-1]
             _name = _app_instance_name if _app_instance_name else _name
 
