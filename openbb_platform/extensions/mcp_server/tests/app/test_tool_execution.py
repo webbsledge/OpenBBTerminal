@@ -579,6 +579,7 @@ class TestBundledSkillRendering:
         "build_workspace_app": "Build and Run OpenBB Workspace Applications",
         "configure_mcp_server": "Configure and Build the OpenBB MCP Server",
         "work_with_server": "Working With the OpenBB MCP Server",
+        "use_openbb_cli": "Using the openbb-cli",
     }
 
     def test_skills_directory_exists(self):
@@ -726,6 +727,7 @@ class TestSkillsIntegration:
             "build_workspace_app",
             "configure_mcp_server",
             "work_with_server",
+            "use_openbb_cli",
         ]:
             skill_file = SKILLS_DIR / skill_name / "SKILL.md"
             assert skill_file.exists(), f"Missing: {skill_file}"
