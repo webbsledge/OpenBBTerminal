@@ -1216,11 +1216,9 @@ def build_router(
                     bool(getattr(f, "data_base64", None)),
                     sorted(
                         k
-                        for k in f.model_extra
+                        for k in (f.model_extra or {})
                         if k not in {"name", "mime", "url", "data_base64"}
-                    )
-                    if getattr(f, "model_extra", None)
-                    else [],
+                    ),
                 )
             except Exception:  # pragma: no cover - defensive: ``getattr`` / ``sorted`` over a validated ``UploadedFile`` cannot raise.
                 logger.exception("uploaded_files log entry failed")

@@ -44,7 +44,7 @@ def _ddg_search(query: str, k: int) -> list[dict[str, Any]]:
 def _tavily_search(
     query: str, k: int, *, api_key: str
 ) -> list[dict[str, Any]]:  # pragma: no cover — needs API key
-    from tavily import TavilyClient  # ty: ignore[unresolved-import]
+    from tavily import TavilyClient
 
     client = TavilyClient(api_key=api_key)
     resp = client.search(query=query, max_results=k)

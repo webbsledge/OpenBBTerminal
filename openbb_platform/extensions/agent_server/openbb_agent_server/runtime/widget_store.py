@@ -767,7 +767,8 @@ def parse_widget_data_messages(
             widget_uuid = str(ds.get("widget_uuid") or "")
             origin = str(ds.get("origin") or "")
             widget_id = str(ds.get("id") or "")
-            input_args = dict(ds.get("input_args") or {})
+            raw_input_args = ds.get("input_args")
+            input_args = dict(raw_input_args) if isinstance(raw_input_args, dict) else {}
 
             payload = data_field[i] if i < len(data_field) else None
             rows = _extract_rows(payload)

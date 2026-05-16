@@ -154,11 +154,16 @@ analyst = "openbb_agent_server.plugins.subagents.analyst:AnalystSubAgent"
 pdf_reader = "openbb_agent_server.plugins.subagents.pdf_reader:PdfReaderSubAgent"
 
 [dependency-groups]
-# ``openbb-devtools`` is the single pinned source of test tooling for
-# the whole platform — it brings pytest, pytest-asyncio, pytest-cov,
-# ruff, ty, and httpx. Re-pinning any of those here only invites
-# version conflicts with it, so the dev group is just devtools.
-dev = ["openbb-devtools>=2.0.0"]
+# ``openbb-devtools`` is the single pinned source of generic test
+# tooling for the whole platform — pytest, pytest-asyncio, pytest-cov,
+# ruff, ty, httpx. Re-pinning any of those here only invites version
+# conflicts with it. ``reportlab`` is the one genuine addition: the
+# PDF tests build real PDFs with it (no mocks) and nothing else in the
+# tree provides it.
+dev = [
+    "openbb-devtools>=2.0.0",
+    "reportlab>=4.0",
+]
 
 [build-system]
 requires = ["hatchling"]
