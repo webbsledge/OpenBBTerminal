@@ -11,7 +11,7 @@ name: 🧪 test openbb-agent-server
 
 on:
   pull_request:
-    branches: [develop, main, v5, feature/v5-platform-api]
+    branches: [develop, v5]
     paths:
       - "openbb_platform/extensions/agent_server/**"
       - ".github/workflows/test-unit-openbb-agent-server.yml"
@@ -43,13 +43,7 @@ jobs:
       - run: python -m pip install --upgrade pip uv
 
       - name: Build sdist + wheel
-        # ``--no-sources`` ignores ``[tool.uv.sources]`` so the wheel
-        # carries the published dependency pins (``openbb-core>=2.0.0``)
-        # rather than the sibling-tree editable paths. This job exists
-        # to catch packaging breakage on PRs; the artifact is not fed
-        # to the test matrix (those jobs install from source).
         run: uv build --no-sources
-
       - uses: actions/upload-artifact@v4
         with:
           name: openbb-agent-server-dist
@@ -74,12 +68,6 @@ jobs:
       - run: python -m pip install --upgrade pip uv
 
       - name: Install openbb-agent-server in editable mode (+ dev group)
-        # ``-e .`` reads ``[tool.uv.sources]`` and resolves
-        # ``openbb-core`` / ``openbb-devtools`` from the sibling source
-        # trees, so ty sees the exact types about to ship together
-        # rather than whatever is on PyPI. ``--group dev`` pulls in
-        # ``openbb-devtools`` (ruff, ty, pytest-asyncio, …) so lint
-        # tooling versions stay pinned in one place.
         run: |
           uv pip install --system -e .
           uv pip install --system --group dev
@@ -99,17 +87,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux: full sweep across the supported Python range.
-          # 3.14+ is intentionally excluded — the langchain / langgraph
-          # / deepagents stack does not yet publish wheels for it.
-          - { os: ubuntu-latest, python_version: "3.10" }
           - { os: ubuntu-latest, python_version: "3.11" }
           - { os: ubuntu-latest, python_version: "3.12" }
           - { os: ubuntu-latest, python_version: "3.13" }
+          - { os: ubuntu-latest, python_version: "3.14" }
           # macOS + Windows: min and max supported.
-          - { os: macos-latest, python_version: "3.10" }
+          - { os: macos-latest, python_version: "3.11" }
           - { os: macos-latest, python_version: "3.13" }
-          - { os: windows-latest, python_version: "3.10" }
+          - { os: windows-latest, python_version: "3.11" }
           - { os: windows-latest, python_version: "3.13" }
     runs-on: ${{ matrix.os }}
     defaults:
@@ -126,13 +111,6 @@ jobs:
       - run: python -m pip install --upgrade pip uv
 
       - name: Install openbb-agent-server from source (+ dev group)
-        # Source install via ``-e .`` reads ``[tool.uv.sources]`` and
-        # resolves ``openbb-core`` from the sibling tree at
-        # ``../../core`` — the only place ``openbb-core>=2.0.0`` exists
-        # until that version ships to PyPI. ``--group dev`` installs
-        # ``openbb-devtools``, which bundles pytest, pytest-asyncio,
-        # pytest-cov, and httpx — the single pinned source of
-        # test-tool versions.
         run: |
           uv pip install --system -e .
           uv pip install --system --group dev

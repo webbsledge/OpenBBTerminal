@@ -5,7 +5,7 @@ description = "OpenBB Agent Server: pluggable, multi-tenant agent backend wired 
 authors = [{ name = "OpenBB Team", email = "hello@openbb.co" }]
 license = { text = "AGPL-3.0-only" }
 readme = "README.md"
-requires-python = ">=3.10,<4"
+requires-python = ">=3.11,<4"
 dependencies = [
     "openbb-core>=2.0.0",
     "fastapi>=0.115.0",
@@ -150,13 +150,11 @@ analyst = "openbb_agent_server.plugins.subagents.analyst:AnalystSubAgent"
 pdf_reader = "openbb_agent_server.plugins.subagents.pdf_reader:PdfReaderSubAgent"
 
 [dependency-groups]
-dev = [
-    "openbb-devtools>=2.0.0",
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=5.0",
-    "httpx>=0.28.0,<1.0.0",
-]
+# ``openbb-devtools`` is the single pinned source of test tooling for
+# the whole platform — it brings pytest, pytest-asyncio, pytest-cov,
+# ruff, ty, and httpx. Re-pinning any of those here only invites
+# version conflicts with it, so the dev group is just devtools.
+dev = ["openbb-devtools>=2.0.0"]
 
 [build-system]
 requires = ["hatchling"]
