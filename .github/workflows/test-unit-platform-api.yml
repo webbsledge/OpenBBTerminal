@@ -1,11 +1,6 @@
 name: 🛰️ openbb-platform-api
 
 on:
-  # ``pull_request`` covers the PR lifecycle (opened / synchronize /
-  # reopened) and ``merge_group`` covers the merge-queue gate.
-  # Intentionally NO ``push`` trigger — that would re-run the full
-  # matrix on the post-merge commit to develop/v5 even though
-  # ``merge_group`` already validated the same SHA.
   pull_request:
     branches:
       - develop
@@ -47,10 +42,9 @@ jobs:
           - { os: ubuntu-latest, python_version: "3.12" }
           - { os: ubuntu-latest, python_version: "3.13" }
           - { os: ubuntu-latest, python_version: "3.14" }
-          - { os: ubuntu-latest, python_version: "3.15" }
           # macOS and Windows: min and max supported.
           - { os: macos-latest, python_version: "3.10" }
-          - { os: macos-latest, python_version: "3.15" }
+          - { os: macos-latest, python_version: "3.14" }
           - { os: windows-latest, python_version: "3.10" }
           - { os: windows-latest, python_version: "3.14" }
     steps:
@@ -75,19 +69,11 @@ jobs:
             uv-${{ runner.os }}-py${{ matrix.python_version }}-
 
       - name: Install openbb-platform-api
-        # ``--group dev`` pulls in openbb-devtools (pytest, pytest-cov,
-        # pytest-asyncio, etc.) via the dependency-groups table.
-        # ``[tool.uv.sources]`` in pyproject.toml resolves
-        # ``openbb-core`` and ``openbb-devtools`` to the local checkout
-        # so unreleased v5 changes are picked up.
         run: |
           python -m pip install --upgrade pip uv
           python -m uv pip install --system -e . --group dev
 
       - name: Run unit tests
-        # Tests in this package are pure-launcher logic — no static
-        # package build (``openbb-build``), no extension cascade, no
-        # subprocess scaffolding. Plain pytest is sufficient.
         run: |
           python -m pytest tests \
             --cov=openbb_platform_api \
