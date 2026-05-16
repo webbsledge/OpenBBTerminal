@@ -104,16 +104,39 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Bootstrap Python is only here to install ``uv``.
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python_version }}
+          python-version: "3.12"
 
       - run: python -m pip install --upgrade pip uv
 
-      - name: Install openbb-agent-server from source (+ dev group)
+      - name: Install Python ${{ matrix.python_version }} via uv
+        # ``actions/setup-python``'s macOS interpreters are built
+        # WITHOUT ``--enable-loadable-sqlite-extensions``, so
+        # ``sqlite3.Connection.enable_load_extension`` is missing and
+        # ``sqlite-vec`` cannot load. uv installs a
+        # python-build-standalone interpreter that has loadable SQLite
+        # extensions enabled on every OS.
+        run: uv python install "${{ matrix.python_version }}"
+
+      - name: Create venv + install openbb-agent-server (+ dev group)
         run: |
-          uv pip install --system -e ".[all]"
-          uv pip install --system --group dev
+          uv venv --python "${{ matrix.python_version }}"
+          uv pip install -e ".[all]"
+          uv pip install --group dev
+
+      - name: Install ffmpeg
+        # The _media audio helpers (probe_audio_duration / split_audio_bytes)
+        # shell out to real ffmpeg / ffprobe — the tests run the real
+        # binaries (no mocks). Without them on $PATH those tests skip and
+        # the ffmpeg code paths in _media.py drop below 100% coverage.
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   sudo apt-get update && sudo apt-get install -y ffmpeg ;;
+            macOS)   brew install ffmpeg ;;
+            Windows) choco install ffmpeg --no-progress --yes ;;
+          esac
 
       - name: Run unit tests
-        run: pytest tests --cov=openbb_agent_server --cov-report=term-missing --cov-fail-under=100
+        run: uv run --no-sync pytest tests --cov=openbb_agent_server --cov-report=term-missing --cov-fail-under=100
