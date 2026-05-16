@@ -146,11 +146,11 @@ jobs:
 
       - name: Install openbb-agent-server from source (+ dev group)
         run: |
-          uv pip install --system -e .
+          uv pip install --system -e ".[all]"
           uv pip install --system --group dev
 
       - name: Run unit tests
-        run: pytest tests --cov=openbb_agent_server --cov-report=term-missing
+        run: pytest tests --cov=openbb_agent_server --cov-report=term-missing --cov-fail-under=100
 
   publish:
     name: Publish to PyPI

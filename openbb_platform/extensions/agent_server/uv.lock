@@ -2868,6 +2868,7 @@ dependencies = [
     { name = "langchain-community" },
     { name = "langchain-core" },
     { name = "langchain-mcp-adapters" },
+    { name = "langchain-nvidia-ai-endpoints" },
     { name = "langchain-text-splitters" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
@@ -2884,6 +2885,20 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "google-genai" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-aws" },
+    { name = "langchain-google-genai" },
+    { name = "langchain-groq" },
+    { name = "langchain-openai" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "pgvector" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "snowflake-connector-python" },
+    { name = "sqlglot" },
+    { name = "tavily-python" },
+]
 anthropic = [
     { name = "langchain-anthropic" },
 ]
@@ -2896,9 +2911,6 @@ google-genai = [
 ]
 groq = [
     { name = "langchain-groq" },
-]
-nvidia = [
-    { name = "langchain-nvidia-ai-endpoints" },
 ]
 openai = [
     { name = "langchain-openai" },
@@ -2922,11 +2934,7 @@ vertex = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "openbb-devtools" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
 ]
 
 [package.metadata]
@@ -2950,12 +2958,13 @@ requires-dist = [
     { name = "langchain-google-genai", marker = "extra == 'vertex'", specifier = ">=2.0.0" },
     { name = "langchain-groq", marker = "extra == 'groq'", specifier = ">=0.2.0" },
     { name = "langchain-mcp-adapters", specifier = ">=0.2.0" },
-    { name = "langchain-nvidia-ai-endpoints", marker = "extra == 'nvidia'", specifier = ">=1.0.0" },
+    { name = "langchain-nvidia-ai-endpoints", specifier = ">=1.0.0" },
     { name = "langchain-openai", marker = "extra == 'openai'", specifier = ">=0.2.0" },
     { name = "langchain-text-splitters", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=1.0.0" },
     { name = "langgraph-checkpoint-postgres", marker = "extra == 'postgres'", specifier = ">=2.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
+    { name = "openbb-agent-server", extras = ["anthropic", "openai", "bedrock", "vertex", "google-genai", "groq", "postgres", "tavily", "snowflake"], marker = "extra == 'all'" },
     { name = "openbb-core", editable = "../../core" },
     { name = "pdfplumber", specifier = ">=0.11" },
     { name = "pgvector", marker = "extra == 'postgres'", specifier = ">=0.3" },
@@ -2969,20 +2978,13 @@ requires-dist = [
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "sse-starlette", specifier = ">=2.1.0" },
     { name = "tavily-python", marker = "extra == 'tavily'", specifier = ">=0.5" },
-    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
     { name = "uuid7", specifier = ">=0.1" },
     { name = "uvicorn", specifier = ">=0.32.0" },
 ]
-provides-extras = ["anthropic", "openai", "bedrock", "vertex", "google-genai", "groq", "nvidia", "postgres", "tavily", "snowflake"]
+provides-extras = ["anthropic", "openai", "bedrock", "vertex", "google-genai", "groq", "postgres", "tavily", "snowflake", "all"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.0,<1.0.0" },
-    { name = "openbb-devtools", editable = "../devtools" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=4.1,<5.0" },
-]
+dev = [{ name = "openbb-devtools", editable = "../devtools" }]
 
 [[package]]
 name = "openbb-core"
