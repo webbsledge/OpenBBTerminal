@@ -1,0 +1,253 @@
+"""SnowflakeToolSource tests — full LangChain tool surface."""
+
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
+
+from openbb_agent_server.plugins.tools.snowflake_tools import SnowflakeToolSource
+from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+    SnowflakeClient,
+    SnowflakeCredentials,
+)
+from openbb_agent_server.runtime import (
+    emit,
+)
+from openbb_agent_server.runtime.context import RunContext
+from openbb_agent_server.runtime.principal import UserPrincipal
+
+
+class _Conn(sqlite3.Connection):
+    def cursor(self, *a, **k):  # type: ignore[no-untyped-def]
+        return _Cursor(super().cursor(*a, **k))
+
+
+class _Cursor:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
+        self._cur = cur
+        self.sfqid = "test-id"
+
+    def execute(self, sql: str, params: Any = None):  # type: ignore[no-untyped-def]
+        if params and isinstance(params, dict):
+            converted = sql
+            for key in params:
+                converted = converted.replace(f"%({key})s", f":{key}")
+            return self._cur.execute(converted, params)
+        return self._cur.execute(sql, params or ())
+
+    def fetchall(self):
+        return list(self._cur.fetchall())
+
+    def fetchmany(self, size):
+        return list(self._cur.fetchmany(size))
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    @property
+    def description(self):
+        return self._cur.description
+
+    def close(self) -> None:
+        self._cur.close()
+
+
+@pytest.fixture
+def sqlite_factory() -> Iterator:
+    conn = sqlite3.connect(":memory:", factory=_Conn)
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE customers (id INTEGER, name TEXT)")
+    for i in range(5):
+        cur.execute("INSERT INTO customers VALUES (?, ?)", (i, f"c{i}"))
+    conn.commit()
+    yield lambda creds: conn
+    conn.close()
+
+
+def _ctx(api_keys: dict[str, str] | None = None) -> RunContext:
+    return RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+        api_keys=api_keys or {},
+    )
+
+
+@pytest.fixture
+def captured_emits(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    monkeypatch.setattr(emit, "_writer", lambda: out.append)
+    return out
+
+
+@pytest.mark.asyncio
+async def test_tool_source_yields_full_surface(sqlite_factory) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    names = {t.name for t in tools}
+    expected = {
+        "snowflake_query",
+        "snowflake_list_databases",
+        "snowflake_list_schemas",
+        "snowflake_list_tables",
+        "snowflake_describe",
+        "snowflake_search_catalog",
+        "snowflake_explain",
+        "snowflake_query_history",
+        "snowflake_cortex_complete",
+        "snowflake_cortex_summarize",
+        "snowflake_cortex_sentiment",
+        "snowflake_cortex_translate",
+        "snowflake_cortex_classify",
+        "snowflake_cortex_extract_answer",
+        "snowflake_cortex_embed",
+        "snowflake_cortex_search",
+        "snowflake_cortex_analyst",
+    }
+    assert expected.issubset(names)
+
+
+@pytest.mark.asyncio
+async def test_query_tool_runs_and_emits_table_artifact(
+    sqlite_factory, captured_emits: list[dict[str, Any]]
+) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    out = query.invoke({"sql": "SELECT id, name FROM customers", "max_rows": 3})
+    assert out["row_count"] == 3
+    assert out["truncated"] is False
+    assert "id" in out["columns"] and "name" in out["columns"]
+    assert out["query_id"]
+    artifact_emits = [e for e in captured_emits if e.get("type") == "artifact"]
+    assert len(artifact_emits) == 1
+    assert artifact_emits[0]["artifact"]["type"] == "table"
+
+
+@pytest.mark.asyncio
+async def test_query_tool_rejects_mutating(sqlite_factory) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    with pytest.raises(Exception):
+        query.invoke({"sql": "DELETE FROM customers"})
+
+
+@pytest.mark.asyncio
+async def test_credentials_layer_via_ctx_api_keys(sqlite_factory) -> None:
+    """Per-request api_keys override plugin defaults."""
+    captured_creds: dict[str, Any] = {}
+
+    def factory(creds: SnowflakeCredentials):
+        captured_creds["account"] = creds.account
+        captured_creds["user"] = creds.user
+        captured_creds["role"] = creds.role
+        return sqlite_factory(creds)
+
+    src = SnowflakeToolSource(
+        credentials={"account": "default-acc", "user": "default-u"},
+        connection_factory=factory,
+    )
+    ctx = _ctx(
+        api_keys={
+            "SNOWFLAKE_ACCOUNT": "ctx-acc",
+            "SNOWFLAKE_USER": "ctx-user",
+            "SNOWFLAKE_ROLE": "ANALYST",
+        }
+    )
+    tools = await src.tools(ctx, {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    query.invoke({"sql": "SELECT 1"})
+    assert captured_creds["account"] == "ctx-acc"
+    assert captured_creds["user"] == "ctx-user"
+    assert captured_creds["role"] == "ANALYST"
+
+
+@pytest.mark.asyncio
+async def test_describe_runs_native(sqlite_factory) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    explain = next(t for t in tools if t.name == "snowflake_explain")
+    out = explain.invoke({"sql": "SELECT 1"})
+    assert out["statement_kind"]
+    assert out["query_id"]
+
+
+@pytest.mark.asyncio
+async def test_per_call_max_rows_via_config(sqlite_factory) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+        max_rows=2,
+    )
+    tools = await src.tools(_ctx(), {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    out = query.invoke({"sql": "SELECT id FROM customers", "max_rows": 4})
+    assert out["row_count"] == 4
+
+
+@pytest.mark.asyncio
+async def test_read_only_off_via_constructor(sqlite_factory) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+        read_only=False,
+    )
+    tools = await src.tools(_ctx(), {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    # With read_only off, a DELETE no longer raises the safety violation.
+    query.invoke({"sql": "DELETE FROM customers WHERE id = 0"})
+
+
+@pytest.mark.asyncio
+async def test_runtime_emit_records_query_metadata(
+    sqlite_factory, captured_emits: list[dict[str, Any]]
+) -> None:
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    query = next(t for t in tools if t.name == "snowflake_query")
+    query.invoke({"sql": "SELECT 1 AS v"})
+    step_emits = [e for e in captured_emits if e.get("type") == "step"]
+    # Two reasoning steps: "snowflake_query" + "ok" SUCCESS step.
+    assert len(step_emits) >= 2
+    success = [e for e in step_emits if e.get("event_type") == "SUCCESS"]
+    assert success and "query_id" in success[0]["details"]
+
+
+@pytest.mark.asyncio
+async def test_search_catalog_uses_named_param(sqlite_factory) -> None:
+    """Verifies the catalog search SQL is pass-through and the param substitution path works."""
+    src = SnowflakeToolSource(
+        credentials={"account": "acc", "user": "u"},
+        connection_factory=sqlite_factory,
+    )
+    tools = await src.tools(_ctx(), {})
+    search = next(t for t in tools if t.name == "snowflake_search_catalog")
+    with pytest.raises(Exception):
+        search.invoke({"pattern": "%customer%"})
+
+
+def test_build_tools_static_returns_tool_list(sqlite_factory) -> None:
+    creds = SnowflakeCredentials(account="acc", user="u")
+    client = SnowflakeClient(creds, connection_factory=sqlite_factory)
+    tools = SnowflakeToolSource.build_tools(client, creds, max_rows=5)
+    assert any(t.name == "snowflake_query" for t in tools)
