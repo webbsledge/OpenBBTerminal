@@ -170,7 +170,12 @@ jobs:
           esac
 
       - name: Run unit tests
-        run: uv run --no-sync pytest tests --cov=openbb_agent_server --cov-report=term-missing --cov-fail-under=100
+        # The 100% coverage gate runs on every OS — Linux, macOS and
+        # Windows must all cover every line.
+        run: |
+          uv run --no-sync pytest tests \
+            --cov=openbb_agent_server --cov-report=term-missing \
+            --cov-fail-under=100
 
   publish:
     name: Publish to PyPI

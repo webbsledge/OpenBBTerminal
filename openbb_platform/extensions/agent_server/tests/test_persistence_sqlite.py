@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -277,3 +278,74 @@ def test_apply_sqlite_pragmas_skips_non_sqlite_url() -> None:
             raise AssertionError("engine must not be touched for non-sqlite URLs")
 
     _apply_sqlite_pragmas(_BoomEngine(), "postgresql+asyncpg://host/db")
+
+
+def test_apply_sqlite_pragmas_connect_listener_runs_pragmas(tmp_path: Path) -> None:
+    """The registered ``connect`` listener executes every PRAGMA on connect.
+
+    Fired synchronously on the main thread so the listener body is covered
+    deterministically, independent of the aiosqlite worker-thread dispatch
+    that the async engine would otherwise use.
+    """
+    from sqlalchemy import create_engine, text
+
+    from openbb_agent_server.persistence.sqlite_store import _apply_sqlite_pragmas
+
+    url = f"sqlite:///{tmp_path / 'pragmas.db'}"
+    engine = create_engine(url)
+
+    class _AsyncShim:
+        sync_engine = engine
+
+    _apply_sqlite_pragmas(_AsyncShim(), url)
+    try:
+        with engine.connect() as conn:
+            assert str(conn.execute(text("PRAGMA journal_mode")).scalar()).lower() == (
+                "wal"
+            )
+            assert conn.execute(text("PRAGMA busy_timeout")).scalar() == 5000
+            assert conn.execute(text("PRAGMA synchronous")).scalar() == 1
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_upsert_user_updates_existing_row(
+    history: SqliteHistoryStore,
+) -> None:
+    """A second ``upsert_user`` for the same id takes the UPDATE branch."""
+    from openbb_agent_server.persistence import models as m
+
+    first = UserPrincipal(
+        user_id="u-update", display_name="Old Name", email="old@example.com"
+    )
+    second = UserPrincipal(
+        user_id="u-update", display_name="New Name", email="new@example.com"
+    )
+    await history.upsert_user(first)
+    await history.upsert_user(second)
+
+    async with history._sessionmaker() as session:
+        row = await session.get(m.User, "u-update")
+    assert row is not None
+    assert row.display_name == "New Name"
+    assert row.email == "new@example.com"
+
+
+@pytest.mark.asyncio
+async def test_get_trace_bundle_returns_none_for_missing_and_foreign_trace(
+    history: SqliteHistoryStore,
+    alice: UserPrincipal,
+    bob: UserPrincipal,
+) -> None:
+    """``get_trace_bundle`` returns ``None`` when the trace is absent or foreign."""
+    await history.upsert_user(alice)
+    await history.upsert_user(bob)
+    await history.begin_trace(
+        principal=alice, trace_id="t-secret", conversation_id=None, run_id=None
+    )
+
+    # Trace does not exist at all.
+    assert await history.get_trace_bundle(principal=alice, trace_id="nope") is None
+    # Trace exists but belongs to another user.
+    assert await history.get_trace_bundle(principal=bob, trace_id="t-secret") is None

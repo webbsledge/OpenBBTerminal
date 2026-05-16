@@ -1179,6 +1179,26 @@ def test_emit_splits_strips_inline_cite_source_marker() -> None:
     assert adapter._prose_buf == ["See page 138. Next sentence."]
 
 
+def test_emit_splits_strips_bare_citation_id_markers() -> None:
+    """Bare ``【<token-id>】`` refs — citation ids a model echoed inline
+    instead of calling ``cite_source`` — are stripped from prose, while
+    short / CJK bracketed prose is left intact.
+    """
+    adapter = DeepAgentEventAdapter()
+    adapter._emit_splits(
+        [
+            (
+                "prose",
+                "Gold fell on a stronger dollar.【rCW9mowjZMqwr7hu】 "
+                "See note 【6月】 for detail.",
+            )
+        ]
+    )
+    assert adapter._prose_buf == [
+        "Gold fell on a stronger dollar. See note 【6月】 for detail."
+    ]
+
+
 def test_flatten_reasoning_non_string_non_list_stringifies() -> None:
     """A reasoning payload that is neither ``str`` nor ``list`` is stringified."""
     from openbb_agent_server.protocol.adapter import _flatten_reasoning

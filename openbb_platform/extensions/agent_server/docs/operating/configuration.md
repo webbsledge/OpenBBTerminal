@@ -50,7 +50,7 @@ Other providers: `anthropic`, `openai`, `openai_compat`, `bedrock`, `vertex`, `g
 
 | Key | Default |
 | --- | --- |
-| `tool_sources` | `["artifacts", "web_search", "widget_data", "inspect_widget_data", "pdf_extract", "dashboard", "recall_user_memory", "translate", "rerank", "vision_qa", "workspace_mcp"]` |
+| `tool_sources` | `["artifacts", "web_search", "fetch_url", "widget_data", "inspect_widget_data", "pdf_extract", "dashboard", "recall_user_memory", "translate", "rerank", "vision_qa", "workspace_mcp"]` |
 | `tool_source_config` | `{}` (per-name kwargs dict) |
 | `subagents` | `["researcher", "charter", "analyst", "pdf_reader"]` |
 | `middleware` | `["tool_message_normaliser", "tool_filter", "tool_call_announcer", "usage_recorder", "tool_call_ledger", "loop_guard", "call_limit", "tool_call_limit"]` |
@@ -97,6 +97,11 @@ generative-ui = true
 [agent.features.search-web]
 label = "Search Web"
 description = "Allow the agent to search the public web when answering."
+default = false
+
+[agent.features.fetch-url]
+label = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
 default = false
 ```
 

@@ -46,10 +46,16 @@ _THINKING_CLOSE_RE = re.compile(
 _PARTIAL_TAG_HOLD = 32
 
 # Inline citation markers a model emits as TEXT instead of calling the
-# ``cite_source`` tool — e.g. ``【cite_source text="…" source="…"】``.
-# Stripped from prose before it reaches the chat bubble.
+# ``cite_source`` tool. Two leaked shapes, both stripped from prose
+# before it reaches the chat bubble:
+#   1. keyword markers — ``【cite_source text="…" source="…"】``
+#   2. bare citation-id refs — ``【rCW9mowjZMqwr7hu】`` — the opaque
+#      ``secrets.token_urlsafe`` ids ``emit.cite`` hands back, which a
+#      model sometimes echoes inline instead of calling ``cite_source``.
+#      8+ chars of pure url-safe-base64 (no spaces, no CJK) inside the
+#      brackets is the id signal; real ``【…】`` prose has neither.
 _CITATION_MARKER_RE = re.compile(
-    r"【[^】]*(?:cursor|loc|source|ref|cite)[^】]*】",
+    r"【(?:[^】]*(?:cursor|loc|source|ref|cite)[^】]*|[A-Za-z0-9_-]{8,})】",
     re.IGNORECASE,
 )
 

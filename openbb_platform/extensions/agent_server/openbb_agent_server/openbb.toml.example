@@ -104,6 +104,11 @@ label       = "Search Web"
 description = "Allow the agent to search the public web when answering."
 default     = false
 
+[agent.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
+
 
 # [agent.tool_source_config.vision_qa]
 # model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"

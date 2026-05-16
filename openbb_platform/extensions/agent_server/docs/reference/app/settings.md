@@ -72,8 +72,9 @@ The top-level model. Env prefix `OPENBB_AGENT_`, nested delimiter `__`, `extra="
 ### Tool sources (default)
 
 ```
-artifacts, web_search, widget_data, inspect_widget_data, pdf_extract,
-dashboard, recall_user_memory, translate, rerank, vision_qa, workspace_mcp
+artifacts, web_search, fetch_url, widget_data, inspect_widget_data,
+pdf_extract, dashboard, recall_user_memory, translate, rerank, vision_qa,
+workspace_mcp
 ```
 
 | Field | Type | Env | Purpose |
@@ -169,10 +170,15 @@ The default middleware stack is what every profile inherits unless it overrides 
         "description": "Allow the agent to search the public web …",
         "default":     False,
     },
+    "fetch-url": {
+        "label":       "Fetch URL",
+        "description": "Allow the agent to fetch and read the full text of a web page …",
+        "default":     False,
+    },
 }
 ```
 
-The `search-web` toggle is a `FeatureSpec`-shaped dict so Workspace renders a per-user opt-in toggle in the chat-input settings menu. `SEARCH_WEB_FEATURE = "search-web"` is exported separately for cross-reference by the `web_search` tool source (which only binds when the toggle is on).
+The `search-web` and `fetch-url` toggles are `FeatureSpec`-shaped dicts so Workspace renders a per-user opt-in toggle in the chat-input settings menu. `SEARCH_WEB_FEATURE = "search-web"` and `FETCH_URL_FEATURE = "fetch-url"` are exported separately for cross-reference by the `web_search` and `fetch_url` tool sources respectively (each only binds when its toggle is on).
 
 ## See also
 

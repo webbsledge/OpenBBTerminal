@@ -21,6 +21,7 @@ Built-in tool sources. Each module exposes one `ToolSource` subclass that the pl
 | [`pdf_extract`](pdf_extract.md) | `list_pdfs`, `get_pdf_outline`, `search_pdf`, `pdf_extract` with `pdfplumber`-backed caching and citation auto-emit. |
 | [`memory_recall`](memory_recall.md) | `recall_user_memory(query, k=8)` against the configured `MemoryStore`, principal-scoped. |
 | [`web_search`](web_search.md) | DuckDuckGo or Tavily backend, feature-gated by the `search-web` Workspace option. Auto-cites every result. Security: every snippet is untrusted DATA. |
+| [`fetch_url`](fetch_url.md) | `fetch_url(url)` — SSRF-guarded fetch of one web page's readable text. Gated by its own `fetch-url` Workspace feature toggle. Blocks private / loopback / link-local / cloud-metadata hosts; re-validates every redirect hop. Fetched text is untrusted DATA. |
 
 ### Multimodal
 

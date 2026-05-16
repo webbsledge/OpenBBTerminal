@@ -19,6 +19,7 @@ tool_sources = [
     "widget_data",
     "inspect_widget_data",
     "web_search",
+    "fetch_url",
     "pdf_extract",
     "dashboard",
     "client_side",

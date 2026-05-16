@@ -70,6 +70,7 @@ def _resolve_system_prompt_file(
 
 
 SEARCH_WEB_FEATURE: str = "search-web"
+FETCH_URL_FEATURE: str = "fetch-url"
 
 
 DEFAULT_FEATURES: dict[str, Any] = {
@@ -87,6 +88,16 @@ DEFAULT_FEATURES: dict[str, Any] = {
             "Each result attaches a citation card with the source URL. "
             "Off by default — turn on for queries about current events "
             "or anything outside the model's training data."
+        ),
+        "default": False,
+    },
+    FETCH_URL_FEATURE: {
+        "label": "Fetch URL",
+        "description": (
+            "Allow the agent to fetch and read the full text of a web page "
+            "from a URL. SSRF-guarded: private, loopback, link-local and "
+            "cloud-metadata hosts are refused. Off by default — turn on to "
+            "let the agent read the article behind a link."
         ),
         "default": False,
     },
@@ -124,6 +135,7 @@ class AgentServerSettings(BaseSettings):
     tool_sources: tuple[str, ...] = (
         "artifacts",
         "web_search",
+        "fetch_url",
         "widget_data",
         "inspect_widget_data",
         "pdf_extract",

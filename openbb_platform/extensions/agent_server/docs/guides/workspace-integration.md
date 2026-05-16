@@ -59,7 +59,7 @@ if "deep-research" in ctx.workspace_options:
     ...
 ```
 
-The reserved `search-web` feature is documented separately because Workspace expects a specific shape; see [Features](../operating/configuration.md#features).
+The built-in `search-web` and `fetch-url` features follow this same shape — each is a per-user toggle that gates the `web_search` and `fetch_url` tool sources respectively; see [Features](../operating/configuration.md#features).
 
 ## Widget data
 
