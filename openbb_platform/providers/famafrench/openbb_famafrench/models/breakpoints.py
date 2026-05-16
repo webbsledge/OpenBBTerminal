@@ -10,8 +10,9 @@ from openbb_core.provider.abstract.annotated_result import AnnotatedResult
 from openbb_core.provider.abstract.data import Data
 from openbb_core.provider.abstract.fetcher import Fetcher
 from openbb_core.provider.abstract.query_params import QueryParams
-from openbb_famafrench.utils.constants import BreakpointChoices
 from pydantic import Field
+
+from openbb_famafrench.utils.constants import BreakpointChoices
 
 
 class FamaFrenchBreakpointQueryParams(QueryParams):

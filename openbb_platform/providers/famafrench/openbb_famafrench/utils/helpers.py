@@ -177,15 +177,18 @@ def download_file(dataset) -> str:
         response = session.get(url)
         response.raise_for_status()
 
-    data = ""
+    raw_data = b""
 
-    with zipfile.ZipFile(BytesIO(response.content)) as f:
-        with f.open(f.namelist()[0]) as file:  # type: ignore
-            data = file.read()  # type: ignore
-        try:
-            data = data.decode("utf-8")  # type: ignore
-        except UnicodeDecodeError:
-            data = data.decode("latin-1")  # type: ignore
+    with (
+        zipfile.ZipFile(BytesIO(response.content)) as f,
+        f.open(f.namelist()[0]) as file,
+    ):
+        raw_data = file.read()
+
+    try:
+        data = raw_data.decode("utf-8")
+    except UnicodeDecodeError:
+        data = raw_data.decode("latin-1")
 
     return data
 

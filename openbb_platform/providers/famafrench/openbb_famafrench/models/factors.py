@@ -11,8 +11,9 @@ from openbb_core.provider.abstract.annotated_result import AnnotatedResult
 from openbb_core.provider.abstract.data import Data
 from openbb_core.provider.abstract.fetcher import Fetcher
 from openbb_core.provider.abstract.query_params import QueryParams
-from openbb_famafrench.utils.constants import FACTOR_REGION_MAP, REGIONS_MAP
 from pydantic import Field, model_validator
+
+from openbb_famafrench.utils.constants import FACTOR_REGION_MAP, REGIONS_MAP
 
 api_prefix = SystemService().system_settings.api_settings.prefix
 factors_dict = {
@@ -118,7 +119,9 @@ class FamaFrenchFactorsQueryParams(QueryParams):
         factor = factors_dict.get(values.get("factor", "3_factors"), "")
         frequency = values.get("frequency", "")
 
-        if factor and factor in ["st_reversal", "lt_reversal"] and region != "america":
+        if (  # pragma: no cover
+            factor and factor in ["st_reversal", "lt_reversal"] and region != "america"
+        ):
             raise ValueError(
                 f"Invalid region, '{region}', for factor '{factor}'. Only 'america' is supported."
             )
