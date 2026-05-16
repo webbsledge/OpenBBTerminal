@@ -1,25 +1,4 @@
-"""Generate a ``.spec`` file from a Socrata story JSON.
-
-Socrata datasets have no OpenAPI spec — instead, each portal exposes per-
-asset metadata at ``/api/views/{uid}.json`` (columns + types + description)
-and serves data at ``/resource/{uid}.json`` with the SoQL query model
-(``$select`` / ``$where`` / ``$limit`` / ``$offset`` / ``$order`` / ``$group``
-/ ``$having`` / ``$q``). A Socrata "story" is a curated narrative document
-that embeds visualizations, each pointing at a backing dataset by 4x4 UID.
-
-This module turns a story URL (or a path to a previously-downloaded story
-JSON) into a single ``.spec`` document that the existing fetcher_gen /
-pydantic_gen pipeline can consume unchanged. The strategy:
-
-1. Walk the story document for every ``datasetUid`` value (deduped).
-2. For each UID, fetch ``/api/views/{uid}.json`` and skip anything whose
-   ``assetType`` isn't ``"dataset"`` (charts / maps / filtered views are
-   reachable through the same backing dataset, so wrapping them is noise).
-3. Slugify the dataset's ``name`` — that becomes the command's namespace.
-4. Build one ``{namespace}.query`` command per dataset whose
-   ``response_schema`` reflects the column shape and whose ``parameters``
-   are the constant SoQL set.
-"""
+"""Generate a ``.spec`` file from a Socrata story JSON."""
 
 from __future__ import annotations
 
@@ -36,50 +15,21 @@ from typing import Any
 
 import httpx
 
-# Concurrency for the parallel HTTP fan-out in the spec generator.
-# Socrata's per-IP rate limit is generous enough to handle this size
-# without throttling, and the throughput win versus serial fetches
-# (~10× on a 12-dataset story) is the main reason story → spec
-# generation dropped from ~30s to ~3s.
 _DISCOVERY_MAX_WORKERS = 20
 
 from openbb_cli.dispatchers.spec import SPEC_VERSION, _generator_identifier
 
-# Socrata caps ``cachedContents.top`` at 20 entries — when a column hits
-# that cap, more distinct values exist that aren't shown in metadata. We
-# fall back to a server-side SoQL query for the full set in that case.
 _CACHED_TOP_CAP = 20
 
-# Hard ceiling on the number of distinct values we'll embed in a
-# generated ``Literal`` / ``choices`` constraint. Past this the resulting
-# argparse / Pydantic surface becomes unwieldy (multi-thousand-line
-# ``--help`` output, slow validation) and the column probably isn't a
-# true enumeration anyway. We probe with ``limit + 1`` so we can detect
-# overflow.
 _MAX_RESOLVED_CHOICES = 1000
 
-# Numeric columns get a much tighter cap. ``month`` (12 values) /
-# ``year`` (a few decades' worth) are real enums; prices / percentages /
-# observation counts are continuous measures that happen to have a
-# bounded distinct set within a single dataset. Enumerating 700 fuel
-# prices as a ``Literal`` produces a useless UX, so anything past this
-# threshold falls through to "no constraint, free numeric input."
 _NUMERIC_CHOICE_CAP = 50
 
 _NUMERIC_TYPES: frozenset[str] = frozenset({"number", "money", "percent", "double"})
 
 
 def _coerce_choices_to_type(values: list[Any], data_type: str) -> list[Any]:
-    """Cast distinct-value strings to match the column's declared type.
-
-    Socrata's ``/resource/`` endpoint serializes everything as strings —
-    ``year`` columns typed ``number`` come back as ``"2024"``. The
-    ``Literal[...]`` set we generate has to match the field type the
-    Pydantic model declares, otherwise valid input (``year=2024`` int)
-    gets rejected against ``Literal["2024", ...]``. Skip a value
-    silently if it can't be coerced cleanly — typically a stray null or
-    sentinel string in an otherwise-numeric column.
-    """
+    """Cast distinct-value strings to match the column's declared type."""
     if data_type in _NUMERIC_TYPES:
         coerced: list[Any] = []
         for v in values:
@@ -87,9 +37,6 @@ def _coerce_choices_to_type(values: list[Any], data_type: str) -> list[Any]:
                 num = float(v)
             except (TypeError, ValueError):
                 continue
-            # Prefer ``int`` for whole-number values so the Literal
-            # reads cleanly (``Literal[2024, 2025]`` not ``Literal[2024.0,
-            # 2025.0]``) AND so ``year=2024`` from the caller matches.
             if num.is_integer():
                 coerced.append(int(num))
             else:
@@ -103,9 +50,6 @@ def _coerce_choices_to_type(values: list[Any], data_type: str) -> list[Any]:
             if isinstance(v, bool):
                 coerced_bool.append(v)
             elif isinstance(v, str) and v.lower() in {"true", "false"}:
-                # Socrata serializes booleans as the strings ``"true"`` /
-                # ``"false"`` — parse properly rather than relying on
-                # truthy-string coercion (``bool("false") is True``).
                 coerced_bool.append(v.lower() == "true")
         return coerced_bool
     return values
@@ -127,13 +71,7 @@ def _cached_top_values(column: dict[str, Any]) -> list[Any]:
 
 
 def _is_categorical_column(column: dict[str, Any]) -> bool:
-    """Return True when querying for distinct values is worthwhile.
-
-    Only text-typed columns are reasonable enumeration candidates —
-    numeric columns (revenue, quantity, lat/lon) are continuous, dates
-    are continuous-shaped, and object-typed columns (URL, location) are
-    structured records that don't filter sensibly via equality.
-    """
+    """Return True when querying for distinct values is worthwhile."""
     return (column.get("dataTypeName") or "text") in ("text", "html")
 
 
@@ -145,18 +83,7 @@ async def afetch_column_distinct_values(
     *,
     limit: int = _MAX_RESOLVED_CHOICES,
 ) -> list[Any] | None:
-    """Resolve a column's full distinct-value set via SoQL (async).
-
-    Issues ``?$select=<col>&$group=<col>&$order=<col>&$limit=<n>+1`` and
-    returns the values when the response stays within ``limit``. Returns
-    ``None`` when:
-
-    * The response hits ``limit + 1`` rows (overflow — column has too
-      many distinct values to inline as a closed set).
-    * The HTTP request fails for any reason — network, rate limit,
-      schema mismatch — in which case the caller falls back to the
-      cached top values from metadata.
-    """
+    """Resolve a column's full distinct-value set via SoQL (async)."""
     query = urllib.parse.urlencode(
         {
             "$select": field_name,
@@ -192,19 +119,7 @@ def _column_choices(
     resolver: Any = None,
     choices_cache: dict[tuple[str, str], list[Any] | None] | None = None,
 ) -> list[Any]:
-    """Return the closed ``choices`` set for a column, or ``[]`` if unbounded.
-
-    Lookup order:
-
-    * ``choices_cache`` (when supplied AND the ``(uid, field)`` key is
-      present) — pre-computed by the spec generator's parallel probe
-      pass. No HTTP issued.
-    * ``resolver`` — single-fetch path used by unit tests that inject a
-      stub. Falls back to the module-level ``fetch_column_distinct_values``
-      when ``host`` / ``uid`` are present and no resolver is given.
-    * ``cachedContents.top`` from the metadata — used only when no
-      host/uid is available (also unit-test path).
-    """
+    """Return the closed ``choices`` set for a column, or ``[]`` if unbounded."""
     field_name = column.get("fieldName") or column.get("name")
     if (
         choices_cache is not None
@@ -223,28 +138,13 @@ def _column_choices(
     if not field_name:
         return []
     if resolver is None:
-        # No sync resolver injected and no async loop available here —
-        # fall back to whatever the metadata's cached top can offer
-        # rather than dereferencing an undefined symbol. The live
-        # discovery path uses ``afetch_column_distinct_values`` via
-        # ``_abuild_discovery`` and pre-populates ``choices_cache``,
-        # so this branch only fires when a caller side-steps that
-        # pipeline.
         return _cached_top_values(column)
     fetch = resolver
     type_name = column.get("dataTypeName") or ""
-    # Numeric columns get a tight cap — enum-like columns (``month``,
-    # ``year``) stay under it, continuous measures (prices, ratios) trip
-    # the overflow and fall through to no-constraint.
     cap = _NUMERIC_CHOICE_CAP if type_name in _NUMERIC_TYPES else _MAX_RESOLVED_CHOICES
     resolved = fetch(host, uid, field_name, limit=cap)
     if resolved is not None:
         return _coerce_choices_to_type(resolved, type_name)
-    # SoQL fetch failed (network / overflow) — surface the cached top as a
-    # best-effort fallback so the help text still has something useful,
-    # but only when the cached list isn't itself capped (capped == we
-    # know there's more, so claiming the top-20 is the full set would
-    # mislead).
     cached = column.get("cachedContents") or {}
     if 0 < len(cached.get("top") or []) < _CACHED_TOP_CAP:
         return _cached_top_values(column)
@@ -252,14 +152,7 @@ def _column_choices(
 
 
 def _column_help(column: dict[str, Any]) -> str:
-    """Compose the per-column help text shown under ``--<col>=<value>``.
-
-    Combines the column's own description with a "most common values"
-    line drawn from ``cachedContents.top`` so REPL users see candidate
-    filter values without having to round-trip the API. Skips the values
-    line when the column is already constrained to a closed ``choices``
-    set (the choices listing already appears in the help output).
-    """
+    """Compose the per-column help text shown under ``--<col>=<value>``."""
     parts: list[str] = []
     description = column.get("description")
     if description:
@@ -276,26 +169,13 @@ def _column_help(column: dict[str, Any]) -> str:
             parts.append(f"Examples: {', '.join(sample)}.")
     smallest = cached.get("smallest")
     largest = cached.get("largest")
-    # Only attach the range hint when ``cachedContents.top`` is at the cap
-    # (signals high cardinality — there are values outside the cached
-    # set). For below-cap columns the cached top IS the complete set, so
-    # range would be redundant.
     if smallest is not None and largest is not None and len(top) >= _CACHED_TOP_CAP:
         parts.append(f"Range: {smallest} – {largest}.")
     return " ".join(parts)
 
 
 def _column_param_type(column: dict[str, Any]) -> str:
-    """Map a Socrata ``dataTypeName`` to a spec ``type`` value.
-
-    The spec only knows about the same primitives the OpenAPI translator
-    produces — ``string`` / ``integer`` / ``number`` / ``boolean``. Date /
-    datetime columns flow through as ``string`` because Socrata accepts
-    ISO timestamps as filter values via the standard ``?col=<iso>`` form.
-    Object-shaped columns (``location`` / ``url`` / ``photo``) aren't
-    sensibly filterable as scalars, so they collapse to ``string`` —
-    user can still query the JSON-encoded form if they really want.
-    """
+    """Map a Socrata ``dataTypeName`` to a spec ``type`` value."""
     type_name = column.get("dataTypeName") or "text"
     if type_name in ("number", "money", "double", "percent"):
         return "number"
@@ -306,14 +186,6 @@ def _column_param_type(column: dict[str, Any]) -> str:
 
 _DATE_COLUMN_TYPES: frozenset[str] = frozenset({"calendar_date", "date"})
 
-# Column names commonly used for the "time axis" of a dataset — datasets
-# without a true ``calendar_date`` column often store the time dimension
-# as text (``year`` = ``"2024"``, ``month`` = ``"03"``). The per-command
-# ordering + most-recent-per-item collapse keys off the time axis, so
-# detecting it by name lets us treat year-as-text the same as a real
-# date column for those purposes (without trying to emit ``start_date``
-# / ``end_date`` against a text column where range filtering would be
-# semantically iffy).
 _TIME_AXIS_NAME_PATTERNS: tuple[str, ...] = (
     "month_year",
     "year_month",
@@ -350,16 +222,7 @@ def _is_time_axis_named(field_name: str) -> bool:
 
 
 def _detect_time_axis_column(meta: dict[str, Any]) -> str | None:
-    """Pick the column to sort by descending for "most recent" semantics.
-
-    Prefers true ``calendar_date`` / ``date`` columns; falls back to
-    text columns whose names match a known time-axis pattern (``year``,
-    ``month``, ``date``, ``timestamp``, etc.) so a dataset that stores
-    its time dimension as ``"2024"`` strings still gets meaningful
-    most-recent ordering. Returns the longer-form name when multiple
-    matches exist (``month_year`` wins over ``year``) — the longer name
-    is usually the more specific timestamp.
-    """
+    """Pick the column to sort by descending for most-recent semantics."""
     for col in meta.get("columns") or []:
         if not isinstance(col, dict):
             continue
@@ -381,15 +244,7 @@ def _detect_time_axis_column(meta: dict[str, Any]) -> str | None:
 
 
 def _to_plain_date(value: Any) -> Any:
-    """Trim the time component off a Socrata datetime string.
-
-    Socrata's ``cachedContents.smallest`` / ``largest`` come back as ISO
-    timestamps (``2010-01-01T00:00:00.000``) even for date-only
-    semantics. Users want plain ``2010-01-01`` for the ``start_date`` /
-    ``end_date`` filter — Socrata still accepts it in SoQL ``$where``
-    clauses against ``calendar_date`` columns. Anything that isn't an
-    obvious ISO datetime passes through unchanged.
-    """
+    """Trim the time component off a Socrata datetime string."""
     if not isinstance(value, str):
         return value
     if "T" in value and len(value) >= 10 and value[4] == "-" and value[7] == "-":
@@ -398,24 +253,7 @@ def _to_plain_date(value: Any) -> Any:
 
 
 def _date_range_parameters(column: dict[str, Any]) -> list[dict[str, Any]]:
-    """Emit a uniform ``start_date`` / ``end_date`` pair for a date column.
-
-    The names are deliberately not column-derived (``monthyear_start``
-    etc.) — every Socrata dataset that has a date axis gets the same
-    ``start_date`` / ``end_date`` filter, so calling code can apply the
-    same date narrowing across any dataset without first looking up the
-    underlying column name.
-
-    Defaults come from ``cachedContents.smallest`` / ``largest`` so the
-    filter naturally spans the dataset's full extent on first use — the
-    REPL's ``--help`` shows the actual data range, and the user can
-    narrow either side without having to know what values exist.
-
-    The two emitted params carry ``_socrata_op`` (``date_min`` /
-    ``date_max``) and ``_socrata_column`` markers; ``fetcher_gen`` reads
-    those at codegen time to produce a SoQL ``$where`` clause keyed on
-    the actual column name (not the parameter name).
-    """
+    """Emit a uniform ``start_date`` / ``end_date`` pair for a date column."""
     field_name = column.get("fieldName") or column.get("name")
     cached = column.get("cachedContents") or {}
     smallest = _to_plain_date(cached.get("smallest"))
@@ -425,11 +263,6 @@ def _date_range_parameters(column: dict[str, Any]) -> list[dict[str, Any]]:
     range_text = (
         f" Dataset spans {smallest} to {largest}." if smallest and largest else ""
     )
-    # Defaults stay ``None`` so omitting the param gets ALL the data the
-    # other filters allow — clamping to the cached bounds would silently
-    # exclude rows added after the metadata snapshot. Cached bounds still
-    # surface in ``example`` and the help text so callers know the
-    # available range up front.
     return [
         {
             "name": "start_date",
@@ -480,26 +313,7 @@ def _build_query_parameters(
     resolver: Any = None,
     choices_cache: dict[tuple[str, str], list[Any] | None] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build the per-dataset query parameter list.
-
-    Output structure:
-
-    * One filter parameter per column (``?<column>=<value>`` is the
-      Socrata-native equality filter — much more discoverable than
-      writing raw ``$where`` clauses). Columns with a small enumeration
-      of values get those values as ``choices`` so the generated CLI
-      validates the input up-front; high-cardinality columns surface
-      sample values in their help text instead.
-    * ``$limit`` / ``$offset`` for pagination — the only two SoQL
-      directives kept, since they're the universal "page through it"
-      controls every consumer needs. Field aliases preserve the
-      ``$``-prefixed wire names so the generated Pydantic class lets
-      callers pass them as plain ``limit`` / ``offset``.
-
-    The advanced SoQL controls (``$select`` / ``$where`` / ``$group`` /
-    ``$having`` / ``$order`` / ``$q``) are intentionally absent — power
-    users can build the URL directly with ``urllib`` or ``httpx``.
-    """
+    """Build the per-dataset query parameter list."""
     parameters: list[dict[str, Any]] = []
     date_range_emitted = False
     for column in meta.get("columns") or []:
@@ -508,11 +322,6 @@ def _build_query_parameters(
         field_name = column.get("fieldName") or column.get("name")
         if not field_name:
             continue
-        # Date columns get a unified ``start_date`` / ``end_date`` pair —
-        # but only ONCE per dataset, keyed on the first date column we
-        # encounter. Exact-date equality is useless against a multi-year
-        # time series, and a per-column ``<col>_start`` would force the
-        # caller to know which date column to filter on.
         if _is_date_column(column):
             if not date_range_emitted:
                 parameters.extend(_date_range_parameters(column))
@@ -554,8 +363,6 @@ def _build_query_parameters(
                     "50000 per request without pagination."
                 ),
                 "providers": [],
-                # ``wire_name`` carries the actual URL parameter name —
-                # Socrata's SoQL prefix (``$``) stays inside the dispatcher.
                 "wire_name": "$limit",
             },
             {
@@ -576,10 +383,6 @@ def _build_query_parameters(
     return parameters
 
 
-# Socrata column ``dataTypeName`` → JSON schema fragment. Anything not in
-# this map falls back to ``string`` — which is a safe lossy default since
-# the upstream serializes most exotic types (geometry, blob refs) as
-# JSON objects or strings.
 _SOCRATA_TYPE_MAP: dict[str, dict[str, Any]] = {
     "text": {"type": "string"},
     "html": {"type": "string"},
@@ -588,11 +391,6 @@ _SOCRATA_TYPE_MAP: dict[str, dict[str, Any]] = {
     "percent": {"type": "number"},
     "double": {"type": "number"},
     "checkbox": {"type": "boolean"},
-    # Both Socrata date types resolve to plain ``date`` (not ``datetime``).
-    # The wire format is always ``YYYY-MM-DDTHH:MM:SS.fff`` even for
-    # date-only semantics; Pydantic v2's ``date`` validator accepts the
-    # timestamp form and discards the time component, so the user-facing
-    # row carries a clean ``date`` value with no zero-time noise.
     "calendar_date": {"type": "string", "format": "date"},
     "date": {"type": "string", "format": "date"},
     "url": {
@@ -617,14 +415,7 @@ _SOCRATA_TYPE_MAP: dict[str, dict[str, Any]] = {
 
 
 def _slugify(name: str) -> str:
-    """Translate a free-form dataset name to a snake_case identifier.
-
-    Socrata names are human prose — ``"Waterborne Agricultural Trade
-    Data"``. The router namespace must be a valid Python attribute (and
-    survive both REPL completion and URL templating), so non-alphanumeric
-    chunks collapse to ``_``. Leading digits get an underscore prefix to
-    keep the result a legal identifier.
-    """
+    """Translate a free-form dataset name to a snake_case identifier."""
     cleaned = re.sub(r"[^0-9a-zA-Z]+", "_", name).strip("_").lower()
     if not cleaned:
         cleaned = "dataset"
@@ -633,9 +424,6 @@ def _slugify(name: str) -> str:
     return cleaned
 
 
-# Stop words that often appear at the end of a shared prefix (``Port
-# Profiles BY Commodity``). Stripping them keeps the router name from
-# ending with a connector preposition.
 _PREFIX_STOP_TOKENS: frozenset[str] = frozenset(
     {"by", "for", "of", "in", "at", "to", "with", "and", "the"}
 )
@@ -657,19 +445,7 @@ def _common_token_prefix(token_lists: list[list[str]]) -> list[str]:
 
 
 def _longest_common_token_run(token_lists: list[list[str]]) -> list[str]:
-    """Return the longest contiguous token run shared by every input list.
-
-    Unlike ``_common_token_prefix`` this looks at every contiguous
-    substring, not just the leading one — so
-    ``["idle", "container", "vessel", "fleet"]`` and
-    ``["container", "vessel", "fleet", "data"]`` cluster on the
-    ``[container, vessel, fleet]`` middle/edge run, not on the empty
-    leading prefix.
-
-    Brute force over the first list's substrings (longest first). The
-    spec generator runs on small inputs (≤20 datasets per story, each
-    with ≤8 name tokens), so the worst case is trivial.
-    """
+    """Return the longest contiguous token run shared by every input list."""
     if not token_lists:
         return []
     first = token_lists[0]
@@ -698,10 +474,6 @@ def _strip_stop_tokens(tokens: list[str]) -> list[str]:
     return out
 
 
-# Minimum shared-token-run length to merge two datasets into the same
-# router bucket. A single common token like ``"data"`` or ``"the"``
-# would over-cluster unrelated datasets; two consecutive content words
-# is a strong signal that the names belong together.
 _MIN_SHARED_RUN = 2
 
 
@@ -710,33 +482,15 @@ def _assign_router_namespaces(
 ) -> dict[str, tuple[str | None, str]]:
     """Group dataset slugs into ``(router, command)`` pairs.
 
-    Strategy: cluster pairs of datasets whose names share a contiguous
-    token run of length ≥ ``_MIN_SHARED_RUN`` (after stripping
-    connector words like ``by`` / ``for``). Connected components form
-    router buckets; the bucket's longest common token run becomes the
-    router name, and each member's command is the rest of its name.
-
-    Singleton buckets emit ``(None, slug)`` so the dataset becomes a
-    top-level command — forcing a router around a single dataset
-    would leave the user typing ``idle_container_vessel_fleet`` to
-    enter a menu that only contains ``query``.
-
-    For three datasets like ``idle_container_vessel_fleet`` /
-    ``container_vessel_fleet_data`` /
-    ``global_container_vessel_fleet_and_spot_rates``, the shared run
-    ``[container, vessel, fleet]`` makes them cluster into a
-    ``container_vessel_fleet`` router with commands ``idle`` / ``data``
-    / ``global_and_spot_rates``.
-
     Parameters
     ----------
     slugs : dict
-        Mapping of dataset UID → slugified dataset name.
+        Mapping of dataset UID to slugified dataset name.
 
     Returns
     -------
     dict
-        Mapping of dataset UID → ``(router_or_None, command)`` tuple.
+        Mapping of dataset UID to ``(router_or_None, command)`` tuple.
     """
     if not slugs:
         return {}
@@ -745,8 +499,6 @@ def _assign_router_namespaces(
     }
     uids = list(slugs.keys())
 
-    # Union-find clustering — pairs whose meaningful shared run is at
-    # least ``_MIN_SHARED_RUN`` tokens go in the same bucket.
     parent: dict[str, str] = {uid: uid for uid in uids}
 
     def find(u: str) -> str:
@@ -760,9 +512,6 @@ def _assign_router_namespaces(
         if ru != rv:
             parent[ru] = rv
 
-    # Cluster-threshold uses the *unstripped* run length: ``[sales, by]``
-    # (2 tokens) qualifies for clustering even though stripping the
-    # trailing ``by`` later leaves just ``sales`` as the router name.
     for i in range(len(uids)):
         for j in range(i + 1, len(uids)):
             run = _longest_common_token_run(
@@ -793,12 +542,6 @@ def _assign_router_namespaces(
             uid: _command_tokens_around_run(token_lists[uid], router_tokens, run_len)
             for uid in group_uids
         }
-        # When every member's slug *equals* the router (no remaining
-        # tokens for any of them), the group is a pile of identically-
-        # named datasets. Promote them all to top-level commands —
-        # the path-collision disambiguator below appends the UID so
-        # they stay distinct, which is friendlier than a router named
-        # ``X`` containing N copies of ``X.query``.
         if all(not c for c in member_commands.values()):
             for uid in group_uids:
                 out[uid] = (None, slugs[uid])
@@ -821,14 +564,7 @@ def _command_tokens_around_run(
 
 
 def _walk_for_dataset_uids(node: Any, sink: set[str]) -> None:
-    """Recursively collect every ``datasetUid`` value in a JSON tree.
-
-    Socrata stories nest ``datasetUid`` inside visualization components,
-    layout blocks, and filter clauses — multiple levels deep. A flat
-    regex over the source text picks up false positives (any 4x4-shaped
-    string), so we walk the parsed structure instead and trust only
-    values keyed by the literal ``datasetUid`` field.
-    """
+    """Recursively collect every ``datasetUid`` value in a JSON tree."""
     if isinstance(node, dict):
         for key, value in node.items():
             if key == "datasetUid" and isinstance(value, str):
@@ -851,11 +587,6 @@ _STORY_URL_RE = re.compile(
     r"^(?P<base>https?://[^/]+/stories/s/[a-z0-9]{4}-[a-z0-9]{4})(?P<rest>.*)$"
 )
 
-# Direct ``/resource/{uid}.json`` or ``/api/views/{uid}.json`` URL —
-# the user pointed at one specific dataset / view rather than at a
-# story document. We extract the UID and treat it as a single-entry
-# discovery seed so the same code path handles "give me everything
-# this story references" and "give me just this one dataset."
 _SINGLE_VIEW_URL_RE = re.compile(
     r"^(?P<host>https?://[^/]+)"
     r"/(?:resource|api/views)/(?P<uid>[a-z0-9]{4}-[a-z0-9]{4})"
@@ -864,13 +595,7 @@ _SINGLE_VIEW_URL_RE = re.compile(
 
 
 def _direct_dataset_seed(source: str) -> tuple[str, str] | None:
-    """Detect ``/resource/`` or ``/api/views/`` URLs → ``(host, uid)``.
-
-    These URLs aren't stories — they point at a single dataset (or
-    view). Returning the seed lets the caller skip the story-fetch
-    step and run the same downstream discovery loop with one UID
-    instead of N.
-    """
+    """Detect ``/resource/`` or ``/api/views/`` URLs and return ``(host, uid)``."""
     match = _SINGLE_VIEW_URL_RE.match(source)
     if match:
         return match.group("host"), match.group("uid")
@@ -878,14 +603,7 @@ def _direct_dataset_seed(source: str) -> tuple[str, str] | None:
 
 
 def _normalize_story_url(source: str) -> str:
-    """Append ``.json`` when the user pastes the browser-facing story URL.
-
-    Socrata stories are reachable two ways: the human form
-    ``/stories/s/<id>`` (HTML) and the JSON sibling ``/stories/s/<id>.json``.
-    Users almost always paste the former. We rewrite to the JSON form
-    transparently so they don't have to remember the suffix; non-story
-    URLs and local file paths pass through untouched.
-    """
+    """Append ``.json`` when the user pastes the browser-facing story URL."""
     match = _STORY_URL_RE.match(source)
     if not match:
         return source
@@ -896,7 +614,6 @@ def _normalize_story_url(source: str) -> str:
         return f"{match.group('base')}.json"
     if rest.startswith("?"):
         return f"{match.group('base')}.json{rest}"
-    # Some other suffix on the path (``/stories/s/<id>/embed`` etc.) — pass through.
     return source
 
 
@@ -911,13 +628,7 @@ async def _aread_json_url_or_path(source: str, *, timeout: float = 15.0) -> Any:
 
 
 def _story_host(story_source: str, story: dict[str, Any]) -> str:
-    """Pick the portal base URL the story's datasets live on.
-
-    Story documents include a ``domainCName`` in the ``dataSource`` block
-    on most portals; when present that's the canonical host. Fall back to
-    the URL the story was fetched from (so a file-on-disk story can still
-    drive generation if the JSON itself doesn't carry a host hint).
-    """
+    """Pick the portal base URL the story's datasets live on."""
     domain = (story.get("dataSource") or {}).get("domainCName")
     if isinstance(domain, str) and domain:
         return f"https://{domain}".rstrip("/")
@@ -938,12 +649,7 @@ async def _afetch_json(client: httpx.AsyncClient, url: str) -> Any:
 
 
 async def _amaybe_call(callable_: Any, *args: Any, **kwargs: Any) -> Any:
-    """Invoke ``callable_`` and ``await`` the result if it's a coroutine.
-
-    Lets test stubs stay regular sync functions — production runs go
-    through ``async def`` paths but the few stub-injected entry points
-    (``fetch=`` / ``choice_resolver=``) accept either form.
-    """
+    """Invoke ``callable_`` and ``await`` the result if it's a coroutine."""
     result = callable_(*args, **kwargs)
     if inspect.isawaitable(result):
         return await result
@@ -956,22 +662,13 @@ async def _aone_metadata(
     uid: str,
     fetcher: Any,
 ) -> dict[str, Any] | None:
-    """Fetch one view's metadata, returning ``None`` on any failure.
-
-    ``fetcher`` may be ``None`` (use the default async path),
-    ``afetch_dataset_metadata`` (same), or a test stub (sync or
-    async). The stub gets the ``client`` injected as its first
-    positional argument so test stubs can mirror the production
-    signature if they want to.
-    """
+    """Fetch one view's metadata, returning ``None`` on any failure."""
     if fetcher is None or fetcher is afetch_dataset_metadata:
         try:
             return await afetch_dataset_metadata(client, host, uid)
         except (httpx.HTTPError, ValueError, OSError):
             return None
     try:
-        # Test-stub signature: ``(host, uid)`` (sync or async). Tests
-        # that don't need the client argument keep the simpler form.
         return await _amaybe_call(fetcher, host, uid)
     except (httpx.HTTPError, OSError, ValueError):
         return None
@@ -983,13 +680,7 @@ async def _afetch_metadata_batch(
     uids: list[str],
     fetcher: Any,
 ) -> dict[str, dict[str, Any] | None]:
-    """Concurrently fetch metadata for many UIDs.
-
-    Returns ``{uid: meta_dict_or_None}`` — ``None`` marks UIDs that
-    couldn't be reached (404 / DNS failure / malformed response).
-    Concurrency is bounded by ``_DISCOVERY_MAX_WORKERS`` so a story
-    with hundreds of UIDs doesn't tip the portal's per-IP rate limit.
-    """
+    """Concurrently fetch metadata for many UIDs."""
     if not uids:
         return {}
     sem = asyncio.Semaphore(_DISCOVERY_MAX_WORKERS)
@@ -1014,10 +705,6 @@ async def _aone_choice(
     if resolver is None or resolver is afetch_column_distinct_values:
         return await afetch_column_distinct_values(client, host, uid, field, limit=cap)
     try:
-        # Test-stub signature: ``(host, uid, field, *, limit=...)``
-        # (sync or async). Mirrors the public async function but
-        # without the ``client`` argument since stubs typically don't
-        # need it.
         return await _amaybe_call(resolver, host, uid, field, limit=cap)
     except (httpx.HTTPError, OSError, ValueError):
         return None
@@ -1037,25 +724,7 @@ async def _abuild_discovery(
     list[tuple[str, str]],
     dict[tuple[str, str], list[Any] | None],
 ]:
-    """Run the full async discovery pipeline end-to-end.
-
-    Three phases, all sharing a single ``httpx.AsyncClient`` so
-    keep-alive connections are reused across every fetch:
-
-    1. **Seeding** — either fetch the story JSON and walk it for
-       ``datasetUid`` references, or skip straight to a one-UID seed
-       when ``direct_seed`` is supplied (caller pointed at a single
-       ``/resource/`` or ``/api/views/`` URL).
-    2. **BFS metadata** — issue every wave's UIDs concurrently
-       (semaphore-limited to ``_DISCOVERY_MAX_WORKERS``); collect
-       backing UIDs from chart / map / filter views; loop until no
-       new UIDs appear.
-    3. **Column-choice probe** — fan out one
-       ``$select=<col>&$group=<col>`` query per column across every
-       kept dataset so command-build time later runs HTTP-free.
-
-    Returns ``(story, host, metas, slugs, skipped, choices_cache)``.
-    """
+    """Run the full async discovery pipeline end-to-end."""
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(30.0),
         limits=httpx.Limits(
@@ -1064,9 +733,6 @@ async def _abuild_discovery(
         ),
     ) as client:
         if direct_seed is not None:
-            # Single-view URL — synthesize a one-UID "story" stub so
-            # downstream stays uniform. The host comes straight from
-            # the URL since there's no story document to consult.
             seed_host, seed_uid = direct_seed
             story = {"_synthetic_single_view": True, "uid": seed_uid}
             host = host_override or seed_host
@@ -1085,13 +751,7 @@ async def _abuild_discovery(
         while pending:
             wave = [uid for uid in pending if uid not in processed]
             pending = []
-            if not wave:  # pragma: no cover — defensive safety net
-                # Unreachable by construction: ``processed.update(wave)``
-                # runs before backing UIDs get appended, and the
-                # ``if backing not in processed`` filter on append means
-                # ``pending`` never accumulates already-processed UIDs.
-                # Kept as a guard against future refactors that might
-                # change those invariants.
+            if not wave:  # pragma: no cover
                 break
             processed.update(wave)
             wave_metas = await _afetch_metadata_batch(client, host, wave, fetcher)
@@ -1129,13 +789,7 @@ async def _aprobe_choices_batch(
     metas: dict[str, dict[str, Any]],
     resolver: Any,
 ) -> dict[tuple[str, str], list[Any] | None]:
-    """Concurrently probe distinct-value choices for every column on every dataset.
-
-    Date columns (which become ``start_date`` / ``end_date`` range
-    params) and object-typed columns (URL / location / photo —
-    not sensibly enumerable as scalars) are skipped from the probe
-    list entirely.
-    """
+    """Concurrently probe distinct-value choices for every column on every dataset."""
     tasks: list[tuple[str, str, int]] = []
     for uid, meta in metas.items():
         for col in meta.get("columns") or []:
@@ -1181,17 +835,7 @@ async def _aprobe_choices_batch(
 async def afetch_dataset_metadata(
     client: httpx.AsyncClient, host: str, uid: str
 ) -> dict[str, Any]:
-    """Fetch a Socrata view's metadata JSON (async).
-
-    The same endpoint serves dataset, chart, map, and filter views — the
-    caller filters on ``assetType`` to keep only true datasets, since the
-    derived views all resolve to the same ``/resource/`` data path.
-
-    Pure async: the spec generator opens one ``httpx.AsyncClient`` for
-    the whole discovery pass and fans out via ``asyncio.gather`` so
-    keep-alive connections are reused across the dozens of per-story
-    fetches.
-    """
+    """Fetch a Socrata view's metadata JSON (async)."""
     url = f"{host.rstrip('/')}/api/views/{uid}.json"
     response = await client.get(url)
     response.raise_for_status()
@@ -1199,13 +843,7 @@ async def afetch_dataset_metadata(
 
 
 def _backing_dataset_uid(meta: dict[str, Any]) -> str | None:
-    """Return the UID of a non-dataset view's backing dataset, or ``None``.
-
-    Socrata stores the backing reference in ``modifyingViewUid`` for
-    chart / map / filter views; the older ``query.viewSourceId`` slot
-    serves the same purpose on legacy assets. Both are checked so the
-    resolver works across portal vintages.
-    """
+    """Return the UID of a non-dataset view's backing dataset, or ``None``."""
     backing = meta.get("modifyingViewUid")
     if isinstance(backing, str) and backing:
         return backing
@@ -1218,32 +856,16 @@ def _backing_dataset_uid(meta: dict[str, Any]) -> str | None:
 
 
 def _column_to_schema(column: dict[str, Any]) -> dict[str, Any]:
-    """Translate one Socrata column descriptor into a JSON-schema fragment.
-
-    Preserves ``description`` when the column carries one — that text
-    flows through to the generated Pydantic ``Field(description=...)`` and
-    surfaces in the REPL's ``--help`` output. Socrata format hints
-    (currency / percent precision style, decimal & group separators)
-    land under a ``socrata_format`` extension key so downstream
-    formatters can render values correctly without re-fetching the
-    column metadata.
-    """
+    """Translate one Socrata column descriptor into a JSON-schema fragment."""
     type_name = column.get("dataTypeName") or "text"
     schema = dict(_SOCRATA_TYPE_MAP.get(type_name, {"type": "string"}))
     description = column.get("description")
     if description:
-        # Socrata descriptions frequently arrive with trailing whitespace
-        # ("Quarter number. ", "Price, measured in dollars per ton. ").
-        # Strip both edges so downstream renderers don't have to deal
-        # with the noise.
         cleaned = description.strip()
         if cleaned:
             schema["description"] = cleaned
     fmt = column.get("format")
     if isinstance(fmt, dict) and fmt:
-        # Keep only the rendering-hint keys we actually use; the raw
-        # ``format`` dict on Socrata sometimes carries internal flags
-        # (e.g. ``align``) that aren't useful downstream.
         rendering_hints = {
             k: v
             for k, v in fmt.items()
@@ -1265,13 +887,7 @@ def _column_to_schema(column: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_response_schema(meta: dict[str, Any]) -> dict[str, Any]:
-    """Build a row-shape schema from a dataset's column metadata.
-
-    Output is a single-key envelope ``{results: array<row>}`` so the
-    existing ``_unwrap_schema_envelopes`` (which descends single-array
-    properties) lands on the row schema and the generated ``Data`` class
-    describes one row, not the whole list.
-    """
+    """Build a row-shape schema from a dataset's column metadata."""
     columns = meta.get("columns") or []
     properties: dict[str, dict[str, Any]] = {}
     for column in columns:
@@ -1300,27 +916,9 @@ def _build_command(
     choice_resolver: Any = None,
     choices_cache: dict[tuple[str, str], list[Any] | None] | None = None,
 ) -> dict[str, Any]:
-    """Synthesize one spec command entry for a dataset.
-
-    The command keys off the dataset's UID (immutable) for the URL path
-    while the namespace comes from its slugified name (human-readable).
-    Renames upstream don't break installed extensions because the URL
-    still resolves; namespaces do drift, which is the intended trade-off
-    — readable REPL paths beat permanent-but-cryptic 4x4 namespaces.
-
-    ``choices_cache`` (when supplied) short-circuits the per-column
-    distinct-value probe — keys are ``(uid, field_name)`` and values
-    are the resolved choice list (or ``None`` for overflow / failure).
-    The spec generator pre-populates this cache via a single parallel
-    batch so per-command construction never has to issue HTTP calls.
-    """
+    """Synthesize one spec command entry for a dataset."""
     name = (meta.get("name") or uid).strip()
     description = (meta.get("description") or "").strip()
-    # ``description`` lands first because the REPL menu renderer takes
-    # only the first sentence (``description.split(".")[0]``) — leading
-    # with the dataset name there would just duplicate the command name
-    # and waste the menu's one-line summary slot. Fall back to the name
-    # when the dataset has no description text.
     summary = description or name
     parameters = _build_query_parameters(
         meta,
@@ -1340,16 +938,7 @@ def _build_command(
         "request_body_schemas": {},
         "response_schema": _build_response_schema(meta),
         "response_schemas": {},
-        # ``_socrata_time_axis`` is the column the dispatcher sorts by
-        # descending so ``limit=N`` returns the most recent records
-        # — even when the dataset stores time as text (``year`` =
-        # ``"2024"``) instead of a true ``calendar_date``.
         "_socrata_time_axis": time_axis,
-        # ``_socrata_primary_item`` is the text column with the highest
-        # distinct-value count, excluding time-axis columns — what
-        # ``limit`` keys off in spec-mode dispatch ("most recent record
-        # per item, capped at N items"). Falls back to ``None`` when no
-        # column qualifies (continuous-only datasets).
         "_socrata_primary_item": _primary_item_column(parameters, time_axis),
     }
 
@@ -1357,20 +946,7 @@ def _build_command(
 def _primary_item_column(
     parameters: list[dict[str, Any]], time_axis: str | None
 ) -> str | None:
-    """Pick the column to use as the per-item key for ``limit`` semantics.
-
-    The "primary item" is the categorical column with the highest
-    distinct-value count — for ``port_profiles_by_commodity`` that's
-    ``port`` (215 values), not ``exim`` (2). We exclude:
-
-    * The time-axis column (so ``year`` doesn't get picked as the
-      "item" on a yearly dataset).
-    * Other time-axis-named columns (``month``, ``quarter``) since
-      they're typically secondary time axes, not entities.
-    * Pagination params and date-range markers.
-    * Columns with fewer than three choices (boolean-like flags
-      aren't useful entities to enumerate).
-    """
+    """Pick the column to use as the per-item key for ``limit`` semantics."""
     excluded: set[str] = {"limit", "offset"}
     if time_axis:
         excluded.add(time_axis)
@@ -1393,7 +969,6 @@ def _primary_item_column(
         candidates.append((len(choices), name))
     if not candidates:
         return None
-    # Highest cardinality wins; ties broken by spec declaration order.
     candidates.sort(key=lambda pair: -pair[0])
     return candidates[0][1]
 
@@ -1410,36 +985,20 @@ def build_socrata_spec(
     Parameters
     ----------
     story_source : str
-        Either a story URL (``https://<portal>/stories/s/<id>.json``) or a
-        path to a previously-downloaded story JSON file.
+        A story URL or a path to a previously-downloaded story JSON file.
     host_override : str, optional
         Portal base URL to use instead of the one inferred from the story.
-        Useful for testing against a captured story without making live
-        ``/api/views/`` calls.
     fetch : callable, optional
         Override the metadata fetcher — signature ``(host, uid) -> dict``.
-        Tests inject a stub here to avoid network IO; production passes
-        ``None`` and the module's own ``fetch_dataset_metadata`` is used.
     choice_resolver : callable, optional
-        Override the per-column distinct-value resolver — signature
-        ``(host, uid, field_name) -> list | None``. Returning ``None``
-        signals overflow / failure (no closed choices). Tests inject a
-        stub; production passes ``None`` so every column is resolved
-        live via ``fetch_column_distinct_values``.
+        Override the per-column distinct-value resolver.
 
     Returns
     -------
     dict
-        A spec document conforming to ``SpecDocument`` with one
-        namespace per dataset and one ``query`` command per namespace.
+        A spec document conforming to ``SpecDocument``.
     """
     story_source = _normalize_story_url(story_source)
-    # Single ``asyncio.run`` covers the entire network workload —
-    # story fetch, BFS-wave metadata fetches, and per-column
-    # distinct-value probes — all sharing one ``httpx.AsyncClient``
-    # for keep-alive connection reuse. ``build_socrata_spec`` itself
-    # stays a sync function so existing CLI / test entry points
-    # don't need to change.
     direct_seed = _direct_dataset_seed(story_source)
     story, host, metas, slugs, skipped, choices_cache = asyncio.run(
         _abuild_discovery(
@@ -1451,20 +1010,12 @@ def build_socrata_spec(
         )
     )
 
-    # Second pass: cluster slugs by leading token so related datasets
-    # (``port_profiles_by_*``) collapse into a single router with one
-    # command per variant — instead of N flat routers.
     assignments = _assign_router_namespaces(slugs)
 
     commands: dict[str, dict[str, Any]] = {}
     seen_paths: set[str] = set()
     for uid, (router, command) in assignments.items():
-        # Singletons (``router is None``) live at the spec root — the
-        # command name IS the path. Grouped datasets get the
-        # ``router.command`` form.
         path = command if router is None else f"{router}.{command}"
-        # Two datasets that slugify identically would produce identical
-        # paths — disambiguate with the UID.
         if path in seen_paths:
             path = f"{path}_{uid.replace('-', '')}"
         seen_paths.add(path)
@@ -1481,9 +1032,6 @@ def build_socrata_spec(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "generator": _generator_identifier(),
         "source_url": story_source,
-        # Socrata's SODA v2.1 is the only public version of the data API
-        # — record it so a downstream consumer can branch on the upstream
-        # variant without sniffing the URL shape.
         "api_version": "socrata-soda-2.1",
         "base_url": host,
         "api_prefix": "",

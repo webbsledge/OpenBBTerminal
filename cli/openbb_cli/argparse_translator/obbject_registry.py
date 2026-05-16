@@ -61,16 +61,7 @@ class Registry:
 
     @property
     def all(self) -> dict[int, dict]:
-        """Return all obbjects in the registry.
-
-        Each row is the OBBject dumped minus ``results`` — everything
-        else *is* metadata: ``id``, ``provider``, ``warnings``, ``chart``,
-        and ``extra`` (which carries ``metadata``, ``results_metadata``,
-        ``command``, ``register_key``, and whatever else got stamped
-        on). No synthesized columns, no JSON-stringified mirrors of
-        private attrs — duplicating ``extra.metadata.route`` as a
-        synthetic ``route`` field would just confuse callers.
-        """
+        """Return all obbjects in the registry."""
         obbjects: dict[int, dict] = {}
         for i, obbject in enumerate(list(reversed(self._obbjects))):
             model_dump = getattr(obbject, "model_dump", None)
@@ -78,7 +69,7 @@ class Registry:
             if callable(model_dump):
                 try:
                     candidate = model_dump(exclude={"results"})
-                except Exception:  # noqa: BLE001 — recall display is best-effort
+                except Exception:  # noqa: BLE001
                     candidate = None
                 if isinstance(candidate, dict):
                     dump = candidate

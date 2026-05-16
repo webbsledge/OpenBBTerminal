@@ -1,23 +1,4 @@
-"""Generate free-form router modules for POST endpoints with request bodies.
-
-OpenBB POST commands are emitted with the same pattern the platform's
-own econometrics / quantitative routers use: a regular ``async def``
-body that takes Pydantic-typed body params and scalar query params, and
-makes the upstream HTTP call inline. The provider-backed
-``@router.command(model=...)`` machinery doesn't apply here because
-FastAPI would otherwise treat ``data: list[BodyData]`` as a query
-parameter and reject it.
-
-Each generated module exposes:
-
-* A ``<Cmd>BodyItem`` Pydantic class (from ``request_body_schema.properties``
-  array-element shape) — the row type for ``data: list[<Cmd>BodyItem]``.
-* A ``<Cmd>Data`` Pydantic class (from ``response_schema``) — the row
-  type for the ``OBBject[list[<Cmd>Data]]`` return.
-* A ``<cmd_name>`` async function decorated with
-  ``@router.command(methods=["POST"])`` that the router module imports
-  and re-exports.
-"""
+"""Generate free-form router modules for POST endpoints with request bodies."""
 
 from __future__ import annotations
 
@@ -47,14 +28,13 @@ class PostCommandSpec:
     name : str
         Dotted command path from the spec.
     cmd_spec : dict
-        The command's spec entry — ``url_path``, ``parameters``,
-        ``request_body_schema``, ``response_schema``, ``description``.
+        The command's spec entry.
     base_url : str
         Upstream API root, no trailing slash.
     api_prefix : str
         Path prefix shared across every command in the spec.
     provider_name : str
-        Snake-case provider identifier; drives credential lookup keys.
+        Snake-case provider identifier.
     """
 
     name: str
@@ -71,10 +51,9 @@ class GeneratedPostCommand:
     Parameters
     ----------
     module_name : str
-        Snake-case module filename (without ``.py``) — the function name
-        is the same identifier.
+        Snake-case module filename (without ``.py``).
     function_name : str
-        The router function name (e.g. ``"econometrics_ols_regression"``).
+        The router function name.
     body_class : str, optional
         Name of the emitted body element class, if a body is present.
     data_class : str
@@ -82,8 +61,7 @@ class GeneratedPostCommand:
     source : str
         Full module source ready to write to disk.
     credentials_used : dict
-        Same shape as ``GeneratedFetcher.credentials_used`` — drives
-        provider credential registration.
+        Same shape as ``GeneratedFetcher.credentials_used``.
     """
 
     module_name: str
@@ -129,7 +107,7 @@ def _python_type_from_param(param: dict[str, Any]) -> str:
     Parameters
     ----------
     param : dict
-        Spec parameter entry with ``type`` / ``is_list`` / ``choices``.
+        Spec parameter entry.
 
     Returns
     -------
@@ -157,14 +135,6 @@ def _array_item_class(
 ) -> tuple[str | None, GeneratedClass | None, str | None]:
     """Detect a body's array-of-objects field and emit its item class.
 
-    Two body shapes get the array-item treatment:
-
-    * ``{type: "object", properties: {data: {type: "array", items: {...}}}}``
-      — the standard "wrapped" body where ``data`` is one named field.
-    * ``{type: "array", items: {...}}`` — the body is the array itself,
-      with no enclosing object. The function signature uses ``data`` as
-      the parameter name to match OpenBB convention.
-
     Parameters
     ----------
     body_schema : dict
@@ -175,18 +145,12 @@ def _array_item_class(
     Returns
     -------
     tuple
-        ``(field_name, item_class, type_annotation)``. ``(None, None,
-        None)`` when no array-of-objects body is present.
+        ``(field_name, item_class, type_annotation)``.
     """
-    # Top-level array body: ``request body IS the array`` (no wrapper).
     if body_schema.get("type") == "array":
         items = body_schema.get("items")
         if isinstance(items, dict):
             item_class_name = class_name_from(parent_class_name, "BodyItem")
-            # ``Data`` (with ``additionalProperties: true``) is the OpenBB
-            # standardized open-row base. Subclassing it means callers can
-            # pass any other endpoint's result rows in unchanged — Pydantic
-            # accepts subclass instances of an open ``Data`` parent.
             item_class = generate_class(
                 items,
                 class_name=item_class_name,
@@ -196,7 +160,6 @@ def _array_item_class(
             return ("data", item_class, f"list[{item_class_name}]")
         return (None, None, None)
 
-    # Object body with one or more array-of-objects fields.
     properties = body_schema.get("properties") or {}
     for name, schema in properties.items():
         if not isinstance(schema, dict):
@@ -278,17 +241,10 @@ def _first_non_null_combinator_variant(schema: dict[str, Any]) -> dict[str, Any]
 
 
 def _envelope_inner_schema(
-    typed: dict[str, Any],  # noqa: ARG001 — kept for symmetry with caller signature
+    typed: dict[str, Any],  # noqa: ARG001
     props: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Resolve the inner row schema when ``typed`` is a recognized envelope.
-
-    Returns ``None`` when the schema isn't an envelope (i.e. it IS the row,
-    OR the would-be inner schema is too malformed to descend into safely).
-    Mirrors ``unpack_response``: pure single-property wrappers descend, and
-    multi-property objects with exactly one array property treat the
-    array's items as the row shape.
-    """
+    """Resolve the inner row schema when ``typed`` is a recognized envelope."""
     if len(props) == 1:
         only_value = next(iter(props.values()))
         if isinstance(only_value, dict):
@@ -341,13 +297,12 @@ def _credential_lookup_lines(
     creds : dict
         Mapping from canonical credential names to ``{name, in}`` info.
     provider_name : str
-        Snake-case provider name; used as the credentials-attribute prefix.
+        Snake-case provider name.
 
     Returns
     -------
     list of str
-        Indented lines that pull each credential off
-        ``cc.user_settings.credentials`` into ``_cred_<canonical>`` locals.
+        Indented lines that pull each credential into ``_cred_<canonical>`` locals.
     """
     if not creds:
         return []
@@ -372,19 +327,16 @@ def _signature_params(
     cmd_spec : dict
         Spec command entry.
     array_field : str, optional
-        Name of the body's array-of-objects field (e.g. ``"data"``).
+        Name of the body's array-of-objects field.
     array_annotation : str, optional
-        The Python annotation for that field (e.g. ``"list[OlsBodyItem]"``).
+        The Python annotation for that field.
     has_credentials : bool
-        Whether the command needs credentials — when ``True`` a
-        ``cc: CommandContext`` parameter is prepended so the generated
-        body can read ``cc.user_settings.credentials``.
+        Whether the command needs credentials.
 
     Returns
     -------
     list of tuple
-        Per-parameter tuples in declaration order — required first, then
-        optional. ``cc`` (when present) always comes first.
+        Per-parameter tuples in declaration order.
     """
     out: list[tuple[str, str, str | None, bool, Any]] = []
     if has_credentials:
@@ -438,7 +390,6 @@ def _signature_params(
                 raw.get("default"),
             )
         )
-    # Stable sort: cc first, then required, then optional.
     out.sort(key=lambda entry: (0 if entry[0] == "cc" else 1, 0 if entry[3] else 1))
     return out
 
@@ -483,7 +434,7 @@ def render_default(default: Any) -> str:
     Parameters
     ----------
     default : Any
-        The literal default — primitives and lists/dicts pass through repr.
+        The literal default.
 
     Returns
     -------
@@ -516,13 +467,11 @@ def generate_post_command_module(spec: PostCommandSpec) -> GeneratedPostCommand:
     function_name = module_name
     data_class = f"{base_class_name}Data"
 
-    # 1) Body item class (when the body declares ``data: list[<obj>]``).
     body_field, body_item_class, body_annotation = _array_item_class(
         spec.cmd_spec.get("request_body_schema") or {},
         parent_class_name=base_class_name,
     )
 
-    # 2) Response data class.
     data_schema = _data_schema(spec.cmd_spec) or {"type": "object"}
     data_generated = generate_class(
         data_schema,
@@ -531,19 +480,15 @@ def generate_post_command_module(spec: PostCommandSpec) -> GeneratedPostCommand:
         docstring=f"Response row for {spec.name}.",
     )
 
-    # 3) Credentials: same as fetcher_gen so POST endpoints honor the
-    #    provider's registered credentials registry.
     creds = credentials_from_command(spec.cmd_spec)
     cred_lines = _credential_lookup_lines(creds, spec.provider_name)
 
-    # 4) Function signature: cc first (when creds), body-array, then scalar query.
     params = _signature_params(
         spec.cmd_spec, body_field, body_annotation, has_credentials=bool(creds)
     )
     return_annotation = f"OBBject[list[{data_class}]]"
     signature = _render_signature(function_name, params, return_annotation)
 
-    # 5) Function body: build URL, body payload, headers; call amake_request.
     path_params = _path_template_keys(spec.cmd_spec.get("url_path") or "")
     full_url_path = _resolve_url_path(
         spec.api_prefix, spec.cmd_spec.get("url_path") or ""
@@ -560,9 +505,6 @@ def generate_post_command_module(spec: PostCommandSpec) -> GeneratedPostCommand:
         params=params,
     )
 
-    # 6) Imports. The module exposes the function bare — no
-    #    ``Router(...)`` instance and no ``@router.command`` decoration —
-    #    so the main router module can import it and decorate it once.
     imports = {
         "import json as _json",
         "from typing import Any",
@@ -584,7 +526,6 @@ def generate_post_command_module(spec: PostCommandSpec) -> GeneratedPostCommand:
 
     sorted_imports = consolidate_imports(imports)
 
-    # 7) Assemble the module source.
     description = (spec.cmd_spec.get("description") or f"POST {spec.name}.").strip()
     summary = description.split("\n", 1)[0]
     parts: list[str] = [
@@ -615,9 +556,6 @@ def generate_post_command_module(spec: PostCommandSpec) -> GeneratedPostCommand:
     for cls in data_generated.flatten():
         parts.append(cls.source)
 
-    # Summary-only docstring built from the spec's actual description —
-    # OpenBB's ``DocstringGenerator`` injects the Parameters / Returns
-    # blocks at static-stub-build time, so we don't repeat them here.
     cleaned_summary = (description or summary).strip()
     if not cleaned_summary:
         cleaned_summary = summary
@@ -674,14 +612,14 @@ def _render_body_block(
     cred_lines : list of str
         Credential-extraction source lines.
     data_class : str
-        Name of the response Data class — used to construct the OBBject.
+        Name of the response Data class.
     params : list of tuple
-        Function parameters (used to build query/body payload).
+        Function parameters.
 
     Returns
     -------
     str
-        Full function body (every line indented by four spaces).
+        Full function body.
     """
     body_props = (cmd_spec.get("request_body_schema") or {}).get("properties") or {}
     body_field_names = list(body_props)
@@ -698,7 +636,6 @@ def _render_body_block(
     else:
         lines.append(f"    _path = {url_path_template!r}")
 
-    # Query string from non-body, non-path params + query credentials
     lines.append("    _query_dict: dict[str, Any] = {}")
     for name in query_field_names:
         if name in path_params:
@@ -717,7 +654,6 @@ def _render_body_block(
         f'    _url = f"{base_url}{{_path}}" + ("?" + _query_string if _query_string else "")'
     )
 
-    # Headers
     lines.append("    _headers: dict[str, str] = {}")
     for canonical, info in creds.items():
         if info["in"] != "header":
@@ -727,8 +663,6 @@ def _render_body_block(
         lines.append(f"    if {var}:")
         lines.append(f"        _headers[{wire_name!r}] = {var}")
 
-    # Body payload. Top-level array bodies serialize the array directly;
-    # object bodies wrap each named field into a dict.
     body_top_is_array = (cmd_spec.get("request_body_schema") or {}).get(
         "type"
     ) == "array"

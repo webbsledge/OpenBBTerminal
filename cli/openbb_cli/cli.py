@@ -1,19 +1,4 @@
-"""OpenBB Platform CLI entry point.
-
-The default mode is **non-TTY**: argv → one command → JSON response → exit. This
-is the form CI tools and agents reach for. Interactive REPL behavior is opt-in
-via ``-i`` / ``--interactive``.
-
-Three modes:
-
-* ``openbb <command.path> [--key value ...]`` — one-shot dispatch.
-* ``openbb --batch`` — NDJSON pipe protocol on stdin/stdout.
-* ``openbb -i`` — interactive REPL with rich output (legacy behavior).
-
-A ``--server URL`` flag (or ``OPENBB_SERVER_URL`` env var) routes the
-non-interactive paths through an ``openbb-platform-api`` HTTP backend instead
-of importing ``openbb`` in-process.
-"""
+"""OpenBB Platform CLI entry point."""
 
 from __future__ import annotations
 
@@ -30,15 +15,7 @@ from openbb_cli.utils.utils import change_logging_sub_app, reset_logging_sub_app
 
 
 def _materialize_socrata_spec(story_source: str) -> str:
-    """Build a Socrata spec from a story and write it to a temp file.
-
-    Returns the path so the caller can add it to ``spec_entries``. The
-    file lives for the process's lifetime — the spec dispatcher loads
-    its contents once at startup and never re-reads, so an OS-level
-    cleanup of the temp file later doesn't break anything in flight.
-    Letting the OS reap the temp dir on shutdown avoids the careful
-    shutdown-handler dance an explicit unlink would require.
-    """
+    """Build a Socrata spec from a story and write it to a temp file."""
     import tempfile
 
     from openbb_cli.dispatchers.socrata import build_socrata_spec
@@ -52,10 +29,7 @@ def _materialize_socrata_spec(story_source: str) -> str:
 
 
 def _parse_spec_arg(token: str) -> tuple[str | None, str]:
-    """``[NAME=]PATH`` → ``(name, path)``. Returns ``(None, path)`` if no name.
-
-    Raises on malformed entries (empty NAME or PATH).
-    """
+    """``[NAME=]PATH`` to ``(name, path)``; returns ``(None, path)`` if no name."""
     if "=" in token:
         name, _, path = token.partition("=")
         name = name.strip()
@@ -71,19 +45,7 @@ def _resolve_spec_entries(
     config_specs: Any,
     config_single_spec: str | None = None,
 ) -> list[tuple[str | None, str]]:
-    """Build the final ``[(namespace_or_None, path), ...]`` list.
-
-    Resolution priority: CLI ``--spec`` entries > ``[specs.<ns>]`` TOML tables
-    > legacy ``spec = "..."`` top-level TOML key > ``OPENBB_SPEC_PATH`` env
-    var. CLI/TOML are not merged — passing any ``--spec`` flag replaces the
-    TOML set entirely so the user can override on the command line without
-    their config sneaking in extra namespaces.
-
-    A single unnamed entry keeps the historical flat surface (no command
-    prefixing). Multiple entries must all be named — mixing one unnamed with
-    named entries would mean some commands have a namespace prefix and
-    others don't, which is a footgun for scripts.
-    """
+    """Build the final ``[(namespace_or_None, path), ...]`` list."""
     entries: list[tuple[str | None, str]] = []
     if cli_spec:
         for token in cli_spec:
@@ -110,14 +72,7 @@ def _resolve_spec_entries(
 
 
 def _split_scoped_token(token: str, namespaces: set[str]) -> tuple[str | None, str]:
-    """Detect a ``<NS>:rest`` namespace prefix on a header / query-param token.
-
-    Returns ``(namespace, rest)`` if the segment before the first ``:`` is a
-    declared namespace, otherwise ``(None, token)`` so the caller treats it as
-    a global flag. The check is exact-match on the namespaces actually
-    declared via ``--spec`` so legacy header forms like ``Authorization: Bearer
-    xxx`` keep working — ``Authorization`` is not a namespace.
-    """
+    """Detect a ``<NS>:rest`` namespace prefix on a header / query-param token."""
     if ":" not in token:
         return (None, token)
     leading, _, rest = token.partition(":")
@@ -151,12 +106,7 @@ def _merge_dicts(*dicts: dict[str, str] | None) -> dict[str, str] | None:
 
 
 def _parse_header_kv(token: str) -> tuple[str, str]:
-    """Split a ``KEY=VALUE`` or ``KEY: VALUE`` header token.
-
-    The HTTP spec uses ``KEY: VALUE``; the shell-friendly ``KEY=VALUE`` is
-    accepted because shells often strip or mangle quoted colon-separated
-    forms in ``-H`` arguments. Whichever separator appears first wins.
-    """
+    """Split a ``KEY=VALUE`` or ``KEY: VALUE`` header token."""
     eq = token.find("=")
     colon = token.find(":")
     if eq == -1 and colon == -1:
@@ -173,12 +123,7 @@ def _resolve_headers(
     header_file: str | None,
     config_headers: dict[str, Any] | None = None,
 ) -> dict[str, str] | None:
-    """Merge headers in priority order (lowest → highest).
-
-    1. ``[headers]`` table from the layered TOML config
-    2. ``--header-file`` (JSON object on disk)
-    3. ``--header`` flags
-    """
+    """Merge headers in priority order (lowest to highest)."""
     headers: dict[str, str] = {}
     if config_headers:
         for k, v in config_headers.items():
@@ -208,16 +153,7 @@ def _resolve_query_params(
     param_file: str | None,
     config_query: dict[str, Any] | None = None,
 ) -> dict[str, str] | None:
-    """Merge query params in priority order (lowest → highest).
-
-    1. ``[query]`` table from the layered TOML config
-    2. ``--query-param-file`` (JSON object on disk)
-    3. ``OPENBB_HTTP_QUERY_*`` env vars (lowercased after the prefix)
-    4. ``--query-param`` flags
-
-    Useful for APIs (e.g. https://api.congress.gov) that authenticate via a
-    query parameter on every request.
-    """
+    """Merge query params in priority order (lowest to highest)."""
     import os
 
     params: dict[str, str] = {}
@@ -252,15 +188,7 @@ def _resolve_auth_hooks(
     config: dict[str, Any],
     namespaces: set[str],
 ) -> tuple[Any, dict[str, Any]]:
-    """Import the configured auth hooks (global + per-namespace).
-
-    Returns ``(global_hook_or_None, per_ns_hooks)``. Top-level
-    ``auth-hook = "module:func"`` becomes the global hook; a
-    ``[specs.<ns>]`` table with its own ``auth-hook`` overrides the global
-    for that one backend. Hyphenated TOML keys (``auth-hook``) and
-    underscore equivalents (``auth_hook``) are both honored to match the
-    rest of the loader.
-    """
+    """Import the configured auth hooks (global and per-namespace)."""
     from openbb_cli.auth import resolve_auth_hook
 
     def _hook_value(table: dict[str, Any]) -> str | None:
@@ -288,14 +216,7 @@ def _resolve_per_ns_auth(
     namespaces: set[str],
     config_specs: dict[str, Any] | None,
 ) -> tuple[dict[str, dict[str, str]] | None, dict[str, dict[str, str]] | None]:
-    """Build per-namespace header / query maps from CLI flags + TOML.
-
-    For each namespace, merges the ``[specs.<ns>.headers]`` / ``.query`` TOML
-    tables (lowest priority) with any ``-H <ns>:KEY=VAL`` / ``-Q <ns>:KEY=VAL``
-    CLI tokens (highest priority). Returns ``(per_ns_headers, per_ns_query)``.
-    Either side returns ``None`` (and writes to stderr) on a malformed token —
-    callers should propagate by exiting non-zero.
-    """
+    """Build per-namespace header / query maps from CLI flags and TOML."""
     per_ns_headers: dict[str, dict[str, str]] = {}
     per_ns_query: dict[str, dict[str, str]] = {}
     for ns in namespaces:
@@ -339,15 +260,7 @@ def _build_spec_dispatcher(
     global_auth_hook: Any = None,
     per_ns_auth_hooks: dict[str, Any] | None = None,
 ):
-    """Build the HTTP dispatcher backed by one or more ``.spec`` files.
-
-    A single unnamed entry returns a plain ``HttpDispatcher`` — flat command
-    surface, current behavior. Anything else (one named, or several) returns
-    a ``MultiSpecDispatcher`` with one ``HttpDispatcher`` per namespace, each
-    receiving its global auth merged with that namespace's scoped overrides.
-    Per-namespace auth hooks override the global hook for their backend; a
-    namespace without a per-spec hook falls back to the global one.
-    """
+    """Build the HTTP dispatcher backed by one or more ``.spec`` files."""
     from openbb_cli.dispatchers.http import http_dispatcher_from_spec
     from openbb_cli.dispatchers.spec import load_spec
 
@@ -393,12 +306,7 @@ def _build_dispatcher(
     global_auth_hook: Any = None,
     per_ns_auth_hooks: dict[str, Any] | None = None,
 ):
-    """Resolve a dispatcher from CLI args.
-
-    Priority: ``--spec`` (one or many) > ``--server`` > in-process
-    ``LocalDispatcher``. When ``--spec`` is multi-valued the result is a
-    ``MultiSpecDispatcher`` that namespaces every command.
-    """
+    """Resolve a dispatcher from CLI args."""
     if spec_entries:
         return _build_spec_dispatcher(
             spec_entries,
@@ -436,21 +344,7 @@ def _launch_repl(
     per_ns_auth_hooks: dict[str, Any] | None = None,
     initial_command: list[str] | None = None,
 ) -> int:
-    """Launch the interactive REPL.
-
-    Backend selection priority: ``--spec`` > ``--server`` > in-process ``obb``.
-    The spec path imports nothing from ``openbb`` — every menu, parser, and
-    command dispatch goes through the spec + an HTTP dispatcher. ``headers``
-    and ``query_params`` are sent on every dispatched request and on the
-    OpenAPI fetch (when ``--server`` is the source). ``initial_command`` —
-    any tokens left over after the cli flags — is enqueued before the prompt
-    starts so ``openbb -i bill actions --congress 117`` runs the command
-    inside the REPL.
-
-    Multiple ``--spec`` entries build a ``MultiSpecDispatcher`` and the REPL
-    menus are driven from the merged spec doc — every command is namespaced
-    by its declared spec name.
-    """
+    """Launch the interactive REPL."""
     sys.stdout.write("Loading...\n")
     sys.stdout.flush()
     from openbb_cli.config.setup import bootstrap
@@ -506,17 +400,7 @@ def _launch_repl(
 
 
 def _apply_interactive_defaults(settings: Any) -> None:
-    """Apply REPL-friendly defaults without clobbering explicit user choices.
-
-    Module-level defaults are tuned for non-TTY (``OUTPUT_MODE=tsv``,
-    ``USE_INTERACTIVE_DF=False``, ``TEST_MODE`` honored from the env file).
-    On ``-i`` we want rich rendering and the interactive DataFrame viewer —
-    but only when the user hasn't already picked something else via
-    ``/settings/ output ...``. ``OUTPUT_MODE`` is only flipped when it's
-    still the non-TTY baseline ``"tsv"``; ``USE_INTERACTIVE_DF`` similarly.
-    ``TEST_MODE`` is unconditionally cleared because it's a development
-    flag that should never affect normal interactive use.
-    """
+    """Apply REPL-friendly defaults without clobbering explicit user choices."""
     if getattr(settings, "OUTPUT_MODE", "tsv") == "tsv":
         settings.OUTPUT_MODE = "rich"
     if getattr(settings, "USE_INTERACTIVE_DF", False) is False:
@@ -532,12 +416,7 @@ def _generate_spec(
     query_params: dict[str, str] | None = None,
     socrata_story: str | None = None,
 ) -> int:
-    """Build a precomputed .spec file from one of the supported sources.
-
-    With ``--socrata-story`` the spec is derived from a Socrata story JSON
-    (no OpenAPI involved). Otherwise the server's OpenAPI document is
-    fetched and translated.
-    """
+    """Build a precomputed .spec file from one of the supported sources."""
     from openbb_cli.dispatchers.spec import write_spec
 
     if socrata_story:
@@ -587,29 +466,7 @@ def _filter_spec_commands(
     include: list[str] | None,
     exclude: list[str] | None,
 ) -> dict[str, Any]:
-    """Apply ``--include`` / ``--exclude`` glob filters to a spec's commands.
-
-    Returns the spec with its ``commands`` mapping filtered. The original
-    document is not mutated — a shallow copy is taken so callers can keep
-    the unfiltered version around.
-
-    Resolution rules:
-
-    * ``include`` is a strict whitelist when supplied: a command is kept
-      iff its dotted name (e.g. ``equity.price.historical``) matches at
-      least one include pattern. Any command not matched is dropped, and
-      ``exclude`` is ignored entirely — that's the priority semantic the
-      user requested.
-    * Otherwise, ``exclude`` (when supplied) is a strict blacklist: a
-      command is dropped iff its name matches at least one exclude
-      pattern.
-    * Neither supplied → no-op pass-through.
-
-    Patterns use ``fnmatchcase`` glob syntax: ``*`` matches any run of
-    characters (including dots), ``?`` matches one, ``[seq]`` matches a
-    character class. Case-sensitive on purpose — command names are
-    canonical.
-    """
+    """Apply ``--include`` / ``--exclude`` glob filters to a spec's commands."""
     if not include and not exclude:
         return spec_doc
     from fnmatch import fnmatchcase
@@ -649,13 +506,11 @@ def _generate_extension(
     Parameters
     ----------
     spec_entries : list of (str or None, str)
-        Resolved ``--spec`` entries — exactly one entry is required and
-        its path is loaded as the source spec.
+        Resolved ``--spec`` entries; exactly one entry is required.
     output_path : str
         Directory to write the extension package to.
     provider_name : str, optional
-        Snake-case provider identifier (defaults to the output directory
-        basename).
+        Snake-case provider identifier.
     project_name : str, optional
         PyPI distribution name.
     package_name : str, optional
@@ -663,17 +518,14 @@ def _generate_extension(
     router_name : str, optional
         Router identifier.
     include : list of str, optional
-        Glob patterns. Only commands whose dotted name matches at least
-        one pattern are emitted. Takes priority over ``exclude``.
+        Glob patterns; only matching commands are emitted. Takes priority over ``exclude``.
     exclude : list of str, optional
-        Glob patterns. Commands whose dotted name matches any pattern
-        are dropped. Ignored when ``include`` is also supplied.
+        Glob patterns; matching commands are dropped.
 
     Returns
     -------
     int
-        Process exit code: 0 on success, 2 on missing-spec / bad-input
-        / empty filter result.
+        Process exit code: 0 on success, 2 on bad input.
     """
     if len(spec_entries) != 1:
         sys.stderr.write(
@@ -737,14 +589,7 @@ def _run_spec_one_shot(
     global_auth_hook: Any = None,
     per_ns_auth_hooks: dict[str, Any] | None = None,
 ) -> int:
-    """Dispatch a single command using one or more precomputed ``.spec`` files.
-
-    Skips OpenAPI fetch + parse entirely. Each spec carries the server URL it
-    was generated against and the per-command HTTP methods. With multiple
-    specs the dispatcher routes by leading namespace (``congress.bill`` →
-    ``congress`` spec) and per-namespace headers/query params come along
-    for the ride.
-    """
+    """Dispatch a single command using one or more precomputed ``.spec`` files."""
     from openbb_cli.dispatchers.protocol import Request, Response
     from openbb_cli.dispatchers.runtime import _to_json_line
     from openbb_cli.dispatchers.spec import SpecCommandError, parse_command_argv
@@ -793,12 +638,7 @@ _CONFIG_SCALAR_KEYS = (
 
 
 def _peek_flag(argv: list[str], flag: str) -> str | None:
-    """Pull ``--flag VALUE`` (or ``--flag=VALUE``) out of argv without parsing the rest.
-
-    Used to find ``--config PATH`` early so the TOML can load before the
-    parser is built. Argparse will see the same flag again and accept it
-    normally on the second pass.
-    """
+    """Pull ``--flag VALUE`` (or ``--flag=VALUE``) out of argv without parsing the rest."""
     for i, tok in enumerate(argv):
         if tok == flag and i + 1 < len(argv):
             return argv[i + 1]
@@ -810,22 +650,12 @@ def _peek_flag(argv: list[str], flag: str) -> str | None:
 def _apply_config_defaults(
     parser: Any, raw_argv: list[str], config: dict[str, Any]
 ) -> None:
-    """Apply layered TOML config as argparse defaults for unset flags.
-
-    Argparse precedence is ``parser.set_defaults`` → ``--flag VALUE``, and we
-    keep the existing ``default=os.environ.get(...)`` chain for env vars —
-    so the resolution order ends up as:
-
-        config TOML  <  env var  <  CLI flag
-    """
+    """Apply layered TOML config as argparse defaults for unset flags."""
     overrides: dict[str, Any] = {}
     for key in _CONFIG_SCALAR_KEYS:
         value = config.get(key)
         if value is None:
             continue
-        # Don't override an env-set default unless the env was empty.
-        # ``parser.get_default(dest)`` returns whatever was set by argparse —
-        # for env-backed flags that's the env value (or ``None`` when unset).
         existing = parser.get_default(key)
         if existing in (None, "", []):
             overrides[key] = value
@@ -843,18 +673,9 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
     from openbb_cli.dispatchers.runtime import build_parser, run_argv, run_batch
 
     raw_argv = list(argv if argv is not None else sys.argv[1:])
-    # Load .env files into os.environ first so the argparse default chain
-    # (``default=os.environ.get(...)``) and the ``OPENBB_HTTP_QUERY_*``
-    # scanner pick up the values. Real shell exports still win because
-    # ``load_env_files`` uses ``setdefault``.
     load_env_files(_peek_flag(raw_argv, "--env-file"))
     explicit_cfg = _peek_flag(raw_argv, "--config")
     config = load_config(explicit_cfg)
-    # The [settings] TOML table — and a handful of high-traffic preferences
-    # promoted to top-level keys (``output-mode``, ``flair``, ``timezone``,
-    # ``rich-style``) — map to OPENBB_* env vars the Settings model reads.
-    # Done after .env loading so already-set env vars (real shell exports +
-    # .env files) still win over the config layers.
     apply_settings_to_env(config)
 
     parser = build_parser()
@@ -871,12 +692,6 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         sys.stderr.write(f"--spec: {exc}\n")
         return 2
 
-    # ``--socrata-story`` outside ``--generate-spec`` mode means "build
-    # the spec on the fly and use it as the dispatcher source" — same UX
-    # as ``--spec PATH`` but with no intermediate file. The materialized
-    # spec is appended to ``spec_entries`` so it works with every
-    # downstream mode (interactive, batch, one-shot) without special-
-    # casing each one.
     socrata_story = getattr(args, "socrata_story", None)
     if socrata_story and not args.generate_spec:
         try:
@@ -887,8 +702,6 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         if not spec_entries:
             spec_entries = [(None, socrata_path)]
         else:
-            # Mixing with other ``--spec`` entries: every entry must be
-            # named, so derive a namespace for the socrata one too.
             spec_entries.append(("socrata", socrata_path))
 
     namespaces: set[str] = {n for n, _ in spec_entries if n}
@@ -945,9 +758,6 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         leftover = list(args.command or [])
         output_path = args.output
         if leftover:
-            # ``openbb ... --generate-spec out.spec`` (no ``--output``) is the
-            # intuitive shorthand — accept the first positional as the output
-            # path so it doesn't get swallowed silently into the default.
             if output_path == "openbb.spec":
                 output_path = leftover[0]
                 leftover = leftover[1:]
@@ -1038,12 +848,6 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
         parser.print_help(sys.stderr)
         return 2
 
-    # When the dispatcher has a spec doc on hand (HTTP backends fetch one
-    # at construction time), route argv through the spec-aware parser so
-    # multi-provider OpenBB commands narrow ``--flag`` choices to the
-    # chosen ``--provider``. Falls back to the schema-free literal parser
-    # for the local in-process backend, which has no spec to validate
-    # against.
     spec_doc = getattr(dispatcher, "_spec_doc", None)
     if spec_doc:
         return _run_spec_dispatch(dispatcher, spec_doc, args.command)
@@ -1053,13 +857,7 @@ def main(argv: list[str] | None = None) -> int:  # noqa: PLR0911
 def _run_spec_dispatch(
     dispatcher: Any, spec_doc: dict[str, Any], command_argv: list[str]
 ) -> int:
-    """Schema-validated one-shot dispatch reusing an existing dispatcher.
-
-    Mirrors ``_run_spec_one_shot`` but takes a pre-built dispatcher so
-    ``--server`` one-shot doesn't refetch the OpenAPI document. Goes
-    through ``parse_command_argv`` so multi-provider commands enforce
-    per-provider flag narrowing at parse time.
-    """
+    """Schema-validated one-shot dispatch reusing an existing dispatcher."""
     from openbb_cli.dispatchers.protocol import Request, Response
     from openbb_cli.dispatchers.runtime import _to_json_line
     from openbb_cli.dispatchers.spec import SpecCommandError, parse_command_argv
@@ -1092,15 +890,7 @@ def _run_introspection(
     list_commands: bool,
     describe: str | None,
 ) -> int:
-    """Dispatch ``__commands__`` / ``__schema__`` against a spec/server.
-
-    Builds the same HTTP dispatcher used for normal one-shot dispatch — the
-    introspection commands short-circuit before HTTP routing and read the
-    spec doc in-process, so they work even when the upstream server is
-    unreachable (as long as a ``.spec`` file is on disk). With multiple
-    specs the ``MultiSpecDispatcher`` aggregates ``__commands__`` across
-    every namespace and forwards ``__schema__`` lookups by prefix.
-    """
+    """Dispatch ``__commands__`` / ``__schema__`` against a spec/server."""
     from openbb_cli.dispatchers.http import http_dispatcher_from_server
     from openbb_cli.dispatchers.protocol import Request, Response
     from openbb_cli.dispatchers.runtime import _to_json_line
@@ -1131,9 +921,6 @@ def _run_introspection(
     if list_commands:
         request = Request(command="__commands__")
     else:
-        # ``--describe equity.price.quote:intrinio`` narrows a multi-provider
-        # command's output to a single provider's parameter set + result
-        # schema, instead of the full ``{providers: {...}}`` grouping.
         name, _, provider = (describe or "").partition(":")
         params: dict[str, Any] = {"name": name}
         if provider:

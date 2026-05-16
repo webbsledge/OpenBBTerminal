@@ -1,12 +1,4 @@
-"""Group spec commands into a hierarchical namespace tree.
-
-The OpenBB Platform's command surface is hierarchical: ``obb.equity.price.historical``
-not ``obb.equity_price_historical``. The spec stores commands as flat dotted
-paths (``equity.price.historical``); this module rebuilds the tree so the
-router emitter can produce one ``routers/<namespace>.py`` per top-level
-namespace, with sub-routers nested under their parents via
-``router.include_router(...)``.
-"""
+"""Group spec commands into a hierarchical namespace tree."""
 
 from __future__ import annotations
 
@@ -21,19 +13,13 @@ class NamespaceNode:
     Parameters
     ----------
     name : str
-        The leaf segment of this node's dotted path (``"historical"``,
-        ``"price"``, ``"equity"``).
+        The leaf segment of this node's dotted path.
     full_path : str
-        The full dotted path from the root (``"equity.price.historical"``).
-        Empty string for the synthetic root node.
+        The full dotted path from the root.
     cmd_spec : dict, optional
-        The spec command entry when this node is a leaf command. ``None``
-        for pure-namespace nodes (no command at this exact path).
+        The spec command entry when this node is a leaf command.
     children : dict[str, NamespaceNode]
-        Sub-nodes keyed by their ``name``. A node may have both
-        ``cmd_spec`` and ``children`` — that's a hybrid leaf/menu where
-        the same name is both a callable command and a parent of nested
-        commands (e.g. ``bill`` and ``bill.actions``).
+        Sub-nodes keyed by their ``name``.
     """
 
     name: str
@@ -58,15 +44,12 @@ def build_namespace_tree(commands: dict[str, dict[str, Any]]) -> NamespaceNode:
     Parameters
     ----------
     commands : dict
-        Mapping of dotted command path to spec entry, as returned by
-        ``spec_doc["commands"]``.
+        Mapping of dotted command path to spec entry.
 
     Returns
     -------
     NamespaceNode
-        Synthetic root node whose ``children`` are the top-level
-        namespaces (``equity``, ``crypto``, ``currency``, …). The
-        spec's command entry attaches at the leaf for each dotted path.
+        Synthetic root node whose ``children`` are the top-level namespaces.
     """
     root = NamespaceNode(name="", full_path="")
     for dotted, cmd_spec in commands.items():
@@ -92,19 +75,14 @@ def filter_tree_by_provider(root: NamespaceNode, provider: str) -> NamespaceNode
     Parameters
     ----------
     root : NamespaceNode
-        The full namespace tree (as returned by ``build_namespace_tree``).
+        The full namespace tree.
     provider : str
-        Provider identifier to filter by. A command is kept only when its
-        ``providers`` list explicitly includes ``provider``. Commands with
-        an empty ``providers`` list are local-compute (econometrics,
-        quantitative, technical) and don't belong in a provider package —
-        they're collected separately by ``filter_tree_local_only``.
+        Provider identifier to filter by.
 
     Returns
     -------
     NamespaceNode
-        New tree containing only the surviving commands. Empty namespace
-        nodes (no commands and no surviving children) are pruned.
+        New tree containing only the surviving commands.
     """
     return _filter_node(root, lambda providers: provider in providers) or NamespaceNode(
         name="", full_path=""
@@ -122,12 +100,7 @@ def filter_tree_local_only(root: NamespaceNode) -> NamespaceNode:
     Returns
     -------
     NamespaceNode
-        New tree containing only commands whose ``providers`` list is
-        empty — typically local-compute endpoints (econometrics,
-        quantitative, technical) that don't dispatch to an upstream
-        provider. Used by the codegen to emit a single ``tools`` package
-        that owns them, instead of duplicating them across every
-        provider package.
+        New tree containing only commands whose ``providers`` list is empty.
     """
     return _filter_node(root, lambda providers: not providers) or NamespaceNode(
         name="", full_path=""

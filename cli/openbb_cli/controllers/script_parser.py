@@ -43,12 +43,12 @@ def is_reset(command: str) -> bool:
     Parameters
     ----------
     command : str
-        The command to test
+        The command to test.
 
     Returns
     -------
-    answer : bool
-        Whether the command is a reset command
+    bool
+        Whether the command is a reset command.
     """
     if "reset" in command:
         return True
@@ -61,11 +61,12 @@ def match_and_return_openbb_keyword_date(keyword: str) -> str:  # noqa: PLR0911
     Parameters
     ----------
     keyword : str
-        String with potential OpenBB keyword (e.g. 1MONTHAGO,LASTFRIDAY,3YEARSFROMNOW,NEXTTUESDAY)
+        String with potential OpenBB keyword.
 
     Returns
     -------
-        str: Date with format YYYY-MM-DD
+    str
+        Date with format YYYY-MM-DD.
     """
     now = datetime.now()
     for i, regex in enumerate([r"^\$(\d+)([A-Z]+)AGO$", r"^\$(\d+)([A-Z]+)FROMNOW$"]):
@@ -141,17 +142,15 @@ def parse_openbb_script(  # noqa: PLR0911,PLR0912
 
     Parameters
     ----------
-    raw_lines : List[str]
-        Lines from .openbb script
-    script_inputs: str, optional
-        Inputs to the script that come externally
+    raw_lines : list[str]
+        Lines from .openbb script.
+    script_inputs : list[str] | None
+        Inputs to the script that come externally.
 
     Returns
     -------
-    str
-        Error that occurred - if empty means no error
-    str
-        Processed string from .openbb script that can be run by the OpenBB Platform CLI
+    tuple[str, str]
+        Error that occurred (empty means no error) and the processed script string.
     """
     ROUTINE_VARS: dict[str, str | list[str]] = dict()
     if script_inputs:

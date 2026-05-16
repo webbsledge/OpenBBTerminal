@@ -51,22 +51,7 @@ session = Session()
 
 
 def _result_to_obbject(result: Any, router: str, other_args: list[str]) -> Any:
-    """Lift a spec-mode dispatcher result to an ``OBBject`` for registry insert.
-
-    Two cases:
-
-    * The dispatcher already produced a live ``OBBject`` instance (spec
-      command had column metadata) — pass it through unchanged. The
-      private attrs (``_route``, ``_standard_params``) the dispatcher
-      already set are preserved that way; reconstruction would lose them.
-    * Bare rows (list / single dict) — the spec had no column metadata,
-      so wrap them in a fresh ``OBBject`` so the registry can still
-      surface the call.
-
-    In both cases ``extra['command']`` gets stamped with the invocation
-    line so the legacy ``results`` recall table shows what was run.
-    Returns ``None`` if there's nothing wrappable (scalars, ``None``).
-    """
+    """Lift a spec-mode dispatcher result to an ``OBBject`` for registry insert."""
     try:
         from openbb_core.app.model.obbject import OBBject
     except ImportError:
@@ -77,7 +62,7 @@ def _result_to_obbject(result: Any, router: str, other_args: list[str]) -> Any:
         try:
             obbject = OBBject(results=result)
             obbject._route = "/" + router.replace(".", "/").strip("/")
-        except Exception:  # noqa: BLE001 — registration is best-effort
+        except Exception:  # noqa: BLE001
             return None
     else:
         return None
@@ -86,13 +71,7 @@ def _result_to_obbject(result: Any, router: str, other_args: list[str]) -> Any:
 
 
 def _params_to_completions(parameters: list[dict[str, Any]]) -> dict[str, Any]:
-    """Translate normalized spec parameters into a NestedCompleter dict.
-
-    Each parameter becomes ``--name: {choice1: None, choice2: None}`` when
-    the spec declares ``choices``, otherwise ``--name: None`` for free-form
-    values. ``--help`` / ``-h`` are appended so users can tab through to
-    the help flag.
-    """
+    """Translate normalized spec parameters into a NestedCompleter dict."""
     out: dict[str, Any] = {}
     for p in parameters or []:
         name = p.get("name")
@@ -110,13 +89,7 @@ def _params_to_completions(parameters: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class CLIController(BaseController):
-    """CLI Controller class.
-
-    Sources its top-level menu and command choices from a ``Backend`` —
-    ``LocalBackend`` (in-process ``obb``, the historical default) or any
-    other implementation passed in by the launcher (e.g. ``SpecBackend``
-    for spec-driven REPL use).
-    """
+    """CLI Controller class."""
 
     CHOICES_COMMANDS_BUILTIN = ["record", "stop", "exe", "results"]
     CHOICES_MENUS_BUILTIN = ["settings", "user", "feature"]
@@ -179,21 +152,7 @@ class CLIController(BaseController):
             return print_rich_table(df, show_index=True)
 
         def method_call_command_spec(self, other_args: list[str], router: str):
-            """Dispatch a top-level command-typed router via SpecBackend.
-
-            Builds a ``SpecTranslator`` for the leaf command, parses
-            ``other_args`` against its parser (so ``--help`` works), executes,
-            and renders the result. Without this, top-level leaves like
-            ``law`` for the Congress.gov spec would silently dump their spec
-            metadata instead of invoking the API.
-
-            Registers the result in ``session.obbject_registry`` so the
-            legacy ``results`` recall command surfaces it — same UX as
-            installed-extension calls. When the dispatcher already
-            produced an OBBject dump (spec carries column metadata), the
-            dict is round-tripped via ``OBBject.model_validate``;
-            otherwise the bare rows get wrapped in a fresh OBBject.
-            """
+            """Dispatch a top-level command-typed router via SpecBackend."""
             from openbb_cli.backend import SpecTranslator
 
             spec_doc: dict[str, Any] = getattr(backend, "_spec", {})
@@ -213,7 +172,7 @@ class CLIController(BaseController):
                 return
             try:
                 result = translator.execute_func(ns_parser)
-            except Exception as exc:  # noqa: BLE001 — surface dispatch errors to user
+            except Exception as exc:  # noqa: BLE001
                 session.console.print(f"[red]error: {exc}[/red]")
                 return
 
@@ -230,11 +189,6 @@ class CLIController(BaseController):
                 ):
                     session.console.print("Added `OBBject` to cached results.")
 
-            # ``obbject`` is either the live OBBject the dispatcher
-            # built (when there's column metadata) or a freshly-wrapped
-            # one. Either way ``obbject.results`` is the row payload to
-            # render; falling back to ``result`` covers the
-            # unwrap-failed case where ``obbject`` is None.
             payload: Any
             if obbject is not None:
                 payload = obbject.results
@@ -268,14 +222,7 @@ class CLIController(BaseController):
             target,
             router: str,
         ):
-            """Hybrid for routers that have both a leaf path and nested commands.
-
-            Bare invocation (no args) opens the submenu — the user explores
-            sub-commands. Any args fall through to the leaf so e.g.
-            ``bill --limit 5`` lists the most-recent bills via ``/bill``
-            instead of pointlessly dropping into a submenu where every
-            sub-command needs a ``congress``/``billNumber`` you don't have yet.
-            """
+            """Hybrid for routers that have both a leaf path and nested commands."""
             if other_args:
                 method_call_command_spec(self, other_args, router)
                 return
@@ -328,14 +275,7 @@ class CLIController(BaseController):
             setattr(self, f"call_{router}", bound_method)
 
     def _spec_command_completions(self) -> dict[str, dict[str, Any]]:
-        """Build per-command completion choices from the SpecBackend's metadata.
-
-        Returns ``{command: {--flag: {choice: None, ...} | None}}``.
-        Includes both pure-command routers (``law``, ``treaty``) and hybrid
-        menu/leaf routers (``bill``, ``congress`` — they're menus by router
-        classification but the same name is also a leaf in ``spec.commands``,
-        so ``bill --limit 5`` should suggest the leaf's flags).
-        """
+        """Build per-command completion choices from the SpecBackend's metadata."""
         out: dict[str, dict[str, Any]] = {}
         backend = getattr(self, "_backend", None)
         if backend is None:
@@ -393,9 +333,6 @@ class CLIController(BaseController):
 
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
-            # ``register_key`` lives under ``extra`` (it's an OBBject
-            # extra field stamped in via ``--register-key NAME``); read
-            # from there so completions still surface user-named entries.
             key_completions = {
                 (data.get("extra") or {}).get("register_key"): None
                 for data in registry_all.values()
@@ -512,11 +449,6 @@ class CLIController(BaseController):
             for key, value in list(session.obbject_registry.all.items())[
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
-                # ``command`` lives under ``extra`` — the registry surfaces
-                # the full OBBject (minus ``results``), and ``command``
-                # belongs to OBBject's ``extra`` slot. Empty string
-                # fallback covers OBBjects from non-CLI sources that
-                # never got the command stamped in.
                 command = (value.get("extra") or {}).get("command", "")
                 mt.add_raw(
                     f"[yellow]OBB{key}[/yellow]: {command}",
@@ -827,19 +759,18 @@ def run_scripts(
 
     Parameters
     ----------
-    path : str
-        The location of the .openbb file
+    path : Path
+        The location of the .openbb file.
     test_mode : bool
-        Whether the CLI is in test mode
+        Whether the CLI is in test mode.
     verbose : bool
-        Whether to run tests in verbose mode
-    routines_args : List[str]
+        Whether to run tests in verbose mode.
+    routines_args : list[str] | None
         One or multiple inputs to be replaced in the routine and separated by commas.
-        E.g. GME,AMC,BTC-USD
-    special_arguments: Optional[Dict[str, str]]
-        Replace `${key=default}` with `value` for every key in the dictionary
-    output: bool
-        Whether to log tests to txt files
+    special_arguments : dict[str, str] | None
+        Replace `${key=default}` with `value` for every key in the dictionary.
+    output : bool
+        Whether to log tests to txt files.
     """
     if not path.exists():
         session.console.print(f"File '{path}' doesn't exist. Launching base CLI.\n")
@@ -916,15 +847,15 @@ def replace_dynamic(match: re.Match, special_arguments: dict[str, str]) -> str:
 
     Parameters
     ----------
-    match: re.Match[str]
-        The match object
-    special_arguments: Dict[str, str]
-        The key value pairs to replace in the scripts
+    match : re.Match
+        The match object.
+    special_arguments : dict[str, str]
+        The key value pairs to replace in the scripts.
 
     Returns
     -------
     str
-        The new string
+        The new string.
     """
     cleaned = match[0].replace("{", "").replace("}", "").replace("$", "")
     key, default = cleaned.split("=")
@@ -969,20 +900,13 @@ def main(
     Parameters
     ----------
     debug : bool
-        Whether to run the CLI in debug mode
-    dev:
-        Points backend towards development environment instead of production
-    test : bool
-        Whether to run the CLI in integrated test mode
-    filtert : str
-        Filter test files with given string in name
-    paths : List[str]
-        The paths to run for scripts or to test
-    verbose : bool
-        Whether to show output from tests
-    routines_args : List[str]
+        Whether to run the CLI in debug mode.
+    dev : bool
+        Points backend towards development environment instead of production.
+    path_list : list[str]
+        The paths to run for scripts or to test.
+    routines_args : list[str] | None
         One or multiple inputs to be replaced in the routine and separated by commas.
-        E.g. GME,AMC,BTC-USD
     """
     if debug:
         session.settings.DEBUG_MODE = True

@@ -1,38 +1,4 @@
-"""Top-level codegen orchestrator: spec doc → ONE installable project.
-
-The output is a single Python project that bundles every provider declared
-in the spec as its own subpackage and registers each one as an entry point
-in the shared ``pyproject.toml``. Routers are emitted once and shared
-across providers (each command appears in exactly one router); each
-provider's ``fetcher_dict`` then registers fetchers only for the commands
-that provider supports.
-
-Layout::
-
-    openbb-codegen/
-    ├── pyproject.toml                          # all providers + routers as entry points
-    └── openbb_codegen/
-        ├── providers/
-        │   ├── fmp/
-        │   │   ├── __init__.py                 # fmp_provider with fetcher_dict
-        │   │   └── models/<command>.py         # one fetcher per command fmp supports
-        │   ├── intrinio/
-        │   │   ├── __init__.py
-        │   │   └── models/...
-        │   └── tools/                          # local-compute (no provider) commands
-        │       ├── __init__.py
-        │       └── models/...
-        └── routers/
-            ├── equity.py                       # @router.command(model="EquityPriceHistorical")
-            ├── equity_price.py
-            └── ...
-
-Each ``[project.entry-points."openbb_provider_extension"]`` line registers
-one ``Provider(...)`` instance; each
-``[project.entry-points."openbb_core_extension"]`` line registers one
-top-level router. ``openbb-build`` discovers them all from the single
-``pip install -e .`` and stitches them into ``obb.<namespace>.<command>``.
-"""
+"""Top-level codegen orchestrator: spec doc to one installable project."""
 
 from __future__ import annotations
 
@@ -78,24 +44,17 @@ class GeneratedPackage:
     root : Path
         Project root directory.
     project : GeneratedProject
-        ``pyproject.toml`` source. Registers every provider and every
-        top-level router as entry points.
+        ``pyproject.toml`` source.
     providers : list of GeneratedProvider
-        One provider registration module per declared spec provider,
-        plus the synthetic ``tools`` provider for local-compute commands.
+        One provider registration module per declared spec provider.
     routers : GeneratedRouters
-        Shared router modules — one per top-level namespace, plus
-        nested sub-routers. Every command in the spec gets exactly one
-        ``@router.command(...)`` registration here.
+        Shared router modules.
     fetchers_by_provider : dict
-        ``{provider_name: [GeneratedFetcher, ...]}`` — one entry per
-        spec provider listing only the commands that provider supports.
+        ``{provider_name: [GeneratedFetcher, ...]}``.
     post_commands : list of GeneratedPostCommand
-        Local-compute POST endpoints (econometrics, quantitative,
-        technical). Live in the ``tools`` provider's ``models/`` dir.
+        Local-compute POST endpoints.
     top_level_routers : list of str
-        Top-level namespace names registered as
-        ``openbb_core_extension`` entry points.
+        Top-level namespace names registered as ``openbb_core_extension`` entry points.
     """
 
     root: Path
@@ -116,9 +75,7 @@ class GeneratedPackage:
         Returns
         -------
         Path
-            ``self.root``. After writing: ``pip install -e <path>`` then
-            ``openbb-build`` registers every provider + router with
-            OpenBB in one shot.
+            ``self.root``.
         """
         pkg = self.root / self.project.package_name
         routers_dir = pkg / "routers"
@@ -133,11 +90,9 @@ class GeneratedPackage:
 
         (pkg / "utils.py").write_text(RUNTIME_UTILS_SOURCE)
 
-        # Routers: shared across providers
         for r in self.routers.routers:
             (routers_dir / f"{r.module_name}.py").write_text(r.source)
 
-        # Per-provider package
         for prov in self.providers:
             prov_dir = providers_dir / prov.provider_name
             models_dir = prov_dir / "models"
@@ -150,15 +105,12 @@ class GeneratedPackage:
             for fetcher in self.fetchers_by_provider.get(prov.provider_name, []):
                 (models_dir / f"{fetcher.module_name}.py").write_text(fetcher.source)
 
-        # Local-compute POST modules live under the ``tools`` provider's
-        # models directory so they share an import-path namespace with
-        # everything else.
         if self.post_commands:
             tools_models = providers_dir / "tools" / "models"
             tools_models.mkdir(parents=True, exist_ok=True)
             for path in (providers_dir / "tools", tools_models):
                 init = path / "__init__.py"
-                if not init.exists():  # pragma: no cover  # safety net: when post_commands exist without a paired ``tools`` Provider entry
+                if not init.exists():  # pragma: no cover
                     init.write_text(f'"""{path.name} subpackage."""\n')
             for post in self.post_commands:
                 (tools_models / f"{post.module_name}.py").write_text(post.source)
@@ -317,14 +269,7 @@ def _slugify(text: str) -> str:
 
 
 def _apply_ruff(root: Path) -> None:
-    """Run ``ruff check --fix --unsafe-fixes`` and ``ruff format`` over ``root``.
-
-    Resolves the ``ruff`` binary in three steps so the codegen works whether
-    ruff is installed alongside the running Python (``pip install ruff``),
-    on the system PATH, or not at all. Silently no-ops in the last case.
-    Output streams verbatim so the user can inspect any rule ruff couldn't
-    auto-fix.
-    """
+    """Run ``ruff check --fix --unsafe-fixes`` and ``ruff format`` over ``root``."""
     ruff = _find_ruff()
     if ruff is None:
         return
@@ -383,20 +328,11 @@ def _build_root_router(
     )
 
 
-# Top-level namespaces the codegen skips entirely. ``coverage`` is OpenBB's
-# own introspection surface (``obb.coverage.providers`` / ``.commands``)
-# generated by openbb-core; emitting it again from a spec would clash with
-# the core router.
 _SKIP_TOP_NAMESPACES: frozenset[str] = frozenset({"coverage"})
 
 
 def _runtime_utils_source() -> str:
-    """Read the canonical ``unpack_response`` source from ``_unpack.py``.
-
-    Single source of truth: the spec-mode HTTP dispatcher and the codegen-
-    emitted modules both call exactly the same helper, so REPL output and
-    installed-extension output stay in sync.
-    """
+    """Read the canonical ``unpack_response`` source from ``_unpack.py``."""
     from pathlib import Path
 
     text = (
@@ -431,26 +367,19 @@ def generate_packages(
     output_root : Path
         Directory under which the project is created.
     provider_name : str, optional
-        Project / package slug. Defaults to the output directory's basename.
-        Also used as the synthetic provider name when the spec carries no
-        provider list (typical of non-OpenBB upstreams).
+        Project / package slug.
     project_name, package_name, description, website : str, optional
-        Project-level overrides; templates fall back to sensible defaults.
+        Project-level overrides.
     version : str
         Initial version string for ``pyproject.toml``.
 
     Returns
     -------
     GeneratedPackageSet
-        Single-element wrapper around the project — kept for API symmetry
-        with the callers that iterate ``packages``.
+        Single-element wrapper around the project.
     """
     base_url = (spec_doc.get("base_url") or "").rstrip("/")
     api_prefix = spec_doc.get("api_prefix") or ""
-    # Skip introspection-only namespaces that openbb-core already ships:
-    # the upstream's ``/coverage`` endpoints are reflective metadata, not
-    # data, and emitting them would shadow openbb-core's own coverage
-    # router on import.
     filtered_commands = {
         name: cmd
         for name, cmd in (spec_doc.get("commands") or {}).items()
@@ -467,15 +396,12 @@ def generate_packages(
     )
     website = website or base_url
 
-    # Build fetchers per provider AND extract local-compute POST commands.
     fetchers_by_provider: dict[str, list[GeneratedFetcher]] = {}
     post_commands: list[GeneratedPostCommand] = []
     fetchers_index: dict[str, GeneratedFetcher] = {}
     post_index: dict[str, GeneratedPostCommand] = {}
 
     if not declared_providers:
-        # Spec has no provider lists — treat the whole surface as belonging
-        # to the synthetic provider derived from ``provider_name``.
         target_providers: list[str] = [_slugify(provider_name or "default")]
     else:
         target_providers = sorted(declared_providers)
@@ -493,8 +419,6 @@ def generate_packages(
         cmd_providers = cmd_spec.get("providers") or []
 
         if method == "post" and has_body:
-            # Local-compute POST endpoints live in the synthetic ``tools``
-            # provider so they're not duplicated across every provider.
             post = generate_post_command_module(
                 PostCommandSpec(
                     name=dotted,
@@ -509,13 +433,12 @@ def generate_packages(
             commands_by_provider.setdefault("tools", []).append(dotted)
             continue
 
-        # GET commands: emit one fetcher per provider that supports it.
         owners = (
             [p for p in target_providers if p in cmd_providers]
             if cmd_providers
             else target_providers
         )
-        if not owners:  # pragma: no cover  # safety net: ``target_providers`` is the union of all ``cmd_providers``, so this can't fire via the public API
+        if not owners:  # pragma: no cover
             continue
         for prov in owners:
             fetcher = generate_fetcher_module(
@@ -529,31 +452,21 @@ def generate_packages(
             )
             fetchers_by_provider.setdefault(prov, []).append(fetcher)
             commands_by_provider.setdefault(prov, []).append(dotted)
-            # The first provider's fetcher wins in the index — only used
-            # by the router emitter to know the model name + class for
-            # ``@router.command(model=...)``.
             fetchers_index.setdefault(dotted, fetcher)
 
-    # Routers: ONE set, shared across providers — the model registration
-    # surfaces every command, and providers' fetcher_dicts choose which
-    # they implement.
     routers = generate_routers(
         full_tree,
         package_name=package_name,
-        provider_name="",  # router shares package, no per-provider scoping
+        provider_name="",
         fetchers_by_command=fetchers_index,
         post_commands_by_command=post_index,
     )
-    # Rewrite POST module imports to use the synthetic ``tools`` namespace.
     for r in routers.routers:
         r.source = r.source.replace(
             f"{package_name}.providers..models.",
             f"{package_name}.providers.tools.models.",
         )
 
-    # Wrap every top-level router under a single ``<provider>`` root so the
-    # extension lands at ``obb.<provider>.<namespace>.*`` instead of
-    # shadowing the platform's first-party ``obb.<namespace>.*`` routers.
     root_namespace = _slugify(provider_name or project_slug)
     sub_routers = [r for r in routers.routers if r.entry_point_name]
     for r in sub_routers:
@@ -565,9 +478,6 @@ def generate_packages(
     )
     routers.routers.append(root_router)
 
-    # Provider modules: one Provider() per spec provider + a synthetic
-    # ``tools`` provider whose fetcher_dict is empty (POST commands
-    # register themselves on the routers directly).
     providers: list[GeneratedProvider] = []
     for prov in target_providers:
         providers.append(

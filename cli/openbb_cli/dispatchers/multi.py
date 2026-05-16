@@ -1,16 +1,4 @@
-"""Multi-spec dispatcher — routes namespaced commands to per-spec backends.
-
-When the user declares more than one ``--spec`` (or a ``[specs.<ns>]`` table
-in TOML), every spec gets its own ``HttpDispatcher`` with its own ``base_url``,
-``headers``, and ``query_params``. The ``MultiSpecDispatcher`` routes
-``<namespace>.<command>`` requests to the matching backend; the leading
-namespace segment is stripped before forwarding so each backend still sees its
-spec's native command names.
-
-The merged ``_spec_doc`` exposed for the spec-aware parser path renames every
-command to its namespaced form so ``parse_command_argv`` resolves
-``congress.bill`` against the same surface a CLI user types.
-"""
+"""Multi-spec dispatcher — routes namespaced commands to per-spec backends."""
 
 from __future__ import annotations
 
@@ -21,16 +9,7 @@ from openbb_cli.dispatchers.protocol import Request, Response, ResponseError
 
 
 class MultiSpecDispatcher:
-    """Routes ``<namespace>.<command>`` to per-spec ``HttpDispatcher``s.
-
-    The two reserved introspection commands aggregate across every namespace:
-
-    * ``__commands__`` returns the union of all per-namespace command lists,
-      with each name prefixed by its namespace (``congress.bill``, ...).
-    * ``__schema__`` peels the leading namespace off ``params['name']`` and
-      forwards to that namespace's dispatcher, which already knows how to
-      describe its own commands (per-provider grouping, ``:PROVIDER`` slicing).
-    """
+    """Routes ``<namespace>.<command>`` to per-spec ``HttpDispatcher``s."""
 
     def __init__(self, dispatchers: dict[str, HttpDispatcher]) -> None:
         if not dispatchers:
@@ -39,14 +18,7 @@ class MultiSpecDispatcher:
         self._spec_doc = self._merge_spec_docs()
 
     def _merge_spec_docs(self) -> dict[str, Any]:
-        """Build an aggregated spec doc for the spec-aware parser path.
-
-        Each per-namespace spec keeps its own ``base_url`` / ``api_prefix`` —
-        those live on the per-namespace dispatcher and are not needed at the
-        parser layer. ``commands``, ``routers``, and ``reference`` are merged
-        with each entry prefixed by the namespace so the REPL Home menu and
-        the spec-aware describe path see one unified surface.
-        """
+        """Build an aggregated spec doc for the spec-aware parser path."""
         merged_commands: dict[str, Any] = {}
         merged_routers: dict[str, str] = {}
         merged_reference_paths: dict[str, dict[str, Any]] = {}
@@ -55,9 +27,6 @@ class MultiSpecDispatcher:
             doc = dispatcher._spec_doc
             for cmd, entry in doc.get("commands", {}).items():
                 merged_commands[f"{namespace}.{cmd}"] = entry
-            # Each spec is mounted under its own namespace at the REPL Home,
-            # so the ``namespace`` itself becomes the only top-level menu —
-            # the spec's own top-level routers nest inside it.
             merged_routers[namespace] = "menu"
             reference = doc.get("reference") or {}
             for path, meta in (reference.get("paths") or {}).items():

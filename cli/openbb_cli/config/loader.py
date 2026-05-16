@@ -1,46 +1,4 @@
-"""Layered configuration loader for openbb-cli.
-
-Resolution order (highest priority last; later layers overwrite earlier ones):
-
-1. Built-in defaults (the empty dict; argparse's own ``default=``)
-2. ``[tool.openbb-cli]`` in the nearest ``pyproject.toml`` walking up from CWD
-   — meant for libraries/services that depend on ``openbb-cli`` and want to
-   ship a known-good baseline (``server`` URL, header file, etc.) with their
-   distribution
-3. ``~/.openbb_platform/openbb.toml`` — user-global config, in the same
-   directory openbb-core uses for ``user_settings.json`` and ``.cli.env``
-4. ``openbb.toml`` (or ``.openbb.toml``) in the nearest parent directory —
-   project-local override that doesn't pollute ``pyproject.toml``
-5. ``--config PATH`` (or ``OPENBB_CLI_CONFIG`` env var) — explicit pointer
-   for swapping between setups (``congress.toml``, ``platform.toml``,
-   ``staging.toml``, ...)
-6. ``.env`` files (default ``~/.openbb_platform/.env`` plus
-   ``--env-file PATH``) — loaded into ``os.environ`` so the env-var layer
-   below picks them up
-7. ``OPENBB_*`` environment variables (handled by the existing argparse
-   ``default=os.environ.get(...)`` plumbing in ``runtime.build_parser``)
-8. CLI flags
-
-This module covers (1)-(4) and (6); the existing argparse layer covers (7)-(8).
-
-Schema (all keys optional, all sections optional)::
-
-    server = "https://api.congress.gov"
-    spec = "./congress.spec"
-    openapi-path = "/openapi.json"
-    output-mode = "rich"
-
-    [headers]
-    "User-Agent" = "my-app/1.0"
-    Authorization = "Bearer ..."
-
-    [query]
-    api_key = "..."
-
-The ``[headers]`` and ``[query]`` tables are merged across layers (deep
-merge); scalar settings overwrite. Both kebab-case and snake_case keys are
-accepted at the top level.
-"""
+"""Layered configuration loader for openbb-cli."""
 
 from __future__ import annotations
 
@@ -49,9 +7,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-if sys.version_info >= (3, 11):  # pragma: no cover — version-conditional import
+if sys.version_info >= (3, 11):  # pragma: no cover
     import tomllib
-else:  # pragma: no cover — exercised only on the 3.10 backport path
+else:  # pragma: no cover
     import tomli as tomllib  # ty: ignore[unresolved-import]
 
 DEFAULT_CONFIG_NAMES: tuple[str, ...] = ("openbb.toml", ".openbb.toml")
@@ -60,11 +18,6 @@ PYPROJECT_TABLE: tuple[str, ...] = ("tool", "openbb-cli")
 EXPLICIT_CONFIG_ENV = "OPENBB_CLI_CONFIG"
 EXPLICIT_ENV_FILE_ENV = "OPENBB_CLI_ENV_FILE"
 
-# The canonical openbb-platform user directory — same one openbb-core uses
-# for ``user_settings.json`` / ``system_settings.json``, and the same one
-# the CLI already uses for ``.cli.env`` and ``.cli.his``. Defining it here
-# instead of importing from ``openbb_cli.config.constants`` keeps this
-# module dependency-light (loader runs before settings are constructed).
 USER_OPENBB_DIR = Path.home() / ".openbb_platform"
 USER_OPENBB_TOML_NAMES: tuple[str, ...] = ("openbb.toml", ".openbb.toml")
 USER_OPENBB_ENV_NAME = ".env"
@@ -94,10 +47,7 @@ def _find_first(start: Path | None, names: tuple[str, ...]) -> Path | None:
 
 
 def _find_pyproject_section(start: Path | None = None) -> dict[str, Any]:
-    """Find the nearest ancestor ``pyproject.toml`` with ``[tool.openbb-cli]``.
-
-    Returns the section dict, or ``{}`` if no matching file is found.
-    """
+    """Find the nearest ancestor ``pyproject.toml`` with ``[tool.openbb-cli]``."""
     py = _find_first(start, (PYPROJECT_NAME,))
     if py is None:
         return {}
@@ -119,12 +69,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> None:
 
 
 def _normalize_keys(d: dict[str, Any]) -> dict[str, Any]:
-    """Normalize top-level kebab-case keys to snake_case for argparse ``dest`` matching.
-
-    Nested ``[headers]`` / ``[query]`` tables keep their original keys —
-    those are user-supplied strings (HTTP header names, query-param names)
-    that must round-trip exactly.
-    """
+    """Normalize top-level kebab-case keys to snake_case for argparse ``dest`` matching."""
     return {k.replace("-", "_"): v for k, v in d.items()}
 
 
@@ -146,19 +91,17 @@ def load_config(
 ) -> dict[str, Any]:
     """Resolve the layered openbb-cli configuration.
 
-    Layers, lowest to highest priority:
+    Parameters
+    ----------
+    explicit_path : str or os.PathLike, optional
+        Explicit config path; falls back to ``$OPENBB_CLI_CONFIG``.
+    start : Path, optional
+        Directory to begin the walk-up search from.
 
-    * ``[tool.openbb-cli]`` from the nearest ancestor ``pyproject.toml``
-    * ``~/.openbb_platform/openbb.toml`` (or ``.openbb.toml``) — the user-
-      global config in the same directory openbb-core uses for
-      ``user_settings.json``
-    * ``openbb.toml`` / ``.openbb.toml`` in the nearest ancestor directory
-    * ``explicit_path`` if provided, otherwise ``$OPENBB_CLI_CONFIG``
-
-    Returns a single merged dict with normalized top-level keys (kebab-case
-    converted to snake_case). Nested header / query tables keep original
-    casing. Returns ``{}`` when no layer is found — callers should fall
-    back to env / argparse defaults.
+    Returns
+    -------
+    dict[str, Any]
+        Merged config with normalized top-level keys; ``{}`` when no layer found.
     """
     layers: list[dict[str, Any]] = [_find_pyproject_section(start)]
     user_toml = _user_global_toml()
@@ -179,17 +122,7 @@ def load_config(
 
 
 def render_config_template(active: dict[str, Any] | None = None) -> str:
-    """Render a documented TOML template covering every supported setting.
-
-    Each key has a comment block describing what it does and which env var
-    /CLI flag also sets it. Settings with no value resolved from any layer
-    are emitted as commented-out lines so the file is valid TOML out of
-    the box but the optional surface is visible.
-
-    ``active`` (typically ``load_config()`` output) annotates each line
-    with the currently-resolved value, so dropping the template into
-    ``~/.openbb_platform/openbb.toml`` and tweaking it is straightforward.
-    """
+    """Render a documented TOML template covering every supported setting."""
     a = active or {}
     headers = a.get("headers") or {}
     query = a.get("query") or {}
@@ -378,12 +311,8 @@ def render_config_template(active: dict[str, Any] | None = None) -> str:
 
 _SETTINGS_INTERNAL_FIELDS: frozenset[str] = frozenset(
     {
-        # Set from package metadata at import time — not user-configurable
         "VERSION",
-        # State the CLI flips itself; persisting it in config is meaningless
         "PREVIOUS_USE",
-        # Vestige of the legacy in-process REPL's dev-vs-prod toggle; not
-        # meaningful on the spec-driven dispatcher path
         "DEV_BACKEND",
     }
 )
@@ -394,17 +323,7 @@ _SETTINGS_DEV_FIELDS: tuple[str, ...] = (
 
 
 def _render_settings_section(active: dict[str, Any]) -> str:
-    """Render the ``[settings]`` table from the live ``Settings`` model.
-
-    Walks every Settings field (skipping internal-only ones like ``VERSION``
-    that aren't user-configurable) and emits a comment block + commented-out
-    line per field. Fields with ``json_schema_extra.command`` come from the
-    documented user-facing surface; ``DEBUG_MODE`` / ``DEV_BACKEND`` /
-    ``TEST_MODE`` lack that marker (they're set via ``--debug`` / ``--dev``
-    CLI flags) but still belong here so the template surface is complete.
-    Picks up overrides from ``active`` so values already set in any config
-    layer surface uncommented.
-    """
+    """Render the ``[settings]`` table from the live ``Settings`` model."""
     from openbb_cli.models.settings import Settings
 
     out: list[str] = [
@@ -458,10 +377,6 @@ def _toml_quote(value: Any) -> str:
     return '"' + str(value) + '"'
 
 
-# Top-level config keys that map directly to a Settings ``OPENBB_*`` env var
-# (i.e. don't go through argparse). Promoted out of ``[settings]`` for
-# discoverability — having ``output-mode = "json"`` at the top of openbb.toml
-# is far more obvious than digging through the alphabetized [settings] block.
 _TOP_LEVEL_SETTINGS_PROMOTIONS: dict[str, str] = {
     "output_mode": "OPENBB_OUTPUT_MODE",
     "flair": "OPENBB_FLAIR",
@@ -475,19 +390,10 @@ def apply_settings_to_env(
 ) -> list[str]:
     """Inject ``[settings]`` and promoted top-level keys into ``os.environ`` as ``OPENBB_*``.
 
-    The Settings model already loads from ``OPENBB_*`` env vars (see
-    ``Settings.from_env``), so converting each TOML key to its uppercase
-    snake-case env equivalent and seeding ``os.environ`` (via ``setdefault``)
-    makes the layered config reach Settings without coupling the loader to
-    the model. Real shell exports stay authoritative.
-
-    Top-level promoted keys (``output-mode``, ``flair``, ``timezone``,
-    ``rich-style``) win over the ``[settings]`` table — they're explicit,
-    user-promoted shortcuts, so a user who sets both clearly meant the
-    top-level one.
-
-    Returns the list of env var names actually set, so callers can log
-    discovery if useful.
+    Returns
+    -------
+    list[str]
+        Names of the env vars actually set.
     """
     if not config:
         return []
@@ -502,13 +408,11 @@ def apply_settings_to_env(
             os.environ[env_key] = str(value)
         applied.append(env_key)
 
-    # [settings] table first — top-level shortcuts then override.
     for key, value in (config.get("settings") or {}).items():
         _set("OPENBB_" + key.replace("-", "_").upper(), value)
 
     for key, env_key in _TOP_LEVEL_SETTINGS_PROMOTIONS.items():
         if key in config:
-            # Top-level wins: clear any [settings]-injected value.
             os.environ.pop(env_key, None)
             _set(env_key, config[key])
 
@@ -520,19 +424,10 @@ def load_env_files(
 ) -> list[Path]:
     """Apply ``.env`` files into ``os.environ`` for subsequent env-var lookups.
 
-    Argparse defaults, ``OPENBB_HTTP_QUERY_*`` scanning, etc. all read
-    ``os.environ``, so the dotfile values must land before they run.
-
-    Layers, applied in order so later files override earlier ones, and any
-    pre-existing ``os.environ`` values still win (real shell exports always
-    beat dotfiles):
-
-    * ``~/.openbb_platform/.env`` — the canonical openbb-platform .env
-    * ``explicit_path`` if provided, otherwise ``$OPENBB_CLI_ENV_FILE``
-
-    Uses ``python-dotenv`` (already a CLI runtime dep). Silently skips
-    missing files. Returns the list of files actually loaded so callers can
-    log / surface the discovery if useful.
+    Returns
+    -------
+    list[Path]
+        Files actually loaded.
     """
     from dotenv import dotenv_values
 

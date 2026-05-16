@@ -1,13 +1,4 @@
-"""Platform controller factory.
-
-Builds a per-router ``PlatformController`` class with ``CHOICES_MENUS`` /
-``CHOICES_COMMANDS`` populated from a ``Backend`` (either ``LocalBackend``
-walking in-process ``obb`` or ``SpecBackend`` reading a precomputed spec).
-
-The factory exposes the per-router pre-built ``translators`` + ``paths``
-dicts on the class so the controller's ``__init__`` can pick them up
-without re-walking the source.
-"""
+"""Platform controller factory."""
 
 from __future__ import annotations
 
@@ -18,16 +9,7 @@ from openbb_cli.controllers.base_platform_controller import PlatformController
 
 
 class PlatformControllerFactory:
-    """Factory to create a platform controller from a ``Backend``.
-
-    Two construction styles are supported:
-
-    * ``PlatformControllerFactory(backend=..., router_name=...)`` — the new,
-      pluggable form. The backend supplies translators + sub-paths.
-    * ``PlatformControllerFactory(platform_router=..., reference=...)`` —
-      legacy form, kept for callers that still pass an in-process ``obb``
-      target. Internally wraps a ``LocalBackend``.
-    """
+    """Factory to create a platform controller from a ``Backend``."""
 
     def __init__(
         self,
@@ -47,7 +29,7 @@ class PlatformControllerFactory:
             self._router_name: str = router_name
         else:
             del reference
-            assert platform_router is not None  # noqa: S101 — narrowed by L40-41
+            assert platform_router is not None  # noqa: S101
             self._backend = LocalBackend()
             self._router_name = _derive_router_name(platform_router)
 

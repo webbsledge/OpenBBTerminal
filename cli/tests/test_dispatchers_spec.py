@@ -12,6 +12,7 @@ from openbb_cli.dispatchers.spec import (
     _normalize_parameter,
     build_command_spec,
     build_spec_document,
+    command_parameters,
     load_spec,
     parse_command_argv,
     parser_from_command_spec,
@@ -40,6 +41,7 @@ def test_normalize_parameter_required_string():
         "example": None,
         "help": None,
         "providers": [],
+        "json_arg": False,
     }
 
 
@@ -498,6 +500,54 @@ def test_parser_from_command_spec_required_arg_enforced():
         parser.parse_args([])
     ns = parser.parse_args(["--symbol", "AAPL"])
     assert ns.symbol == "AAPL"
+
+
+def test_command_parameters_fuses_request_body_fields():
+    """``command_parameters`` flattens request-body fields into the parameter list."""
+    cmd_spec = {
+        "url_path": "/api/v1/technical/sma",
+        "method": "post",
+        "parameters": [],
+        "request_body_schema": {
+            "type": "object",
+            "required": ["data"],
+            "properties": {
+                "data": {"type": "array", "items": {"type": "object"}},
+                "length": {"type": "integer", "default": 14},
+            },
+        },
+    }
+    by_name = {p["name"]: p for p in command_parameters(cmd_spec)}
+    assert by_name["data"]["in"] == "body"
+    assert by_name["data"]["json_arg"] is True
+    assert by_name["data"]["type"] == "string"
+    assert by_name["length"]["json_arg"] is False
+    assert by_name["length"]["type"] == "integer"
+
+
+def test_parser_from_command_spec_json_arg_decodes_body_fields():
+    """``json_arg`` body fields parse their value as a JSON document."""
+    cmd_spec = {
+        "url_path": "/api/v1/technical/screen",
+        "method": "post",
+        "parameters": [],
+        "request_body_schema": {
+            "type": "object",
+            "required": ["conditions"],
+            "properties": {
+                "conditions": {"type": "array", "items": {"type": "object"}},
+                "data": {"type": "array", "items": {"type": "object"}},
+            },
+        },
+    }
+    parser = parser_from_command_spec(cmd_spec)
+    with pytest.raises(SystemExit):
+        parser.parse_args([])
+    ns = parser.parse_args(
+        ["--conditions", '[{"indicator": "rsi"}]', "--data", '[{"close": 1}]']
+    )
+    assert ns.conditions == [{"indicator": "rsi"}]
+    assert ns.data == [{"close": 1}]
 
 
 def test_parser_from_command_spec_choices_list_default():

@@ -1,8 +1,4 @@
-"""Credentials Controller Module.
-
-Allows viewing and setting obb.user.credentials at the session level
-(changes do not persist after the CLI exits).
-"""
+"""Credentials Controller Module."""
 
 import argparse
 from functools import partial, update_wrapper
