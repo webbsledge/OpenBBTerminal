@@ -388,7 +388,7 @@ def test_process_csv_tables_skips_empty_dataframe():
 
 
 def test_process_csv_tables_bad_dates_fallback():
-    """Unparseable dates fall back to string conversion with a warning."""
+    """Unparsable dates fall back to string conversion with a warning."""
     table = {
         "meta": "Average Value Weighted Returns -- Monthly",
         "headers": ["Date", "A"],
@@ -465,7 +465,7 @@ def test_process_international_portfolio_data_skips_empty_table():
 
 
 def test_process_international_portfolio_data_bad_dates_and_ex_dividends():
-    """Unparseable dates fall back to strings and ex-dividend metadata is set."""
+    """Unparsable dates fall back to strings and ex-dividend metadata is set."""
     table = {
         "meta": "Value-Weight Dollar Returns",
         "spanners": "-- BE/ME --",
@@ -505,7 +505,7 @@ def test_download_file_latin1_fallback(monkeypatch):
 
         def get(self, url):
             """Return the prepared latin-1 archive."""
-            return _Response(_make_zip("data.csv", b"caf\xe9 returns"))
+            return _Response(_make_zip("data.csv", "café returns".encode("latin-1")))
 
     monkeypatch.setattr(
         "openbb_core.provider.utils.helpers.get_requests_session",
@@ -514,7 +514,7 @@ def test_download_file_latin1_fallback(monkeypatch):
 
     result = helpers.download_file("Portfolios_Formed_on_ME_CSV.zip")
 
-    assert "caf" in result
+    assert "café" in result
     assert "returns" in result
 
 
@@ -548,7 +548,7 @@ def test_get_international_portfolio_data_latin1_fallback(monkeypatch):
     monkeypatch.setattr(
         helpers,
         "download_international_portfolios",
-        lambda url: _IntlResponse(_make_zip("Japan.Dat", b"caf\xe9")),
+        lambda url: _IntlResponse(_make_zip("Japan.Dat", "café".encode("latin-1"))),
     )
 
     result = helpers.get_international_portfolio_data(country="japan")
