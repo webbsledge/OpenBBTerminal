@@ -62,6 +62,13 @@ def test_save_modules(package_builder):
     package_builder._save_modules()
 
 
+def test_save_modules_no_paths_returns_early(tmp_openbb_dir):
+    """_save_modules returns early when there are no paths to write."""
+    builder = PackageBuilder(tmp_openbb_dir)
+    builder.path_list = []
+    builder._save_modules()
+
+
 def test_save_package(package_builder):
     """Test save package."""
     package_builder._save_package()

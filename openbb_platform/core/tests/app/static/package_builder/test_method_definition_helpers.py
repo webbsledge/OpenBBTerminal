@@ -813,6 +813,27 @@ def test_format_params_query_default_value(monkeypatch):
     assert out["symbol"].default == "AAPL"
 
 
+def test_format_params_query_params_model_expanded_field(monkeypatch):
+    """A QueryParams-model field present in TYPE_EXPANSION is widened (else branch)."""
+    from openbb_core.app.static.package_builder.path_handler import PathHandler
+
+    class _ExpandedQP(QueryParams):
+        start_date: str = Field(default="", description="Start date.")
+
+    parameter_map = {
+        "params": Parameter(
+            name="params",
+            kind=Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=_ExpandedQP,
+        ),
+    }
+    monkeypatch.setattr(PathHandler, "build_route_map", staticmethod(lambda: {}))
+    out = MethodDefinition.format_params("/x/y", parameter_map)
+
+    assert "start_date" in out
+    assert "str" in str(out["start_date"].annotation)
+
+
 def test_format_params_dataclass_annotated_field_expansion(monkeypatch):
     """Lines 623-638: is_annotated_dc branch -> field expansion."""
     from dataclasses import dataclass
@@ -1256,6 +1277,30 @@ def test_format_params_annotated_non_depends_new_type_ellipsis(monkeypatch):
     monkeypatch.setattr(PathHandler, "build_route_map", staticmethod(lambda: {}))
     monkeypatch.setattr(
         MethodDefinition, "get_expanded_type", classmethod(lambda cls, *_a, **_k: ...)
+    )
+    out = MethodDefinition.format_params("/x/y", {"x": p})
+    assert "x" in out
+
+
+def test_format_params_annotated_non_depends_constrained_type(monkeypatch):
+    """An annotated, non-Depends param whose expanded type is a constrained
+    TypeVar unrolls ``__constraints__`` into a ``Union`` with the inner type.
+    """
+    from openbb_core.app.static.package_builder.path_handler import PathHandler
+
+    class _Constrained:
+        __constraints__ = (str, bytes)
+
+    p = Parameter(
+        name="x",
+        kind=Parameter.POSITIONAL_OR_KEYWORD,
+        annotation=Annotated[int, OpenBBField(description="")],
+    )
+    monkeypatch.setattr(PathHandler, "build_route_map", staticmethod(lambda: {}))
+    monkeypatch.setattr(
+        MethodDefinition,
+        "get_expanded_type",
+        classmethod(lambda cls, *_a, **_k: _Constrained),
     )
     out = MethodDefinition.format_params("/x/y", {"x": p})
     assert "x" in out

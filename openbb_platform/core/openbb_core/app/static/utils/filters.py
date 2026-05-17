@@ -13,8 +13,14 @@ def filter_inputs(
 ) -> dict:
     """Filter command inputs."""
     for key, value in kwargs.items():
-        if data_processing and key == "data":
+        if not data_processing:
+            continue
+        if key == "data":
             kwargs[key] = convert_to_basemodel(value)
+        elif isinstance(value, dict) and "data" in value:
+            # V5 typed-command pattern: the QueryParams model is passed as a
+            # dict - convert its ``data`` field before the route validates it.
+            value["data"] = convert_to_basemodel(value["data"])
 
     if info:
         # Here we check if list items are passed and multiple items allowed for
