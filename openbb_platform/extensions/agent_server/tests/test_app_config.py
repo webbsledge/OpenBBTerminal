@@ -435,7 +435,7 @@ def test_from_toml_metadata_subtable_applies() -> None:
     assert s.metadata.image_url == "https://example.com/logo.png"
 
 
-def test_from_toml_features_overrides_defaults() -> None:
+def test_from_toml_features_merges_over_defaults() -> None:
     s = AgentServerSettings.from_toml(
         {
             "features": {
@@ -447,7 +447,13 @@ def test_from_toml_features_overrides_defaults() -> None:
             }
         }
     )
+    # The operator-supplied feature is present…
     assert s.features["deep-research"]["default"] is True
+    # …and the built-in toggles survive the merge rather than being
+    # dropped by an operator ``[agent.features]`` block.
+    assert "search-web" in s.features
+    assert "fetch-url" in s.features
+    assert s.features["streaming"] is True
 
 
 def test_from_toml_data_dir_expanduser(tmp_path: Path) -> None:

@@ -25,7 +25,7 @@ Both backends share the same result shape: a list of `{title, url, snippet}` dic
 
 ## Citation emission
 
-Auto-citation is the contract: every result emits one `emit.cite()` call. The text is the snippet, the source label is the title, the URL is the result URL. Citations are buffered by [`runtime/emit.py`](../../runtime/emit.md) and flushed at end-of-turn as a single SSE frame so they decorate the final-answer bubble.
+Auto-citation is the contract: every result emits one `emit.cite()` call. The text is the snippet, the source label is the title, the URL is the result URL. Citations are buffered by [`runtime/emit.py`](../../runtime/emit.md) and flushed at end-of-turn as a single SSE frame. The adapter's [citation relevance filter](../../protocol/adapter.md#citation-relevance-filter) then drops any result the final answer never references, so a multi-query run does not bury the answer under dozens of unused chips.
 
 The tool description also instructs the model to inline the source URL as a Markdown link next to each headline in the answer — `- **Title** ([source](URL)): summary…` — so the user can click through without hunting for the citation chip.
 

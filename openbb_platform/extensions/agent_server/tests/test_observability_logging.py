@@ -8,12 +8,14 @@ import logging
 import pytest
 
 from openbb_agent_server.observability.logging import (
+    LOG_LEVEL_ENV,
     TRACE,
     JsonTraceFormatter,
     PIIRedactionFilter,
     TraceContextFilter,
     install_trace_logging,
     redact_pii,
+    resolve_level,
     trace,
 )
 from openbb_agent_server.runtime import context as run_context
@@ -105,6 +107,84 @@ def test_install_is_idempotent() -> None:
 def test_trace_level_registered() -> None:
     assert TRACE < logging.DEBUG
     assert logging.getLevelName(TRACE) == "TRACE"
+
+
+def test_resolve_level_int_passthrough() -> None:
+    assert resolve_level(logging.DEBUG) == logging.DEBUG
+
+
+def test_resolve_level_trace_name() -> None:
+    """``"trace"`` (any case) resolves to the custom TRACE level."""
+    assert resolve_level("trace") == TRACE
+    assert resolve_level("TRACE") == TRACE
+
+
+def test_resolve_level_standard_name() -> None:
+    assert resolve_level("debug") == logging.DEBUG
+
+
+def test_resolve_level_unknown_name_falls_back_to_info() -> None:
+    """A bogus level name must not raise — it falls back to INFO."""
+    assert resolve_level("not-a-level") == logging.INFO
+
+
+def test_resolve_level_none_reads_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(LOG_LEVEL_ENV, "trace")
+    assert resolve_level(None) == TRACE
+
+
+def test_resolve_level_none_without_env_is_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
+    assert resolve_level(None) == logging.INFO
+
+
+def test_install_trace_logging_honours_trace_level(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``install_trace_logging("trace")`` sets the root logger to TRACE."""
+    monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
+    original = logging.getLogger().level
+    try:
+        install_trace_logging("trace")
+        assert logging.getLogger().level == TRACE
+    finally:
+        logging.getLogger().setLevel(original)
+
+
+def test_install_trace_logging_quiets_noisy_loggers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verbose root level still caps chatty third-party loggers at WARNING."""
+    monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
+    noisy = logging.getLogger("aiosqlite")
+    original_root = logging.getLogger().level
+    original_noisy = noisy.level
+    try:
+        install_trace_logging("trace")
+        assert noisy.level == logging.WARNING
+    finally:
+        logging.getLogger().setLevel(original_root)
+        noisy.setLevel(original_noisy)
+
+
+def test_install_trace_logging_noisy_logger_follows_coarser_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--log-level error`` wins over the WARNING cap on noisy loggers."""
+    monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
+    noisy = logging.getLogger("aiosqlite")
+    original_root = logging.getLogger().level
+    original_noisy = noisy.level
+    try:
+        install_trace_logging("error")
+        assert noisy.level == logging.ERROR
+    finally:
+        logging.getLogger().setLevel(original_root)
+        noisy.setLevel(original_noisy)
 
 
 def test_trace_helper_is_callable() -> None:

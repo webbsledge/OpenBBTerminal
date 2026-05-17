@@ -184,8 +184,13 @@ class ArtifactsToolSource(ToolSource):
     name = "artifacts"
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[Any]:
-        def _success_message(kind_label: str, uuid: str) -> str:
+        def _success_message(kind_label: str) -> str:
             """Tool-result text the model sees AFTER a successful emit.
+
+            The artifact's uuid is deliberately NOT included: the model
+            does not need it (Workspace renders the card automatically)
+            and echoing it produces leaked ``(see artifact <id>)`` refs
+            in the chat reply.
 
             ONE artifact is almost always enough. The user asked a
             question; the artifact is the deliverable; the next
@@ -194,32 +199,29 @@ class ArtifactsToolSource(ToolSource):
             explicitly asked for one per dimension / entity / period.
             """
             return (
-                f"OK. {kind_label} artifact rendered (uuid={uuid}). "
+                f"OK. {kind_label} artifact rendered. "
                 "The user can see it now. Your next response is the "
                 "FINAL textual answer: a concise 1–2 sentence "
                 "takeaway pointing at this artifact with the key "
-                "insight. STOP. Do NOT call any more artifact "
-                "emitters unless the user EXPLICITLY asked for one "
-                "artifact per dimension / category — one summary "
-                "artifact answers a summary question."
+                'insight. Refer to it in plain words ("the table '
+                'below") — never by any id. STOP. Do NOT call any '
+                "more artifact emitters unless the user EXPLICITLY "
+                "asked for one artifact per dimension / category — "
+                "one summary artifact answers a summary question."
             )
 
         def emit_html(content: str, name: str = "", description: str = "") -> str:
             cleaned, notes = _sanitise_markdown_body(content)
-            uuid = emit.html_artifact(
-                content=cleaned, name=name, description=description
-            )
-            msg = _success_message("HTML", uuid)
+            emit.html_artifact(content=cleaned, name=name, description=description)
+            msg = _success_message("HTML")
             if notes:
                 msg += " " + _sanitise_warning(notes)
             return msg
 
         def emit_markdown(content: str, name: str = "", description: str = "") -> str:
             cleaned, notes = _sanitise_markdown_body(content)
-            uuid = emit.markdown_artifact(
-                content=cleaned, name=name, description=description
-            )
-            msg = _success_message("Markdown", uuid)
+            emit.markdown_artifact(content=cleaned, name=name, description=description)
+            msg = _success_message("Markdown")
             if notes:
                 msg += " " + _sanitise_warning(notes)
             return msg
@@ -230,18 +232,16 @@ class ArtifactsToolSource(ToolSource):
             name: str = "",
             description: str = "",
         ) -> str:
-            uuid = emit.table_artifact(
+            emit.table_artifact(
                 columns=columns, rows=rows, name=name, description=description
             )
-            return _success_message("Table", uuid)
+            return _success_message("Table")
 
         def emit_chart(
             plotly: dict[str, Any], name: str = "", description: str = ""
         ) -> str:
-            uuid = emit.chart_artifact(
-                plotly=plotly, name=name, description=description
-            )
-            return _success_message("Chart", uuid)
+            emit.chart_artifact(plotly=plotly, name=name, description=description)
+            return _success_message("Chart")
 
         def emit_reasoning_step(message: str, event_type: str = "INFO") -> str:
             """Emit one ``StatusUpdateSSE`` reasoning step."""
@@ -264,7 +264,8 @@ class ArtifactsToolSource(ToolSource):
                 description=(
                     "Emit an HTML artifact for the user to view. Use sparingly — "
                     "raw HTML is sanitised by the Workspace UI (no scripts, no "
-                    "iframes). Returns the artifact's uuid."
+                    "iframes). The card renders automatically; refer to it in "
+                    "plain words, never by id."
                 ),
                 args_schema=_HtmlArgs,
             ),

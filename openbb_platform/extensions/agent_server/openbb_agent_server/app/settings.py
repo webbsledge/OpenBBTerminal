@@ -454,7 +454,7 @@ class AgentServerSettings(BaseSettings):
             "subagents": tuple(overlay.get("subagents", self.subagents)),
             "middleware": tuple(overlay.get("middleware", self.middleware)),
             "skills": tuple(overlay.get("skills", self.skills)),
-            "features": dict(overlay.get("features", self.features)),
+            "features": {**self.features, **dict(overlay.get("features", {}))},
             "system_prompt_file": _resolve_system_prompt_file(
                 overlay, self.system_prompt_file
             ),
@@ -508,7 +508,15 @@ class AgentServerSettings(BaseSettings):
                 flat["model_config"] = model["config"]
 
         if "features" in agent_section and isinstance(agent_section["features"], dict):
-            flat["features"] = dict(agent_section["features"])
+            # Merge over the built-in defaults so the always-available
+            # toggles (``search-web``, ``fetch-url``, the reserved
+            # booleans) survive an operator-supplied ``[agent.features]``
+            # block — the operator overrides individual entries, not the
+            # whole set.
+            flat["features"] = {
+                **DEFAULT_FEATURES,
+                **agent_section["features"],
+            }
 
         if "metadata" in agent_section and isinstance(agent_section["metadata"], dict):
             flat["metadata"] = AgentMetadata(**agent_section["metadata"])

@@ -673,14 +673,204 @@ async def test_custom_citations_passthrough() -> None:
                         }
                     ],
                 },
-            }
+            },
+            # Final answer references the source so the relevance
+            # filter keeps it.
+            {
+                "type": "messages",
+                "ns": [],
+                "data": {"message": {"content": "Reuters reported the news."}},
+            },
         ],
     )
-    cc = out[0]
-    assert isinstance(cc, CitationCollectionSSE)
+    cc = next(e for e in out if isinstance(e, CitationCollectionSSE))
     assert len(cc.data.citations) == 1
     assert cc.data.citations[0].id == "c-1"
     assert cc.data.citations[0].source_info.origin == "https://x.example"
+
+
+def test_citation_tokens_filters_short_words_and_stopwords() -> None:
+    from openbb_agent_server.protocol.adapter import _citation_tokens
+
+    assert _citation_tokens("The ASML 2026 Outlook is up") == {
+        "asml",
+        "2026",
+        "outlook",
+    }
+
+
+def test_citation_is_relevant_widget_always_kept() -> None:
+    from openbb_agent_server.protocol.adapter import _citation_is_relevant
+
+    citation = {"source_info": {"type": "widget", "uuid": "w-1"}}
+    assert _citation_is_relevant(citation, set()) is True
+
+
+def test_citation_is_relevant_untitled_is_kept() -> None:
+    from openbb_agent_server.protocol.adapter import _citation_is_relevant
+
+    citation = {"source_info": {"type": "web", "origin": "https://x"}}
+    assert _citation_is_relevant(citation, {"unrelated"}) is True
+
+
+def test_citation_is_relevant_title_overlap_threshold() -> None:
+    from openbb_agent_server.protocol.adapter import _citation_is_relevant
+
+    citation = {"source_info": {"type": "web", "name": "ASML lifts 2026 sales outlook"}}
+    # Most title tokens present → kept.
+    assert _citation_is_relevant(
+        citation, {"asml", "lifts", "2026", "sales", "outlook"}
+    )
+    # Almost none present → dropped.
+    assert not _citation_is_relevant(citation, {"hsbc", "roche"})
+
+
+@pytest.mark.asyncio
+async def test_drain_citations_drops_unreferenced_citations() -> None:
+    """Citations the final answer never references are filtered out."""
+    out = await _drive(
+        DeepAgentEventAdapter(),
+        [
+            {
+                "type": "custom",
+                "data": {
+                    "type": "citations",
+                    "citations": [
+                        {
+                            "id": "keep",
+                            "source_info": {
+                                "type": "web",
+                                "name": "ASML lifts 2026 sales outlook",
+                                "origin": "https://a.example",
+                            },
+                        },
+                        {
+                            "id": "drop",
+                            "source_info": {
+                                "type": "web",
+                                "name": "Celebrity gossip roundup weekly",
+                                "origin": "https://b.example",
+                            },
+                        },
+                    ],
+                },
+            },
+            {
+                "type": "messages",
+                "ns": [],
+                "data": {
+                    "message": {"content": "ASML lifts its 2026 sales outlook sharply."}
+                },
+            },
+        ],
+    )
+    cc = next(e for e in out if isinstance(e, CitationCollectionSSE))
+    assert [c.id for c in cc.data.citations] == ["keep"]
+
+
+@pytest.mark.asyncio
+async def test_drain_citations_emits_nothing_when_all_unreferenced() -> None:
+    """No ``CitationCollectionSSE`` at all when the answer cites nothing."""
+    out = await _drive(
+        DeepAgentEventAdapter(),
+        [
+            {
+                "type": "custom",
+                "data": {
+                    "type": "citations",
+                    "citations": [
+                        {
+                            "id": "x",
+                            "source_info": {
+                                "type": "web",
+                                "name": "Unrelated celebrity gossip column",
+                                "origin": "https://b.example",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "messages",
+                "ns": [],
+                "data": {"message": {"content": "The fund holds equities."}},
+            },
+        ],
+    )
+    assert not any(isinstance(e, CitationCollectionSSE) for e in out)
+
+
+@pytest.mark.asyncio
+async def test_drain_citations_widget_kept_without_answer_match() -> None:
+    """Widget citations survive even when the answer text doesn't match."""
+    out = await _drive(
+        DeepAgentEventAdapter(),
+        [
+            {
+                "type": "custom",
+                "data": {
+                    "type": "citations",
+                    "citations": [
+                        {
+                            "id": "w",
+                            "source_info": {
+                                "type": "widget",
+                                "uuid": "w-1",
+                                "origin": "Blackrock",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "messages",
+                "ns": [],
+                "data": {"message": {"content": "Done."}},
+            },
+        ],
+    )
+    cc = next(e for e in out if isinstance(e, CitationCollectionSSE))
+    assert [c.id for c in cc.data.citations] == ["w"]
+
+
+@pytest.mark.asyncio
+async def test_drain_citations_matches_against_table_artifact() -> None:
+    """A citation referenced only by an emitted table artifact is kept."""
+    out = await _drive(
+        DeepAgentEventAdapter(),
+        [
+            {
+                "type": "custom",
+                "data": {
+                    "type": "citations",
+                    "citations": [
+                        {
+                            "id": "t",
+                            "source_info": {
+                                "type": "web",
+                                "name": "Siemens orders rise sharply quarter",
+                                "origin": "https://s.example",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "custom",
+                "data": {
+                    "type": "artifact",
+                    "artifact": {
+                        "type": "table",
+                        "name": "Holdings",
+                        "columns": ["Headline"],
+                        "rows": [["Siemens orders rise sharply this quarter"]],
+                    },
+                },
+            },
+        ],
+    )
+    cc = next(e for e in out if isinstance(e, CitationCollectionSSE))
+    assert [c.id for c in cc.data.citations] == ["t"]
 
 
 @pytest.mark.asyncio
@@ -1162,6 +1352,22 @@ def test_splitter_holds_unclosed_citation_marker_until_closed() -> None:
     assert text.startswith("【cite_source") and text.endswith(" and the rest")
 
 
+def test_splitter_holds_unclosed_pipe_citation_token_until_closed() -> None:
+    """An unclosed ``<|start_citation_id|>`` pipe-token is held in full —
+    past the short ``<`` window — until ``<|end_citation_id|>`` arrives,
+    so a gpt-oss citation token never streams out half-formed.
+    """
+    from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
+
+    sp = _ThinkingStreamSplitter()
+    out = sp.feed("performance.<|start_citation_id|>" + "z" * 200)
+    assert out == [("prose", "performance.")]
+    [(channel, text)] = sp.feed("<|end_citation_id|> and the remainder of the answer.")
+    assert channel == "prose"
+    assert text.startswith("<|start_citation_id|>")
+    assert text.endswith(" and the remainder of the answer.")
+
+
 def test_emit_splits_strips_inline_cite_source_marker() -> None:
     """A ``【cite_source …】`` marker emitted as text is stripped from prose
     before it reaches the chat bubble.
@@ -1197,6 +1403,24 @@ def test_emit_splits_strips_bare_citation_id_markers() -> None:
     assert adapter._prose_buf == [
         "Gold fell on a stronger dollar. See note 【6月】 for detail."
     ]
+
+
+def test_emit_splits_strips_pipe_token_citation_markers() -> None:
+    """gpt-oss ``<|start_citation_id|>…<|end_citation_id|>`` pipe-tokens —
+    both the paired form and an orphan token — are stripped from prose.
+    """
+    adapter = DeepAgentEventAdapter()
+    adapter._emit_splits(
+        [
+            (
+                "prose",
+                "Earnings land July 27 2026."
+                "<|start_citation_id|>2w5vZcK9VgU5K3Xh<|end_citation_id|>"
+                " That is a catalyst.<|end_citation_id|>",
+            )
+        ]
+    )
+    assert adapter._prose_buf == ["Earnings land July 27 2026. That is a catalyst."]
 
 
 def test_flatten_reasoning_non_string_non_list_stringifies() -> None:

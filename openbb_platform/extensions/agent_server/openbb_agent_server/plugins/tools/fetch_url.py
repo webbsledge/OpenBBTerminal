@@ -245,12 +245,13 @@ class FetchUrlToolSource(ToolSource):
     name = "fetch_url"
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[Any]:
-        """Bind ``fetch_url`` only when the user has enabled the feature."""
+        """Bind ``fetch_url`` only when the ``fetch-url`` feature is on."""
         if not ctx.has_workspace_option(_FEATURE_SLUG):
             logger.debug(
-                "fetch_url: user has not enabled the %r feature; "
+                "fetch_url: %r feature not enabled (workspace_options=%r); "
                 "skipping tool registration",
                 _FEATURE_SLUG,
+                sorted(ctx.workspace_options),
             )
             return []
         return [

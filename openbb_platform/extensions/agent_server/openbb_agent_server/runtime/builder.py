@@ -36,6 +36,12 @@ Session
 -------
 - timezone: {timezone}
 - today's date: {today}
+
+`{today}` is the real current date and overrides your training cutoff.
+A date before `{today}` is in the past; a date after it is in the
+future. When asked for the "next" / "latest" / "most recent" / "upcoming"
+event, compare every candidate date against `{today}` rather than
+trusting a snippet's tense.
 {widget_snapshot}{file_snapshot}
 
 You do NOT receive the user's identity (email, display name,
@@ -855,6 +861,7 @@ async def run_agent(
             "transcribe_audio",
             # External context the agent may still need
             "web_search",
+            "fetch_url",
             "recall_user_memory",
             # Sub-agent dispatch (charter, researcher, analyst, …)
             "task",

@@ -8,13 +8,13 @@ SSRF-guarded fetch of a single web page's readable text. `web_search` returns sn
 
 ### `FetchUrlToolSource`
 
-Plugin entry-point name: `fetch_url`. In the default `tool_sources`. `tools(ctx, config)` registers one `StructuredTool`, and only when the user has enabled the `fetch-url` Workspace feature — its own per-user toggle (`FETCH_URL_FEATURE`), independent of `web_search`'s `search-web` gate.
+Plugin entry-point name: `fetch_url`. In the default `tool_sources`. `tools(ctx, config)` registers one `StructuredTool`, and only when `ctx.has_workspace_option("fetch-url")` — the dedicated `fetch-url` Workspace toggle (`FETCH_URL_FEATURE`). Without the opt-in the source returns `[]` and the tool disappears from the model's surface for that turn.
 
 | Tool | Args | Returns |
 | --- | --- | --- |
 | `fetch_url(url)` | `url: str` — absolute http(s) URL | `{url, final_url, status, content_type, text, truncated}` on success; `{url, final_url, status, content_type, note}` for non-text bodies; `{error, url}` when the fetch is refused or fails. |
 
-The fetched page is auto-emitted as one `cite()` (anchored to `final_url`). Extracted text is capped at 20 000 characters (`truncated` flags when more was dropped).
+The fetched page is auto-emitted as one `cite()` (anchored to `final_url`). The adapter's [citation relevance filter](../../protocol/adapter.md#citation-relevance-filter) drops it at end-of-turn if the final answer never references it. Extracted text is capped at 20 000 characters (`truncated` flags when more was dropped).
 
 ## SSRF guard
 

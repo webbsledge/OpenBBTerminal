@@ -105,6 +105,11 @@ label       = "Search Web"
 description = "Allow the agent to search the public web when answering."
 default     = false
 
+[agent.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
+
 
 # [agent.tool_source_config.vision_qa]
 # model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"
@@ -142,6 +147,11 @@ mcp-tools               = true
 [agent.profiles.mistral-large-3.features.search-web]
 label       = "Search Web"
 description = "Allow the agent to search the public web when answering."
+default     = false
+
+[agent.profiles.mistral-large-3.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
 default     = false
 
 
@@ -210,6 +220,10 @@ label       = "Search Web"
 description = "Allow the coder to search the public web."
 default     = false
 
+[agent.profiles.qwen3-coder.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
 # ── seed-oss ─────────────────────────────────────────────────────────────────
 [agent.profiles.seed-oss.metadata]
@@ -237,11 +251,15 @@ label       = "Search Web"
 description = "Allow the agent to search the public web."
 default     = false
 
+[agent.profiles.seed-oss.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
-# ── step-flash ───────────────────────────────────────────────────────────────
+
 [agent.profiles.step-flash.metadata]
 name = "OpenBB · Step 3.5 Flash (Reasoning)"
-description = "StepFun Step-3.5-Flash with configurable reasoning_effort."
+description = "StepFun Step-3.5-Flash reasoning model."
 
 [agent.profiles.step-flash.model]
 provider = "nvidia"
@@ -264,8 +282,12 @@ label       = "Search Web"
 description = "Allow the agent to search the public web."
 default     = false
 
+[agent.profiles.step-flash.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
-# ── minimax-m2 ───────────────────────────────────────────────────────────────
+
 [agent.profiles.minimax-m2.metadata]
 name = "OpenBB · MiniMax M2.7"
 description = "MiniMax M2.7 long-context generalist."
@@ -288,4 +310,9 @@ mcp-tools               = true
 [agent.profiles.minimax-m2.features.search-web]
 label       = "Search Web"
 description = "Allow the agent to search the public web."
+default     = false
+
+[agent.profiles.minimax-m2.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
 default     = false

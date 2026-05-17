@@ -19,6 +19,7 @@ tool_sources = [
     "widget_data",
     "inspect_widget_data",
     "web_search",
+    "fetch_url",
     "pdf_extract",
     "dashboard",
     "client_side",
@@ -75,26 +76,26 @@ excluded = ["execute", "write_file", "edit_file", "glob", "grep"]
 
 [agent.metadata]
 name = "OpenBB · NVIDIA Stack"
-description = "DeepAgents harness with nemotron-3-nano-omni-30b-a3b-reasoning."
+description = "DeepAgents harness with openai/gpt-oss-120b driving the chat."
 
 
 [agent.model]
 provider = "nvidia"
-name     = "stepfun-ai/step-3.5-flash"
+name     = "openai/gpt-oss-120b"
 
 [agent.model.config]
-temperature           = 0.4
-max_completion_tokens = 8192
-top_p                 = 0.9
-frequency_penalty     = 0.4
-presence_penalty      = 0.2
+temperature           = 0.2
+max_completion_tokens = 4096
+top_p                 = 1.0
+frequency_penalty     = 0
+presence_penalty      = 0
 extra_body = { reasoning_effort = "medium" }
 
 [agent.features]
 streaming               = true
 widget-dashboard-select = true
 widget-dashboard-search = true
-widget-global-search    = false
+widget-global-search    = true
 mcp-tools               = true
 file-upload             = false
 generative-ui           = true
@@ -146,6 +147,11 @@ mcp-tools               = true
 [agent.profiles.mistral-large-3.features.search-web]
 label       = "Search Web"
 description = "Allow the agent to search the public web when answering."
+default     = false
+
+[agent.profiles.mistral-large-3.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
 default     = false
 
 
@@ -214,6 +220,10 @@ label       = "Search Web"
 description = "Allow the coder to search the public web."
 default     = false
 
+[agent.profiles.qwen3-coder.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
 # ── seed-oss ─────────────────────────────────────────────────────────────────
 [agent.profiles.seed-oss.metadata]
@@ -241,11 +251,15 @@ label       = "Search Web"
 description = "Allow the agent to search the public web."
 default     = false
 
+[agent.profiles.seed-oss.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
-# ── step-flash ───────────────────────────────────────────────────────────────
+
 [agent.profiles.step-flash.metadata]
 name = "OpenBB · Step 3.5 Flash (Reasoning)"
-description = "StepFun Step-3.5-Flash with configurable reasoning_effort."
+description = "StepFun Step-3.5-Flash reasoning model."
 
 [agent.profiles.step-flash.model]
 provider = "nvidia"
@@ -268,8 +282,12 @@ label       = "Search Web"
 description = "Allow the agent to search the public web."
 default     = false
 
+[agent.profiles.step-flash.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
+default     = false
 
-# ── minimax-m2 ───────────────────────────────────────────────────────────────
+
 [agent.profiles.minimax-m2.metadata]
 name = "OpenBB · MiniMax M2.7"
 description = "MiniMax M2.7 long-context generalist."
@@ -292,4 +310,9 @@ mcp-tools               = true
 [agent.profiles.minimax-m2.features.search-web]
 label       = "Search Web"
 description = "Allow the agent to search the public web."
+default     = false
+
+[agent.profiles.minimax-m2.features.fetch-url]
+label       = "Fetch URL"
+description = "Allow the agent to fetch and read the full text of a web page from a URL."
 default     = false

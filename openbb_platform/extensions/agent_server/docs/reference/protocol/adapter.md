@@ -62,13 +62,17 @@ Prose between tool calls is reasoning preface; prose after the LAST tool call is
 
 `origin` is intentionally NOT the dedup key for widget citations — `origin` is the vendor name and is shared across every widget from that vendor.
 
+### Citation relevance filter
+
+`web_search` and `fetch_url` auto-cite every result and fetched page, so a multi-search run accumulates far more citations than the answer uses. `_drain_citations` keeps only the citations the **final answer references**: as events stream, `_note_for_citations` records the chat-bubble text and every emitted artifact's content; at drain time a web / PDF citation survives only when ≥ 60% of its title's significant words (`_CITATION_MATCH_THRESHOLD`) appear in that text. Widget citations and citations with no usable title are always kept. If no citation survives, no `CitationCollectionSSE` is emitted.
+
 ### `async def adapt(stream)`
 
 Translate a DeepAgents event stream (`type` ∈ `messages` / `updates` / `custom` / `error`) into Workspace SSE events. Tail order:
 
 1. `_drain_pending` — flush buffered prose as the final `MessageChunkSSE`.
 2. `_drain_artifacts` — emit every buffered artifact in arrival order.
-3. `_drain_citations` — emit ONE `CitationCollectionSSE` with every accumulated citation.
+3. `_drain_citations` — emit ONE `CitationCollectionSSE` with the citations the final answer references (see *Citation relevance filter*).
 
 This ordering guarantees the chat-bubble text lands first, every artifact card stacks below it, and citation chips render in one batch instead of trickling in.
 

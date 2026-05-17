@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -14,6 +15,41 @@ TRACE = 5
 
 if logging.getLevelName(TRACE) == f"Level {TRACE}":
     logging.addLevelName(TRACE, "TRACE")
+
+# Channel the CLI ``--log-level`` through to ``create_app`` (and the
+# ``--reload`` worker subprocess) so the chosen level survives.
+LOG_LEVEL_ENV = "OPENBB_AGENT_LOG_LEVEL"
+
+# Third-party loggers that emit one DEBUG line per DB cursor op / HTTP
+# byte / event-loop tick — pure noise that buries the agent's own logs
+# at ``--log-level debug`` / ``trace``. Capped at WARNING.
+_NOISY_THIRD_PARTY_LOGGERS: tuple[str, ...] = (
+    "aiosqlite",
+    "asyncio",
+    "sqlalchemy.engine",
+    "sqlalchemy.pool",
+    "httpcore",
+    "httpx",
+    "urllib3",
+    "watchfiles",
+    "python_multipart",
+    "multipart",
+)
+
+
+def resolve_level(level: int | str | None) -> int:
+    """Resolve a level int / name (including ``TRACE``) to a numeric level.
+
+    ``None`` consults the ``OPENBB_AGENT_LOG_LEVEL`` env var, then falls
+    back to ``INFO``. An unknown name also falls back to ``INFO`` rather
+    than raising — a bad ``--log-level`` should not crash the server.
+    """
+    if level is None:
+        level = os.environ.get(LOG_LEVEL_ENV) or logging.INFO
+    if isinstance(level, int):
+        return level
+    resolved = logging.getLevelName(str(level).strip().upper())
+    return resolved if isinstance(resolved, int) else logging.INFO
 
 
 def trace(logger: logging.Logger, message: str, *args: Any, **kwargs: Any) -> None:
@@ -110,10 +146,28 @@ class JsonTraceFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def install_trace_logging(level: int | str = logging.INFO) -> None:
-    """Attach trace + redaction filters and a JSON formatter to root."""
+def _quiet_noisy_loggers(root_level: int) -> None:
+    """Cap chatty third-party loggers so ``--log-level debug``/``trace``
+    surfaces the agent's own logs instead of drowning in DB / HTTP / async
+    plumbing. Each is pinned to ``WARNING`` (or the root level if that is
+    already coarser, so ``--log-level error`` still wins).
+    """
+    quiet_level = max(root_level, logging.WARNING)
+    for name in _NOISY_THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(quiet_level)
+
+
+def install_trace_logging(level: int | str | None = None) -> None:
+    """Attach trace + redaction filters and a JSON formatter to root.
+
+    ``level`` may be an int, a level name (including ``"TRACE"``), or
+    ``None`` — in which case ``OPENBB_AGENT_LOG_LEVEL`` is consulted,
+    falling back to ``INFO``.
+    """
     root = logging.getLogger()
-    root.setLevel(level)
+    root_level = resolve_level(level)
+    root.setLevel(root_level)
+    _quiet_noisy_loggers(root_level)
     if any(isinstance(f, TraceContextFilter) for f in root.filters):
         return
     root.addFilter(TraceContextFilter())

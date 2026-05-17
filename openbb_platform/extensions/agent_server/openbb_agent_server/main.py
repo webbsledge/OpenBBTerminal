@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
 import os
 import sys
 from importlib import resources
@@ -195,7 +194,15 @@ def _serve(
     if args.model_name:
         os.environ["OPENBB_AGENT_MODEL_NAME"] = args.model_name
 
-    logging.basicConfig(level=args.log_level.upper())
+    from openbb_agent_server.observability.logging import (
+        LOG_LEVEL_ENV,
+        install_trace_logging,
+    )
+
+    # Channel the chosen level to ``create_app`` and the ``--reload``
+    # worker so it survives, then install the structured root logger.
+    os.environ[LOG_LEVEL_ENV] = args.log_level
+    install_trace_logging()
 
     import uvicorn
 

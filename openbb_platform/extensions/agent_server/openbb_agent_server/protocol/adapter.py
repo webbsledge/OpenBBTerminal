@@ -46,16 +46,23 @@ _THINKING_CLOSE_RE = re.compile(
 _PARTIAL_TAG_HOLD = 32
 
 # Inline citation markers a model emits as TEXT instead of calling the
-# ``cite_source`` tool. Two leaked shapes, both stripped from prose
-# before it reaches the chat bubble:
+# ``cite_source`` tool. Leaked shapes, all stripped from prose before it
+# reaches the chat bubble:
 #   1. keyword markers — ``【cite_source text="…" source="…"】``
 #   2. bare citation-id refs — ``【rCW9mowjZMqwr7hu】`` — the opaque
 #      ``secrets.token_urlsafe`` ids ``emit.cite`` hands back, which a
 #      model sometimes echoes inline instead of calling ``cite_source``.
 #      8+ chars of pure url-safe-base64 (no spaces, no CJK) inside the
 #      brackets is the id signal; real ``【…】`` prose has neither.
+#   3. pipe-token refs — ``<|start_citation_id|>2w5vZcK9…<|end_citation_id|>``
+#      — gpt-oss emits citation ids wrapped in OpenAI-style special
+#      tokens. The paired form is stripped whole; an orphan
+#      ``<|…citation…|>`` token (stream split, truncated id) is stripped
+#      on its own.
 _CITATION_MARKER_RE = re.compile(
-    r"【(?:[^】]*(?:cursor|loc|source|ref|cite)[^】]*|[A-Za-z0-9_-]{8,})】",
+    r"【(?:[^】]*(?:cursor|loc|source|ref|cite)[^】]*|[A-Za-z0-9_-]{8,})】"
+    r"|<\|start_citation_id\|>[^<]*<\|end_citation_id\|>"
+    r"|<\|[a-z0-9_]*citation[a-z0-9_]*\|>",
     re.IGNORECASE,
 )
 
@@ -201,6 +208,13 @@ class _ThinkingStreamSplitter:
         open_brk = buf.rfind("【")
         if open_brk >= 0 and "】" not in buf[open_brk:]:
             cap = open_brk
+        # An unclosed ``<|start_citation_id|>`` pipe-token: the id +
+        # closing token run past the short ``<`` window, so hold the
+        # whole tail until ``<|end_citation_id|>`` arrives and the
+        # marker can reach _CITATION_MARKER_RE in one piece.
+        cite_tok = buf.rfind("<|start_citation_id|>")
+        if cite_tok >= 0 and "<|end_citation_id|>" not in buf[cite_tok:]:
+            cap = min(cap, cite_tok)
         last_lt = buf.rfind("<")
         if last_lt >= 0 and len(buf) - last_lt <= _PARTIAL_TAG_HOLD:
             cap = min(cap, last_lt)
@@ -413,6 +427,64 @@ def _extract_text(content: Any) -> str:
     return str(content) if content else ""
 
 
+# -- citation relevance filter --------------------------------------------
+
+# Words that carry no source-identity signal — excluded when matching a
+# citation's title against the final answer.
+_CITATION_STOPWORDS: frozenset[str] = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "its",
+        "with",
+        "from",
+        "that",
+        "this",
+        "are",
+        "was",
+        "has",
+        "new",
+        "you",
+        "your",
+        "out",
+        "now",
+    }
+)
+
+# Fraction of a citation's significant title words that must appear in
+# the final answer for the citation to be kept.
+_CITATION_MATCH_THRESHOLD = 0.6
+
+
+def _citation_tokens(text: str) -> set[str]:
+    """Significant lower-case word tokens (length >= 3, no stopwords)."""
+    return {
+        w
+        for w in re.findall(r"[a-z0-9]+", text.lower())
+        if len(w) >= 3 and w not in _CITATION_STOPWORDS
+    }
+
+
+def _citation_is_relevant(citation: dict[str, Any], answer_tokens: set[str]) -> bool:
+    """Report whether ``citation`` is referenced by the final answer.
+
+    Widget citations (pinned dashboard data) are always kept. A web /
+    PDF citation is kept when enough of its title's significant words
+    appear in the final answer + emitted artifacts — paraphrased
+    headlines still match, unrelated search hits do not. A citation
+    with no usable title is kept rather than silently dropped.
+    """
+    src = citation.get("source_info") or {}
+    if str(src.get("type") or "") == "widget":
+        return True
+    title_tokens = _citation_tokens(str(src.get("name") or ""))
+    if not title_tokens:
+        return True
+    overlap = len(title_tokens & answer_tokens) / len(title_tokens)
+    return overlap >= _CITATION_MATCH_THRESHOLD
+
+
 class DeepAgentEventAdapter:
     """Translate deepagents stream events to OpenBB SSE events."""
 
@@ -448,6 +520,10 @@ class DeepAgentEventAdapter:
         self._artifacts: list[SSEEvent] = []
         self._citations: list[dict[str, Any]] = []
         self._citation_keys: set[tuple[str, str]] = set()
+        # Final-answer text (chat-bubble deltas + emitted artifacts),
+        # accumulated as events stream so ``_drain_citations`` can keep
+        # only the citations the answer actually references.
+        self._answer_text_parts: list[str] = []
 
     def _emit_splits(self, splits: list[tuple[str, str]]) -> list[SSEEvent]:
         """Convert ``(channel, text)`` pairs into pending buffers.
@@ -556,13 +632,34 @@ class DeepAgentEventAdapter:
         """
         async for ev in stream:
             for translated in self._translate(ev):
+                self._note_for_citations(translated)
                 yield translated
         for tail in self._drain_pending():
+            self._note_for_citations(tail)
             yield tail
         for art in self._drain_artifacts():
+            self._note_for_citations(art)
             yield art
         for ev in self._drain_citations():
             yield ev
+
+    def _note_for_citations(self, ev: SSEEvent) -> None:
+        """Record final-answer text (chat-bubble deltas + artifacts) so
+        ``_drain_citations`` can filter out unreferenced citations.
+        """
+        if isinstance(ev, MessageChunkSSE):
+            self._answer_text_parts.append(ev.data.delta)
+        elif isinstance(ev, MessageArtifactSSE):
+            art = ev.data
+            parts = [art.name or "", art.description or ""]
+            content = art.content
+            if isinstance(content, str):
+                parts.append(content)
+            elif isinstance(content, list):
+                for row in content:
+                    if isinstance(row, dict):
+                        parts.extend(str(v) for v in row.values())
+            self._answer_text_parts.append(" ".join(parts))
 
     def _drain_artifacts(self) -> list[SSEEvent]:
         """Emit every buffered artifact in arrival order, then reset."""
@@ -572,12 +669,32 @@ class DeepAgentEventAdapter:
         return out
 
     def _drain_citations(self) -> list[SSEEvent]:
-        """Emit the accumulated citations as ONE CitationCollectionSSE."""
+        """Emit the citations the final answer references as ONE
+        ``CitationCollectionSSE``.
+
+        ``web_search`` / ``fetch_url`` auto-cite every result and page,
+        so a multi-search run accumulates far more citations than the
+        answer uses. Keep only those whose title is referenced by the
+        final answer + emitted artifacts (widget citations always pass).
+        """
         if not self._citations:
             return []
-        citations = [Citation.model_validate(c) for c in self._citations]
+        answer_tokens = _citation_tokens(" ".join(self._answer_text_parts))
+        relevant = [
+            c for c in self._citations if _citation_is_relevant(c, answer_tokens)
+        ]
+        dropped = len(self._citations) - len(relevant)
         self._citations = []
         self._citation_keys = set()
+        if dropped:
+            trace(
+                logger,
+                "adapter: dropped %d citation(s) unreferenced by the final answer",
+                dropped,
+            )
+        if not relevant:
+            return []
+        citations = [Citation.model_validate(c) for c in relevant]
         return [CitationCollectionSSE(data=CitationCollection(citations=citations))]
 
     def _absorb_citations(self, items: Any) -> None:
