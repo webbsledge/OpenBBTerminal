@@ -1001,9 +1001,7 @@ class ReferenceGenerator:
 
             # Try to extract from type annotation first (more reliable)
             args = get_args(return_annotation)
-            # Pydantic parameterized generics (e.g. ``OBBject[list[Foo]]``) are
-            # concrete classes, so ``get_origin``/``get_args`` see nothing - fall
-            # back to the generic metadata Pydantic records on the class.
+            # Pydantic generic aliases are concrete classes - read their metadata.
             if not args:
                 pgm = getattr(return_annotation, "__pydantic_generic_metadata__", {})
                 args = tuple(pgm.get("args") or ())

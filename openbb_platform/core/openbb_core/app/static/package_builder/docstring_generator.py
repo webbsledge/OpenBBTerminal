@@ -115,8 +115,7 @@ class DocstringGenerator:
                         continue
                     type_name = str(arg)
                     if hasattr(arg, "__forward_arg__"):
-                        # A bare ForwardRef ('Data', 'DataFrame', ...) - render
-                        # its target name, not the ``ForwardRef(...)`` wrapper.
+                        # Render a ForwardRef as its target name.
                         type_name = arg.__forward_arg__
                     elif hasattr(arg, "__name__") and not get_args(arg):
                         type_name = arg.__name__

@@ -271,11 +271,7 @@ def test_filter_inputs_no_info_list_in_standard_params_raises():
 
 
 def test_filter_inputs_converts_nested_data_in_model_dict():
-    """A QueryParams model passed as a dict has its nested 'data' field converted.
-
-    V5 typed commands pass their ``QueryParams`` as a single dict; ``filter_inputs``
-    must still coerce the model's ``data`` field to ``Data`` models.
-    """
+    """A QueryParams model passed as a dict has its nested data field converted."""
     result = filter_inputs(
         True, None, params={"data": [{"a": 1}, {"a": 2}], "target": "a"}
     )
