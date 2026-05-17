@@ -18,8 +18,7 @@ def filter_inputs(
         if key == "data":
             kwargs[key] = convert_to_basemodel(value)
         elif isinstance(value, dict) and "data" in value:
-            # V5 typed-command pattern: the QueryParams model is passed as a
-            # dict - convert its ``data`` field before the route validates it.
+            # A QueryParams model passed as a dict - convert its nested data.
             value["data"] = convert_to_basemodel(value["data"])
 
     if info:

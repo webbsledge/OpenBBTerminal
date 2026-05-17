@@ -573,10 +573,7 @@ class MethodDefinition:
             if name in path_params or name in ("kwargs", "**kwargs"):
                 continue  # Already handled above
 
-            # Unpack a plain ``QueryParams`` parameter (the V5 typed-command
-            # pattern - a single ``QueryParams`` argument) into its individual
-            # fields so the generated command exposes them directly. Limited to
-            # ``QueryParams`` subclasses so plain request-body models stay typed.
+            # Unpack a V5 QueryParams-model parameter into its individual fields.
             model = param.annotation
             if isclass(model) and issubclass(model, QueryParams):
                 model_fields = getattr(
@@ -597,9 +594,7 @@ class MethodDefinition:
                         field_name, extra, type_
                     )
                     if hasattr(new_type, "__constraints__"):
-                        # ``data`` expands to the DataProcessingSupportedTypes
-                        # TypeVar - inline its constraints so the generated
-                        # annotation never references the TypeVar itself.
+                        # Inline the TypeVar constraints into the annotation.
                         types = new_type.__constraints__ + (type_,)  # type: ignore
                         updated_type = Union[types]  # noqa
                     elif new_type is ...:
@@ -1302,9 +1297,7 @@ class MethodDefinition:
             elif isclass(param.annotation) and issubclass(
                 param.annotation, QueryParams
             ):
-                # V5 typed-command pattern: a single QueryParams model param.
-                # The generated signature unpacks it into individual fields;
-                # repack them into a dict the route validates the model from.
+                # Repack the unpacked QueryParams fields into a dict for the route.
                 model = param.annotation
                 fields = getattr(
                     model,

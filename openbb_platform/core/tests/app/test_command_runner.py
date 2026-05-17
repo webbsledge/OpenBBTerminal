@@ -77,14 +77,7 @@ def mock_func():
 
 @pytest.fixture()
 def allow_command_output_extensions(monkeypatch):
-    """Enable command-output OBBject extensions for the duration of a test.
-
-    The ``test_trigger_callbacks_*`` tests construct ``Extension`` objects with
-    ``on_command_output=True`` (and ``immutable=False``). ``Extension`` refuses
-    to build those unless the matching ``system_settings`` flags are enabled, so
-    this fixture flips them on the ``SystemService`` singleton and restores them
-    afterwards.
-    """
+    """Enable command-output OBBject extensions for the duration of a test."""
     from openbb_core.app.service.system_service import SystemService
 
     service = SystemService()

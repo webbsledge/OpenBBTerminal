@@ -138,10 +138,7 @@ exclude = [
 unresolved-import = "warn"
 
 [[tool.ty.overrides]]
-# ``file_lock.py`` intentionally uses both ``fcntl`` (Unix) and ``msvcrt``
-# (Windows). A static check on either OS flags the other platform's branch as
-# unresolved (and the matching ``# type: ignore`` as unused), so the two
-# platform-sensitive rules are silenced for just this file.
+# file_lock.py is cross-platform (fcntl/msvcrt) - silence platform-specific noise.
 include = ["**/static/package_builder/file_lock.py"]
 
 [tool.ty.overrides.rules]
