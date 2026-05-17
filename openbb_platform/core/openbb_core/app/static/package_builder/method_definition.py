@@ -573,6 +573,50 @@ class MethodDefinition:
             if name in path_params or name in ("kwargs", "**kwargs"):
                 continue  # Already handled above
 
+            # Unpack a plain ``QueryParams`` parameter (the V5 typed-command
+            # pattern - a single ``QueryParams`` argument) into its individual
+            # fields so the generated command exposes them directly. Limited to
+            # ``QueryParams`` subclasses so plain request-body models stay typed.
+            model = param.annotation
+            if isclass(model) and issubclass(model, QueryParams):
+                model_fields = getattr(
+                    model,
+                    "model_fields",
+                    getattr(model, "__pydantic_fields__", {}),
+                )
+                for field_name, field in model_fields.items():
+                    type_ = field.annotation
+                    default = (
+                        field.default
+                        if field.default is not PydanticUndefined
+                        else Parameter.empty
+                    )
+                    description = getattr(field, "description", "") or ""
+                    extra = getattr(field, "json_schema_extra", {}) or {}
+                    new_type = MethodDefinition.get_expanded_type(
+                        field_name, extra, type_
+                    )
+                    if hasattr(new_type, "__constraints__"):
+                        # ``data`` expands to the DataProcessingSupportedTypes
+                        # TypeVar - inline its constraints so the generated
+                        # annotation never references the TypeVar itself.
+                        types = new_type.__constraints__ + (type_,)  # type: ignore
+                        updated_type = Union[types]  # noqa
+                    elif new_type is ...:
+                        updated_type = type_
+                    else:
+                        updated_type = Union[type_, new_type]  # noqa
+                    formatted[field_name] = Parameter(
+                        name=field_name,
+                        kind=Parameter.POSITIONAL_OR_KEYWORD,
+                        annotation=Annotated[
+                            updated_type,
+                            OpenBBField(description=description),
+                        ],
+                        default=default,
+                    )
+                continue
+
             # Case 1: Handle Query objects inside Annotated
             if isinstance(
                 param.annotation, _AnnotatedAlias
@@ -1255,6 +1299,22 @@ class MethodDefinition:
                     code += "                },\n"
                 else:
                     code += f"                {name}={name},\n"
+            elif isclass(param.annotation) and issubclass(
+                param.annotation, QueryParams
+            ):
+                # V5 typed-command pattern: a single QueryParams model param.
+                # The generated signature unpacks it into individual fields;
+                # repack them into a dict the route validates the model from.
+                model = param.annotation
+                fields = getattr(
+                    model,
+                    "model_fields",
+                    getattr(model, "__pydantic_fields__", {}),
+                )
+                code += f"                {name}={{\n"
+                for field_name in fields:
+                    code += f'                    "{field_name}": {field_name},\n'
+                code += "                },\n"
             elif name != "kwargs":
                 code += f"                {name}={name},\n"
 
