@@ -249,3 +249,150 @@ def test_build_tools_static_returns_tool_list(sqlite_factory) -> None:
     client = SnowflakeClient(creds, connection_factory=sqlite_factory)
     tools = SnowflakeToolSource.build_tools(client, creds, max_rows=5)
     assert any(t.name == "snowflake_query" for t in tools)
+
+
+def test_snowflake_tool_surface_invokes_every_function(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Drive each snowflake tool through a stub client."""
+    from openbb_agent_server.plugins.tools.snowflake_tools import (
+        SnowflakeToolSource,
+        cortex as cortex_mod,
+    )
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+        SnowflakeCredentials,
+    )
+
+    class _Result:
+        def __init__(self) -> None:
+            self.columns = ("a",)
+            self.rows = [(1,)]
+            self.row_count = 1
+            self.truncated = False
+            self.query_id = "qid"
+            self.elapsed_ms = 1
+            self.statement_kind = "SELECT"
+
+    class _StubClient:
+        max_rows = 10
+
+        def execute(
+            self, sql: str, params: Any = None, max_rows: int | None = None
+        ) -> _Result:
+            return _Result()
+
+    cortex_calls: list[str] = []
+
+    def _record(name: str):
+        def fn(*_a: Any, **_k: Any) -> Any:
+            cortex_calls.append(name)
+            if name == "cortex_sentiment":
+                return 0.5
+            if name == "cortex_embed":
+                return [0.1, 0.2]
+            if name == "cortex_classify_text":
+                return {"label": "LABEL", "score": 0.9}
+            if name == "cortex_extract_answer":
+                return {"answer": "x"}
+            if name == "cortex_search":
+                return {"results": [{"chunk": "c", "title": "T", "url": "u"}]}
+            if name == "cortex_analyst":
+                return {"messages": []}
+            return "stub"
+
+        return fn
+
+    for fn_name in (
+        "cortex_complete",
+        "cortex_summarize",
+        "cortex_sentiment",
+        "cortex_translate",
+        "cortex_classify_text",
+        "cortex_extract_answer",
+        "cortex_embed",
+        "cortex_search",
+        "cortex_analyst",
+    ):
+        monkeypatch.setattr(cortex_mod, fn_name, _record(fn_name))
+
+    creds = SnowflakeCredentials(account="a", user="u")
+    tools = SnowflakeToolSource.build_tools(_StubClient(), creds, max_rows=10)
+    by_name = {t.name: t for t in tools}
+
+    by_name["snowflake_list_databases"].invoke({})
+    by_name["snowflake_list_schemas"].invoke({"database": "DB"})
+    by_name["snowflake_list_tables"].invoke({"database": "DB", "schema": "S"})
+    by_name["snowflake_describe"].invoke({"object_path": "DB.S.T"})
+    by_name["snowflake_get_table_info"].invoke({"table": "DB.S.T"})
+    by_name["snowflake_get_table_sample_data"].invoke({"table": "DB.S.T"})
+    by_name["snowflake_get_multiple_table_definitions"].invoke({"tables": ["DB.S.T"]})
+    by_name["snowflake_search_catalog"].invoke({"pattern": "%cust%"})
+    by_name["snowflake_explain"].invoke({"sql": "SELECT 1"})
+    by_name["snowflake_query_history"].invoke({})
+    by_name["snowflake_cortex_complete"].invoke({"prompt": "hi"})
+    by_name["snowflake_cortex_summarize"].invoke({"text": "the quick brown"})
+    by_name["snowflake_cortex_sentiment"].invoke({"text": "happy"})
+    by_name["snowflake_cortex_translate"].invoke(
+        {"text": "hi", "target_language": "fr"}
+    )
+    by_name["snowflake_cortex_classify"].invoke({"text": "x", "categories": ["a", "b"]})
+    by_name["snowflake_cortex_extract_answer"].invoke({"question": "q", "context": "c"})
+    by_name["snowflake_cortex_embed"].invoke({"text": "x"})
+    by_name["snowflake_cortex_search"].invoke(
+        {"database": "DB", "schema": "S", "service": "SVC", "query": "q"}
+    )
+    by_name["snowflake_cortex_analyst"].invoke({"messages": [{"role": "user"}]})
+
+    assert {
+        "cortex_complete",
+        "cortex_summarize",
+        "cortex_sentiment",
+        "cortex_translate",
+        "cortex_classify_text",
+        "cortex_extract_answer",
+        "cortex_embed",
+        "cortex_search",
+        "cortex_analyst",
+    } <= set(cortex_calls)
+
+
+def test_snowflake_get_table_info_rejects_short_path() -> None:
+    """Reject a short table path in snowflake_get_table_info."""
+    from openbb_agent_server.plugins.tools.snowflake_tools import SnowflakeToolSource
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+        SnowflakeCredentials,
+    )
+
+    class _StubClient:
+        max_rows = 10
+
+        def execute(self, *_a: Any, **_k: Any) -> Any:
+            raise AssertionError("execute should not be reached")
+
+    creds = SnowflakeCredentials(account="a", user="u")
+    tools = SnowflakeToolSource.build_tools(_StubClient(), creds, max_rows=10)
+    info = next(t for t in tools if t.name == "snowflake_get_table_info")
+    with pytest.raises(Exception, match="DB.SCHEMA.TABLE"):
+        info.invoke({"table": "OnlyOnePart"})
+
+
+def test_snowflake_get_multiple_table_definitions_collects_per_table_errors() -> None:
+    """Collect per-table errors in snowflake_get_multiple_table_definitions."""
+    from openbb_agent_server.plugins.tools.snowflake_tools import SnowflakeToolSource
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+        SnowflakeCredentials,
+    )
+
+    class _Boom:
+        max_rows = 10
+
+        def execute(self, *_a: Any, **_k: Any) -> Any:
+            raise RuntimeError("boom")
+
+    creds = SnowflakeCredentials(account="a", user="u")
+    tools = SnowflakeToolSource.build_tools(_Boom(), creds, max_rows=10)
+    multi = next(
+        t for t in tools if t.name == "snowflake_get_multiple_table_definitions"
+    )
+    out = multi.invoke({"tables": ["DB.S.T"]})
+    assert out["tables"]["DB.S.T"]["error"]

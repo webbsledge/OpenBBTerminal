@@ -1580,3 +1580,35 @@ def test_translate_custom_inline_artifact_emits_message_artifact() -> None:
     )
     assert len(out) == 1
     assert isinstance(out[0], MessageArtifactSSE)
+
+
+def test_protocol_adapter_passes_citations_through() -> None:
+    """Buffer citations through _translate and flush them as one."""
+    from openbb_agent_server.protocol.adapter import DeepAgentEventAdapter
+    from openbb_agent_server.protocol.schemas import CitationCollectionSSE
+
+    adapter = DeepAgentEventAdapter(client_tool_names=set())
+    inline = adapter._translate(
+        {
+            "type": "custom",
+            "data": {
+                "type": "citations",
+                "citations": [
+                    {
+                        "id": "c-1",
+                        "source_info": {
+                            "type": "web",
+                            "name": "T",
+                            "origin": "https://x.example",
+                        },
+                        "details": [{"text": "snippet"}],
+                    }
+                ],
+            },
+        }
+    )
+    assert inline == []
+    [cc] = adapter._drain_citations()
+    assert isinstance(cc, CitationCollectionSSE)
+    assert cc.data.citations[0].id == "c-1"
+    assert cc.data.citations[0].source_info.origin == "https://x.example"

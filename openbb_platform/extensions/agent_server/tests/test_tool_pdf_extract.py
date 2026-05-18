@@ -28,7 +28,7 @@ from openbb_agent_server.runtime import (
     emit,
     services,
 )
-from openbb_agent_server.runtime.context import FileRef, RunContext, WidgetRef
+from openbb_agent_server.runtime.context import FileRef, RunContext, WidgetRef, bind
 from openbb_agent_server.runtime.pdf_store import PdfStore
 from openbb_agent_server.runtime.principal import UserPrincipal
 
@@ -1125,3 +1125,77 @@ async def test_pdf_extract_citation_stamp_and_list_params() -> None:
         await extract.ainvoke({"name": "zzz-unrelated-name.pdf"})
     cite = next(e for e in sink if e["type"] == "citations")
     assert cite["citations"][0]["source_info"]["uuid"] == "stamp-uuid"
+
+
+def test_pdf_extract_resolve_pdf_bytes_fetches_url() -> None:
+    from openbb_agent_server.plugins.tools.pdf_extract import _resolve_pdf_bytes
+
+    class _FakeResp:
+        content = b"PDF-BYTES"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def get(self, url: str, headers: dict | None = None) -> _FakeResp:
+            return _FakeResp()
+
+    ref = FileRef(name="x.pdf", url="https://x.test/x.pdf")
+    assert _resolve_pdf_bytes(ref, _FakeClient()) == b"PDF-BYTES"
+
+
+def test_pdf_extract_resolve_pdf_bytes_raises_when_no_source() -> None:
+    from openbb_agent_server.plugins.tools.pdf_extract import _resolve_pdf_bytes
+
+    ref = FileRef(name="x.pdf")
+    with pytest.raises(RuntimeError, match="has no url or data_base64"):
+        _resolve_pdf_bytes(ref, http_client=None)
+
+
+@pytest.mark.asyncio
+async def test_pdf_extract_page_range_filters(monkeypatch: pytest.MonkeyPatch) -> None:
+    from openbb_agent_server.plugins.tools.pdf_extract import PdfExtractToolSource
+
+    class _Page:
+        def __init__(self, idx: int) -> None:
+            self._idx = idx
+
+        def extract_text(self) -> str:
+            return f"page-{self._idx}"
+
+        def extract_words(self) -> list[dict[str, Any]]:
+            return []
+
+    class _Pdf:
+        pages = [_Page(1), _Page(2), _Page(3)]
+
+        def __enter__(self) -> _Pdf:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+    class _Plumber:
+        def open(self, _stream: Any) -> _Pdf:
+            return _Pdf()
+
+    monkeypatch.setitem(__import__("sys").modules, "pdfplumber", _Plumber())
+
+    pdf_b64 = base64.b64encode(b"%PDF-fake").decode()
+    ctx = RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+        uploaded_files=(
+            FileRef(name="f.pdf", mime="application/pdf", data_base64=pdf_b64),
+        ),
+    )
+
+    src = PdfExtractToolSource()
+    tools = await src.tools(ctx, {})
+    extract = next(t for t in tools if t.name == "pdf_extract")
+    with bind(ctx):
+        out = await extract.ainvoke({"name": "f.pdf", "page_range": [2, 2]})
+    pages = out["pages"]
+    assert len(pages) == 1 and pages[0]["page"] == 2 and pages[0]["text"] == "page-2"

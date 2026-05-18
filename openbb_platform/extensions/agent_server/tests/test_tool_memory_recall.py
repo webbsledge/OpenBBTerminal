@@ -86,3 +86,13 @@ async def test_recall_tool_does_not_leak_across_users(
     with run_context.bind(_ctx("bob")):
         result = await tool.ainvoke({"query": "ALICE_CANARY_DATA", "k": 10})
     assert all("ALICE_CANARY_DATA" not in r["text"] for r in result)
+
+
+def test_memory_recall_bind_store_replaces_constructor_default() -> None:
+    from openbb_agent_server.memory.sqlite_store import SqliteMemoryStore
+    from openbb_agent_server.plugins.tools.memory_recall import MemoryRecallToolSource
+
+    src = MemoryRecallToolSource()
+    fake_store = SqliteMemoryStore.__new__(SqliteMemoryStore)
+    src._bind_store(fake_store)
+    assert src._store is fake_store

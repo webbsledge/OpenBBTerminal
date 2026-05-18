@@ -307,3 +307,109 @@ def test_account_host_requires_account() -> None:
 def test_keypair_jwt_requires_full_credentials() -> None:
     with pytest.raises(RuntimeError):
         cortex_lib.keypair_jwt(SnowflakeCredentials(account="acc", user="u"))
+
+
+def test_cortex_scalar_raises_when_no_rows() -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools import cortex as cortex_mod
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import QueryResult
+
+    empty = QueryResult(
+        sql="SELECT",
+        statement_kind="SELECT",
+        columns=[],
+        rows=[],
+        row_count=0,
+        truncated=False,
+        query_id="q",
+        elapsed_ms=0,
+    )
+    with pytest.raises(RuntimeError, match="no rows"):
+        cortex_mod._scalar(empty)
+
+
+def test_cortex_parse_json_passes_dict_and_list_through() -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools.cortex import _parse_json
+
+    assert _parse_json({"a": 1}) == {"a": 1}
+    assert _parse_json([1, 2]) == [1, 2]
+    assert _parse_json("not-json") == "not-json"
+    assert _parse_json(42) == 42
+
+
+def test_cortex_search_forwards_optional_columns_and_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools import cortex as cortex_mod
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+        SnowflakeCredentials,
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return {"results": []}
+
+    class _Client:
+        def post(
+            self, url: str, headers: dict[str, str], json: dict[str, Any]
+        ) -> _Resp:
+            captured["body"] = json
+            return _Resp()
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(cortex_mod.httpx, "Client", lambda **_kw: _Client())
+    cortex_mod.cortex_search(
+        SnowflakeCredentials(account="a", user="u", token="tok", authenticator="oauth"),
+        database="DB",
+        schema="S",
+        service="SVC",
+        query="q",
+        columns=["c1", "c2"],
+        filter_={"status": "ok"},
+    )
+    assert captured["body"]["columns"] == ["c1", "c2"]
+    assert captured["body"]["filter"] == {"status": "ok"}
+    assert captured.get("closed") is True
+
+
+def test_cortex_analyst_supports_semantic_view(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools import cortex as cortex_mod
+    from openbb_agent_server.plugins.tools.snowflake_tools.client import (
+        SnowflakeCredentials,
+    )
+
+    captured: dict[str, Any] = {}
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        def post(
+            self, url: str, headers: dict[str, str], json: dict[str, Any]
+        ) -> _Resp:
+            captured["body"] = json
+            return _Resp()
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(cortex_mod.httpx, "Client", lambda **_kw: _Client())
+    cortex_mod.cortex_analyst(
+        SnowflakeCredentials(account="a", user="u", token="tok", authenticator="oauth"),
+        messages=[{"role": "user"}],
+        semantic_view="DB.S.MY_VIEW",
+    )
+    assert captured["body"]["semantic_view"] == "DB.S.MY_VIEW"
+    assert captured.get("closed") is True

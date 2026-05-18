@@ -1093,3 +1093,55 @@ async def test_run_agent_passes_skills_when_profile_has_them(
     )
     await _run_agent_to_list(ctx=_ctx(), body=body, settings=settings, profile=None)
     assert captured["skills"] == ["/skills/finance"]
+
+
+def test_system_prompt_never_contains_user_identity(tmp_path) -> None:
+    """Keep user identity out of the system prompt."""
+    from openbb_agent_server.app.settings import AgentMetadata, AgentProfile
+    from openbb_agent_server.runtime.builder import (
+        _build_system_prompt,
+        _load_system_prompt,
+    )
+
+    sensitive_email = "alice@confidential.example.com"
+    ctx = RunContext(
+        principal=UserPrincipal(
+            user_id=sensitive_email,
+            display_name="Alice Confidential",
+            email=sensitive_email,
+        ),
+        trace_id="trace-123",
+        run_id="r",
+        conversation_id="c",
+    )
+    out = _build_system_prompt(ctx)
+    assert sensitive_email not in out
+    assert "Alice Confidential" not in out
+    assert "trace-123" not in out
+
+    profile = AgentProfile(
+        name="default",
+        metadata=AgentMetadata(),
+        model_provider="fake",
+        model_name="x",
+        model_config={},
+        tool_sources=(),
+        subagents=(),
+        middleware=(),
+        skills=(),
+        features={},
+        system_prompt_file=None,
+        tool_source_config={},
+    )
+    out = _load_system_prompt(ctx, profile)
+    assert sensitive_email not in out
+    assert "Alice Confidential" not in out
+    assert "trace-123" not in out
+
+    custom = tmp_path / "custom.md"
+    custom.write_text("Custom prompt {user_id} {display_name} {trace_id}.")
+    profile_custom = profile.model_copy(update={"system_prompt_file": str(custom)})
+    out = _load_system_prompt(ctx, profile_custom)
+    assert sensitive_email not in out
+    assert "Alice Confidential" not in out
+    assert "trace-123" not in out

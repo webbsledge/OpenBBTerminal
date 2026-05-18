@@ -175,3 +175,12 @@ def test_list_messages_endpoint_returns_empty_for_unknown_conversation(
     resp = client.get("/v1/conversations/no-such-conv/messages")
     assert resp.status_code == 200
     assert resp.json() == {"messages": []}
+
+
+def test_create_app_resolves_settings_from_toml_when_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENBB_AGENT_BOOTSTRAP_TOML", raising=False)
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    app = create_app()
+    assert app is not None

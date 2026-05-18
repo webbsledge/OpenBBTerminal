@@ -75,3 +75,13 @@ async def test_unsupported_resolved_type_raises() -> None:
     src = PythonModuleToolSource(modules=["builtins:dict"])
     with pytest.raises(TypeError):
         await src.tools(_ctx(), {})
+
+
+def test_python_module_flatten_keeps_bad_factory_intact() -> None:
+    from openbb_agent_server.plugins.tools.python_module import _flatten
+
+    def factory_with_required_arg(x):  # noqa: ANN001
+        return x
+
+    with pytest.raises(TypeError):
+        _flatten(factory_with_required_arg)

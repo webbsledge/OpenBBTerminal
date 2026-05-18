@@ -210,3 +210,11 @@ async def test_emit_html_appends_sanitiser_warning(
     html = next(t for t in tools if t.name == "emit_html_artifact")
     result = html.invoke({"content": "# Report\n\nText.\n\n## Next steps\n\nReview.\n"})
     assert "WARNING" in result
+
+
+def test_artifacts_decode_if_string_passes_through_non_string_inputs() -> None:
+    from openbb_agent_server.plugins.tools.artifacts import _decode_if_string
+
+    sentinel = {"already": "decoded"}
+    assert _decode_if_string(sentinel) is sentinel
+    assert _decode_if_string("not json") == "not json"

@@ -114,3 +114,62 @@ async def test_set_get_checkpointer_round_trip() -> None:
     services.set_services(checkpointer=sentinel)
     assert services.get_checkpointer() is sentinel
     services.reset()
+
+
+def test_postgres_checkpointer_constructor_stores_url() -> None:
+    from openbb_agent_server.plugins.checkpointers.postgres import (
+        PostgresCheckpointerProvider,
+    )
+
+    provider = PostgresCheckpointerProvider(url="postgresql://h/db", extra="ignored")
+    assert provider._explicit_url == "postgresql://h/db"
+    assert provider._cm is None
+
+
+def test_postgres_resolve_url_normalises_sqlalchemy_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.checkpointers.postgres import (
+        PostgresCheckpointerProvider,
+    )
+
+    class _Settings:
+        def resolved_db_url(self) -> str:
+            return "postgresql+psycopg://u:p@h/db"
+
+    monkeypatch.delenv("OPENBB_AGENT_CHECKPOINTER_URL", raising=False)
+    provider = PostgresCheckpointerProvider()
+    assert provider._resolve_url(_Settings()) == "postgresql://u:p@h/db"
+
+
+def test_postgres_resolve_url_uses_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.checkpointers.postgres import (
+        PostgresCheckpointerProvider,
+    )
+
+    class _Settings:
+        def resolved_db_url(self) -> str:
+            return "sqlite:///nope.db"
+
+    monkeypatch.setenv("OPENBB_AGENT_CHECKPOINTER_URL", "postgresql+asyncpg://u@h/db")
+    provider = PostgresCheckpointerProvider()
+    assert provider._resolve_url(_Settings()) == "postgresql://u@h/db"
+
+
+def test_postgres_resolve_url_rejects_non_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.checkpointers.postgres import (
+        PostgresCheckpointerProvider,
+    )
+
+    class _Settings:
+        def resolved_db_url(self) -> str:
+            return "sqlite:///nope.db"
+
+    monkeypatch.delenv("OPENBB_AGENT_CHECKPOINTER_URL", raising=False)
+    provider = PostgresCheckpointerProvider()
+    with pytest.raises(RuntimeError, match="postgresql://"):
+        provider._resolve_url(_Settings())

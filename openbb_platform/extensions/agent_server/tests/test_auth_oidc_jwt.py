@@ -242,3 +242,15 @@ def test_non_bearer_scheme_returns_401(jwks_server: str) -> None:
     with pytest.raises(HTTPException) as exc:
         asyncio.run(backend.authenticate(_request({"authorization": "Basic abc"})))
     assert exc.value.status_code == 401
+
+
+def test_oidc_jwt_extract_scopes_handles_list_value() -> None:
+    from openbb_agent_server.plugins.auth.oidc_jwt import OidcJwtAuthBackend
+
+    assert OidcJwtAuthBackend._extract_scopes({"scopes": ["a", "b", "c"]}) == (
+        "a",
+        "b",
+        "c",
+    )
+    assert OidcJwtAuthBackend._extract_scopes({"scope": ("x", "y")}) == ("x", "y")
+    assert OidcJwtAuthBackend._extract_scopes({"scope": 42}) == ()

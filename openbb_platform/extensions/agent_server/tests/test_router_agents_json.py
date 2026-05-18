@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -210,3 +211,98 @@ def test_agents_json_drops_profile_with_illegal_agent_id(
         body = c.get("/agents.json").json()
     assert "Bad_Name" not in body
     assert any("agent_id must match" in r.message for r in caplog.records)
+
+
+def test_router_coerce_feature_handles_dict_and_other_shapes() -> None:
+    """Coerce features from bools and dict shapes."""
+    from openbb_agent_server.app.router import _coerce_feature
+
+    assert _coerce_feature(True) is True
+    assert _coerce_feature(False) is False
+    assert _coerce_feature({"default": True}) is True
+    assert _coerce_feature({"default": False}) is False
+    assert _coerce_feature({}) is False
+    assert _coerce_feature(1) is True
+    assert _coerce_feature(0) is False
+    assert _coerce_feature(None) is False
+
+
+def test_router_agents_json_emits_image_when_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Include the image in the agents.json entry when image_url is set."""
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_META_IMAGE_URL", "https://x.test/logo.png")
+
+    with TestClient(create_app(AgentServerSettings())) as client:
+        body = client.get("/agents.json").json()
+    assert body["default"]["image"] == "https://x.test/logo.png"
+
+
+def test_router_agents_json_drops_profiles_with_invalid_agent_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Drop profiles whose agent id violates the Workspace regex."""
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+    monkeypatch.setenv(
+        "OPENBB_AGENT_PROFILES",
+        json.dumps({"Bad_ID": {}, "fine-id": {}}),
+    )
+
+    app = create_app(AgentServerSettings())
+    with TestClient(app) as client:
+        body = client.get("/agents.json").json()
+    assert "default" in body
+    assert "fine-id" in body
+    assert "Bad_ID" not in body
+
+
+def test_router_agents_json_skips_unresolvable_profile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Skip a profile that resolve_profile cannot resolve."""
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_PROFILES", json.dumps({"alt": {}}))
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+
+    settings = AgentServerSettings()
+    app = create_app(settings)
+
+    real_resolve = AgentServerSettings.resolve_profile
+
+    def _resolve(self: Any, name: str | None = None):
+        if name == "alt":
+            raise KeyError("simulated")
+        return real_resolve(self, name)
+
+    monkeypatch.setattr(AgentServerSettings, "resolve_profile", _resolve)
+    with TestClient(app) as client:
+        body = client.get("/agents.json").json()
+    assert "default" in body
+    assert "alt" not in body

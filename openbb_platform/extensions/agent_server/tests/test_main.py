@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+from pathlib import Path
+
 import pytest
 
 from openbb_agent_server.main import _build_parser, main
+from openbb_agent_server.persistence.sqlite_store import SqliteHistoryStore
 
 
 def test_help_short_circuits_cleanly(capsys: pytest.CaptureFixture[str]) -> None:
@@ -63,10 +69,12 @@ def test_main_reload_path_invokes_uvicorn_factory(
 
 
 def _setup_keys_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    import json
+
     monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "api_key_table")
     monkeypatch.setenv(
         "OPENBB_AGENT_AUTH_CONFIG",
-        f'{{"db_url": "sqlite+aiosqlite:///{tmp_path / "auth.db"}"}}',
+        json.dumps({"db_url": f"sqlite+aiosqlite:///{tmp_path / 'auth.db'}"}),
     )
     monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
     import asyncio
@@ -238,3 +246,54 @@ def test_prune_command_uses_config_defaults(
     main(["prune", "--no-vacuum"])
     out = capsys.readouterr().out
     assert "prune complete" in out
+
+
+def test_main_propagates_model_provider_and_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> None:
+        captured["called"] = True
+        captured.update(kwargs)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    main(
+        [
+            "--host",
+            "127.0.0.1",
+            "--model-provider",
+            "fake",
+            "--model-name",
+            "fake-model",
+            "--port",
+            "0",
+        ]
+    )
+    assert os.environ.get("OPENBB_AGENT_MODEL_PROVIDER") == "fake"
+    assert os.environ.get("OPENBB_AGENT_MODEL_NAME") == "fake-model"
+
+
+def test_main_keys_list_prints_no_keys_message_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "api_key_table")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_AUTH_CONFIG",
+        json.dumps({"db_url": f"sqlite+aiosqlite:///{tmp_path / 'auth.db'}"}),
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+
+    async def _init() -> None:
+        store = SqliteHistoryStore(f"sqlite+aiosqlite:///{tmp_path / 'auth.db'}")
+        await store.init_schema()
+        await store.aclose()
+
+    asyncio.run(_init())
+
+    main(["keys", "list"])
+    out = capsys.readouterr().out
+    assert "(no keys)" in out

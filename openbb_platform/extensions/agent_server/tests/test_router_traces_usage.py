@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from openbb_agent_server.app.app import create_app
 from openbb_agent_server.app.settings import AgentServerSettings
 from openbb_agent_server.runtime import services
+from openbb_agent_server.runtime.principal import UserPrincipal
 
 
 @pytest.fixture
@@ -117,3 +118,44 @@ def test_usage_endpoint_filters_by_trace_id(client: TestClient) -> None:
     trace_id = post.headers["X-Server-Trace-ID"]
     resp = client.get("/v1/usage", params={"trace_id": trace_id})
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_usage_aggregate_filters_by_conversation_id(tmp_path: Path) -> None:
+    """Filter aggregate usage by conversation_id."""
+    from openbb_agent_server.persistence.sqlite_store import SqliteHistoryStore
+    from openbb_agent_server.persistence.store import UsageRecord
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    store = SqliteHistoryStore(url)
+    await store.init_schema()
+    principal = UserPrincipal(user_id="u")
+    convo_id = "convo-1"
+    trace_id = "trace-1"
+    await store.begin_trace(
+        principal=principal,
+        trace_id=trace_id,
+        conversation_id=convo_id,
+        run_id="r",
+    )
+    await store.record_usage(
+        principal=principal,
+        trace_id=trace_id,
+        usage=UsageRecord(
+            trace_id=trace_id,
+            user_id="u",
+            model="x",
+            input_tokens=10,
+            output_tokens=5,
+            cache_read=0,
+            cache_creation=0,
+            cost_usd=0.0,
+        ),
+    )
+
+    out = await store.usage_summary(principal=principal, conversation_id=convo_id)
+    assert out["by_model"]
+    by = {row["model"]: row for row in out["by_model"]}
+    assert by["x"]["input_tokens"] == 10
+    assert by["x"]["output_tokens"] == 5
+    await store.aclose()

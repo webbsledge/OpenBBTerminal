@@ -440,3 +440,14 @@ async def test_schedule_runs_in_background_and_persists(
     written = await task
     assert written == 1
     assert len(await memory.list_memories(principal=ctx.principal)) == 1
+
+
+def test_tool_call_ledger_safe_json_falls_back_for_unserializable() -> None:
+    from openbb_agent_server.plugins.middleware.tool_call_ledger import _safe_json
+
+    class _NotSerialisable:
+        def __repr__(self) -> str:
+            return "<obj>"
+
+    out = _safe_json(_NotSerialisable())
+    assert out == {"__str__": "<obj>"}

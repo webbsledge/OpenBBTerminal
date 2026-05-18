@@ -38,3 +38,10 @@ def test_bind_restores_previous_state() -> None:
         assert run_context.current().principal.user_id == "a"
     with pytest.raises(LookupError):
         run_context.current()
+
+
+def test_runtime_state_raises_when_no_run_bound() -> None:
+    from openbb_agent_server.runtime.context import runtime_state
+
+    with pytest.raises(LookupError, match="runtime state"):
+        runtime_state()

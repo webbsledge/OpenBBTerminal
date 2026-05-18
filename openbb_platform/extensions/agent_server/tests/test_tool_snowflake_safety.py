@@ -102,3 +102,39 @@ def test_inject_limit_zero_or_negative_passthrough() -> None:
 def test_inject_limit_handles_with() -> None:
     out = inject_limit("WITH x AS (SELECT 1) SELECT * FROM x", 7)
     assert "LIMIT 7" in out
+
+
+def test_safety_classify_returns_empty_for_blank_sql() -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools.safety import classify
+
+    assert classify("   ") == "EMPTY"
+
+
+def test_safety_is_read_only_accepts_show_describe_etc() -> None:
+    from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
+
+    assert is_read_only("SHOW DATABASES")
+    assert is_read_only("DESCRIBE DB.S.T")
+    assert is_read_only("EXPLAIN SELECT 1")
+    assert is_read_only("USE DB.S")
+
+
+def test_safety_is_read_only_rejects_with_returning() -> None:
+    """Reject a statement with no read-only base type."""
+    from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
+
+    assert is_read_only("COPY INTO @stage FROM tbl") is False
+
+
+def test_safety_is_read_only_rejects_unsafe_command() -> None:
+    """Reject a Command-shaped statement outside the allow-list."""
+    from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
+
+    assert is_read_only("GRANT ROLE analyst TO USER bob") is False
+
+
+def test_safety_is_read_only_rejects_neither_mutating_nor_read_only() -> None:
+    """Reject a statement in neither the mutating nor read-only type set."""
+    from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
+
+    assert is_read_only("SET QUERY_TAG = 'x'") is False

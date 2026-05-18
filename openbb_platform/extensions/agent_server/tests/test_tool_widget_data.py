@@ -288,3 +288,19 @@ def test_stable_json_falls_back_to_str_on_circular_reference() -> None:
     circular["self"] = circular
     out = _stable_json(circular)
     assert isinstance(out, str)
+
+
+def test_widget_data_stable_json_falls_back_to_str_for_unserialisable() -> None:
+    from openbb_agent_server.plugins.tools.widget_data import _stable_json
+
+    class _Weird:
+        def __repr__(self) -> str:
+            return "<weird>"
+
+        def __str__(self) -> str:
+            return "<weird-str>"
+
+    a: dict[str, Any] = {}
+    a["self"] = a
+    out = _stable_json(a)
+    assert isinstance(out, str)

@@ -63,13 +63,15 @@ class SnowflakeCredentials(BaseModel):
         return kwargs
 
     def _loaded_private_key(self) -> bytes:
+        from pathlib import Path
+
         from cryptography.hazmat.primitives import serialization
 
         raw = self.private_key or ""
-        if "\n" not in raw and "/" in raw:
-            from pathlib import Path
-
-            raw = Path(raw).expanduser().read_text()
+        if "\n" not in raw:
+            candidate = Path(raw).expanduser()
+            if candidate.is_file():
+                raw = candidate.read_text()
         passphrase = (
             self.private_key_passphrase.encode()
             if self.private_key_passphrase

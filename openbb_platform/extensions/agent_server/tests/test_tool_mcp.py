@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -512,3 +514,156 @@ async def test_mcp_local_real_round_trip() -> None:  # pragma: no cover — gate
     src = LocalMcpToolSource()
     tools = await src.tools(_ctx(), {})
     assert len(tools) > 0
+
+
+def test_mcp_http_read_mcp_table_swallows_bootstrap_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools import mcp_http
+
+    def raiser(*_a, **_k):
+        raise RuntimeError("simulated cascade failure")
+
+    monkeypatch.setattr(
+        "openbb_agent_server.app.config.bootstrap_launcher_config", raiser
+    )
+    assert mcp_http._read_mcp_table("anywhere.toml") == {}
+
+
+def test_mcp_local_resolve_command_via_which(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from openbb_agent_server.plugins.tools import mcp_local
+
+    fake = tmp_path / "openbb-mcp"
+    fake.write_text("#!/bin/sh\necho hi", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_local.shutil.which",
+        lambda name: str(fake),
+    )
+    assert mcp_local._resolve_command("openbb-mcp") == str(fake)
+
+
+def test_mcp_local_ensure_arg_skips_when_already_present() -> None:
+    from openbb_agent_server.plugins.tools.mcp_local import _ensure_arg
+
+    args = ["--config-file", "/x.toml"]
+    assert _ensure_arg(args, "--config-file", "/y.toml") == args
+
+
+def test_mcp_local_read_mcp_table_swallows_bootstrap_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools import mcp_local
+
+    def raiser(*_a, **_k):
+        raise RuntimeError("simulated cascade failure")
+
+    monkeypatch.setattr(
+        "openbb_agent_server.app.config.bootstrap_launcher_config", raiser
+    )
+    assert mcp_local._read_mcp_table("anywhere.toml") == {}
+
+
+@pytest.mark.asyncio
+async def test_mcp_local_skips_args_extension_when_transport_already_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skip args extension when transport is already set."""
+    from openbb_agent_server.plugins.tools import mcp_local
+
+    captured: dict[str, Any] = {}
+
+    class _FakeMCP:
+        def __init__(self, *, connections: dict[str, Any]) -> None:
+            captured.update(connections)
+
+        async def get_tools(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_local.MultiServerMCPClient",
+        _FakeMCP,
+    )
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_local._resolve_command",
+        lambda cmd: "/usr/bin/openbb-mcp",
+    )
+
+    src = mcp_local.LocalMcpToolSource(args=["--transport", "stdio", "--quiet"])
+    ctx = RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+    )
+    await src.tools(ctx, {})
+    args = captured["openbb"]["args"]
+    assert args.count("--transport") == 1
+
+
+@pytest.mark.asyncio
+async def test_mcp_http_per_call_config_headers_merge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools import mcp_http
+
+    captured: dict[str, Any] = {}
+
+    class _FakeMCP:
+        def __init__(self, *, connections: dict[str, Any]) -> None:
+            captured.update(connections)
+
+        async def get_tools(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_http.MultiServerMCPClient",
+        _FakeMCP,
+    )
+
+    src = mcp_http.HttpMcpToolSource(url="http://x/mcp")
+    ctx = RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+    )
+    await src.tools(ctx, {"headers": {"X-Tenant": "abc"}})
+    assert captured["openbb"]["headers"]["X-Tenant"] == "abc"
+
+
+@pytest.mark.asyncio
+async def test_mcp_local_appends_transport_when_caller_omits_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openbb_agent_server.plugins.tools import mcp_local
+
+    captured: dict[str, Any] = {}
+
+    class _FakeMCP:
+        def __init__(self, *, connections: dict[str, Any]) -> None:
+            captured.update(connections)
+
+        async def get_tools(self) -> list[Any]:
+            return []
+
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_local.MultiServerMCPClient",
+        _FakeMCP,
+    )
+    monkeypatch.setattr(
+        "openbb_agent_server.plugins.tools.mcp_local._resolve_command",
+        lambda cmd: "/usr/bin/openbb-mcp",
+    )
+
+    src = mcp_local.LocalMcpToolSource(args=["--quiet"])
+    ctx = RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+    )
+    await src.tools(ctx, {})
+    assert captured["openbb"]["args"][-2:] == ["--transport", "stdio"]

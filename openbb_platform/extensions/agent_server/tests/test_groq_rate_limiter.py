@@ -249,3 +249,27 @@ def test_aacquire_nonblocking_returns_false_when_drained() -> None:
         assert await limiter.aacquire(blocking=False) is False
 
     asyncio.run(go())
+
+
+def test_bucket_refill_is_noop_when_no_time_elapsed() -> None:
+    from openbb_agent_server.plugins.models.groq_rate_limiter import _Bucket
+
+    bucket = _Bucket.of(capacity=10, period_seconds=10)
+    bucket.consume(5)
+    snap_a = bucket.available
+    bucket.last_refill = time.monotonic() + 1.0
+    bucket.refill()
+    assert bucket.available == snap_a
+
+
+@pytest.mark.asyncio
+async def test_aacquire_blocking_waits_for_refill() -> None:
+    from openbb_agent_server.plugins.models.groq_rate_limiter import GroqRateLimiter
+
+    limiter = GroqRateLimiter(rpm=60, rpd=None, tpm=None, tpd=None)
+    for _ in range(60):
+        assert await limiter.aacquire(blocking=False) is True
+    t0 = time.monotonic()
+    assert await limiter.aacquire(blocking=True) is True
+    elapsed = time.monotonic() - t0
+    assert 0.5 <= elapsed <= 2.5

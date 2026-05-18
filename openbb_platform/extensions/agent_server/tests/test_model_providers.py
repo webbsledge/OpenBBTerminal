@@ -1277,3 +1277,77 @@ def _extract_api_key(model: Any) -> str | None:
     if raw is None:
         return None
     return raw.get_secret_value() if hasattr(raw, "get_secret_value") else str(raw)
+
+
+def test_fake_provider_yields_string_messages_as_ai_chunks() -> None:
+    """Yield string responses as AIMessageChunks."""
+    from openbb_agent_server.plugins.models.fake_provider import FakeProvider
+
+    provider = FakeProvider(responses=["plain string"])
+    ctx = RunContext(
+        principal=UserPrincipal(user_id="u"),
+        trace_id="t",
+        run_id="r",
+        conversation_id="c",
+    )
+    model = provider.build(ctx, {})
+    out = model.invoke("hello")
+    assert "plain string" in out.content
+
+
+@pytest.mark.asyncio
+async def test_fake_provider_streams_string_chunk_via_astream() -> None:
+    from openbb_agent_server.plugins.models.fake_provider import FakeProvider
+
+    provider = FakeProvider(responses=["streamed"])
+    model = provider.build(
+        RunContext(
+            principal=UserPrincipal(user_id="u"),
+            trace_id="t",
+            run_id="r",
+            conversation_id="c",
+        ),
+        {},
+    )
+    chunks = []
+    async for chunk in model.astream("hi"):
+        chunks.append(chunk.content)
+    assert "".join(chunks) == "streamed"
+
+
+def test_fake_provider_string_message_yields_chunk_via_stream() -> None:
+    """Yield a string message as a chunk via stream."""
+    from openbb_agent_server.plugins.models.fake_provider import (
+        _ToolAwareFakeChatModel,
+    )
+
+    model = _ToolAwareFakeChatModel(messages=iter(["raw-string"]))
+    chunks = list(model.stream("hi"))
+    assert any("raw-string" in str(c.content) for c in chunks)
+
+
+def test_vertex_provider_forwards_credentials_kwarg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("langchain_google_genai")
+    captured: dict[str, Any] = {}
+
+    class _Recorder:
+        def __init__(self, **kw: Any) -> None:
+            captured.update(kw)
+
+    monkeypatch.setattr("langchain_google_genai.ChatGoogleGenerativeAI", _Recorder)
+
+    from openbb_agent_server.plugins.models.vertex_provider import VertexProvider
+
+    sentinel = object()
+    VertexProvider(project="p", credentials=sentinel).build(
+        RunContext(
+            principal=UserPrincipal(user_id="u"),
+            trace_id="t",
+            run_id="r",
+            conversation_id="c",
+        ),
+        {},
+    )
+    assert captured.get("credentials") is sentinel

@@ -271,3 +271,17 @@ async def test_graph_bubble_up_re_raises_without_error_step(
         await mw.awrap_tool_call(_Request(tool_name="t", args={}), handler)
     kinds = [c.get("event_type") for c in captured]
     assert "ERROR" not in kinds
+
+
+def test_tool_call_announcer_handles_object_shaped_tool_call() -> None:
+    from openbb_agent_server.plugins.middleware.tool_call_announcer import (
+        _from_tool_call,
+        _tool_name,
+    )
+
+    class _ObjectToolCall:
+        name = "transcribe_audio"
+
+    request = type("R", (), {"tool_call": _ObjectToolCall()})()
+    assert _from_tool_call(_ObjectToolCall(), "name") == "transcribe_audio"
+    assert _tool_name(request) == "transcribe_audio"

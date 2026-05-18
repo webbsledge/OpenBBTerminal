@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -99,3 +100,113 @@ def test_explicit_cancel_endpoint_still_marks_cancelled(
     resp = client.post("/v1/conversations/whatever/cancel")
     assert resp.status_code == 202
     assert "cancelled_runs" in resp.json()
+
+
+def test_router_cancel_matches_user_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Match the cancel event by user id."""
+    import asyncio as _asyncio
+
+    from openbb_agent_server.app import router as router_mod
+
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+
+    settings = AgentServerSettings()
+    app = create_app(settings)
+
+    ev = _asyncio.Event()
+    router_mod._cancellations[("anonymous", "preset-run")] = ev
+
+    with TestClient(app) as client:
+        resp = client.post("/v1/conversations/cv-1/cancel")
+    assert resp.status_code == 202
+    assert ev.is_set()
+    router_mod._cancellations.clear()
+
+
+def test_router_streams_error_status_when_run_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Stream an error status when run_agent raises."""
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+
+    async def _boom(*args: Any, **kwargs: Any):
+        raise RuntimeError("simulated agent failure")
+        yield  # noqa: F811, ASYNC131  — required so this stays an async generator
+
+    monkeypatch.setattr("openbb_agent_server.app.router.run_agent", _boom)
+
+    settings = AgentServerSettings()
+    app = create_app(settings)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/v1/query",
+            json={
+                "messages": [{"role": "human", "content": "hi"}],
+                "conversation_id": "cv-err",
+            },
+        )
+    body = resp.text
+    assert "simulated agent failure" in body
+    assert "ERROR" in body
+
+
+def test_router_cancel_during_stream_short_circuits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Short-circuit the stream when a cancel event fires mid-stream."""
+    from openbb_agent_server.app import router as router_mod
+    from openbb_agent_server.protocol.schemas import StatusUpdateSSE
+
+    services.reset()
+    monkeypatch.setenv("OPENBB_AGENT_AUTH_BACKEND", "none")
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
+    monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", '["x"]')
+    monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
+    monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
+
+    async def _slow_stream(*args: Any, **kwargs: Any):
+        yield StatusUpdateSSE(event_type="INFO", message="step", details={})
+        for ev in list(router_mod._cancellations.values()):
+            ev.set()
+        yield StatusUpdateSSE(event_type="INFO", message="should-not-emit", details={})
+
+    monkeypatch.setattr("openbb_agent_server.app.router.run_agent", _slow_stream)
+
+    settings = AgentServerSettings()
+    app = create_app(settings)
+    with TestClient(app) as client:
+        resp = client.post(
+            "/v1/query",
+            json={
+                "messages": [{"role": "human", "content": "hi"}],
+                "conversation_id": "cv-cancel",
+            },
+        )
+    assert resp.status_code == 200

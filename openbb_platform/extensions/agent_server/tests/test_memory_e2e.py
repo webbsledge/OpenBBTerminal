@@ -417,3 +417,11 @@ def test_cosine_self_similarity_is_one() -> None:
 def test_test_env_does_not_leak_real_nvidia_api_key() -> None:
     """Confirm the test env does not leak a real NVIDIA API key."""
     assert os.environ.get("OPENBB_AGENT_MODEL_PROVIDER") is None
+
+
+def test_memory_writer_split_drops_short_and_none_lines() -> None:
+    from openbb_agent_server.memory.writer import _split
+
+    assert _split("NONE") == []
+    assert _split("") == []
+    assert _split("- short\n- this is a real one") == ["this is a real one"]
