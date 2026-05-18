@@ -1,4 +1,4 @@
-"""Tests for the ``BaseRetriever`` adapters over memory + widget stores."""
+"""Tests for the BaseRetriever adapters over memory and widget stores."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def test_memory_retriever_clamps_k_to_at_least_one(
     memory: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """``k <= 0`` is clamped to 1 so the retriever never returns garbage."""
+    """Clamp k to at least 1."""
     retriever = MemoryStoreRetriever(store=memory, principal=alice, k=0)
     assert retriever._k == 1
 
@@ -113,7 +113,7 @@ def test_memory_retriever_sync_path_works(
     memory: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """``invoke`` (sync) routes through the same async core."""
+    """Route the sync invoke path through the async core."""
     import asyncio
 
     asyncio.run(memory.write(principal=alice, text="sync entry"))
@@ -233,7 +233,7 @@ def test_widget_retriever_sync_path_works(
     widget_store: WidgetDataStore,
     alice: UserPrincipal,
 ) -> None:
-    """The sync ``invoke`` path runs the async core via ``asyncio.run``."""
+    """Run the sync invoke path through the async core."""
     retriever = WidgetDataRetriever(
         store=widget_store, principal=alice, conversation_id="cx"
     )

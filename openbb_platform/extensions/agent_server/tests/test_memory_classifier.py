@@ -60,7 +60,7 @@ def test_prose_returns_false() -> None:
 
 
 def test_only_first_4000_chars_examined() -> None:
-    """A long doc with code only past position 4000 is classified as prose."""
+    """Classify a doc with code only past position 4000 as prose."""
     prose_head = "ordinary words " * 300
     code_tail = "def f(): return 1\n" * 200
     assert looks_like_code(prose_head + code_tail) is False

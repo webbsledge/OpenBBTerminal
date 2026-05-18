@@ -1,4 +1,4 @@
-"""``fake`` model provider — for tests and demos."""
+"""Fake model provider for tests and demos."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DEFAULT_RESPONSES = ("OK.",)
 
 
 class _ToolAwareFakeChatModel(GenericFakeChatModel):
-    """``GenericFakeChatModel`` that accepts ``bind_tools`` and streams"""
+    """Fake chat model that accepts bind_tools and streams."""
 
     def bind_tools(
         self,
@@ -92,7 +92,6 @@ class FakeProvider(ModelProvider):
 
     def build(self, ctx: RunContext, config: dict[str, Any]) -> BaseChatModel:
         responses = config.get("responses", self._responses)
-        # Fresh iterator per build so concurrent runs don't share cursor state.
         return _ToolAwareFakeChatModel(
             messages=iter([AIMessage(content=r) for r in responses])
         )

@@ -1,6 +1,6 @@
 # `openbb_agent_server.plugins.tools.inspect_widget_data`
 
-Per-run inspection of widget data the agent has already fetched. Backed by the `widget_data` table and (optionally) the `widget_rows_vec` ANN index.
+Per-run inspection of widget data the agent has already fetched. Backed by the `widget_data` table; rows are queried with SQL and keyword-matched, not vector-indexed.
 
 **Source:** [`openbb_agent_server/plugins/tools/inspect_widget_data.py`](../../../../openbb_agent_server/plugins/tools/inspect_widget_data.py)
 

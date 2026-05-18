@@ -1,4 +1,4 @@
-"""``call_limit`` middleware — bounds model + tool calls per run."""
+"""Call limit middleware."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from openbb_agent_server.runtime.plugins import Middleware
 
 
 class _Composite(AgentMiddleware):
-    """Tiny wrapper that just owns two child middlewares."""
+    """Wrapper that owns two child middlewares."""
 
 
 class CallLimitMiddlewareFactory(Middleware):
-    """Produces ``ModelCallLimitMiddleware`` + ``ToolCallLimitMiddleware``."""
+    """Produce model and tool call limit middlewares."""
 
     name = "call_limit"
 
@@ -30,11 +30,6 @@ class CallLimitMiddlewareFactory(Middleware):
         tool_run_limit: int | None = 80,
         exit_behavior: str = "end",
     ) -> None:
-        # 40 model calls / 80 tool runs is enough headroom for
-        # multi-step PDF research (search → get_pdf_outline →
-        # several pdf_extract calls → final answer) without leaving
-        # the door wide open for runaway loops. Override per-profile
-        # via ``[agent.middleware_config.call_limit]`` if needed.
         self._model_run_limit = model_run_limit
         self._tool_run_limit = tool_run_limit
         self._exit_behavior = exit_behavior
@@ -52,7 +47,7 @@ class CallLimitMiddlewareFactory(Middleware):
 
 
 class ToolCallLimitMiddlewareFactory(Middleware):
-    """Produces langchain's ``ToolCallLimitMiddleware`` for per-tool caps."""
+    """Produce ToolCallLimitMiddleware for per-tool caps."""
 
     name = "tool_call_limit"
 

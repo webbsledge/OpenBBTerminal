@@ -47,7 +47,7 @@ async def test_default_provider_is_duckduckgo() -> None:
 
 @pytest.mark.asyncio
 async def test_web_search_filtered_when_user_has_not_opted_in() -> None:
-    """``search-web`` feature off ⇒ tool source returns no LangChain tools."""
+    """Return no tools when the search-web feature is off."""
     src = WebSearchToolSource()
     tools = await src.tools(_ctx(search_enabled=False), {})
     assert tools == []
@@ -85,7 +85,6 @@ async def test_tavily_provider_requires_api_key() -> None:
 async def test_provider_overridable_via_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Ensure the constructor default isn't sticky — config overrides it.
     src = WebSearchToolSource(provider="tavily")
     monkeypatch.setattr(web_search, "_ddg_search", lambda q, k: [])
     tools = await src.tools(_ctx(api_keys={}), {"provider": "duckduckgo"})

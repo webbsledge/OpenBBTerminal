@@ -13,7 +13,7 @@ from openbb_agent_server.runtime.plugins import ModelProvider
 
 
 class AnthropicProvider(ModelProvider):
-    """Wraps :class:`langchain_anthropic.ChatAnthropic`."""
+    """Wrap ChatAnthropic."""
 
     name = "anthropic"
 

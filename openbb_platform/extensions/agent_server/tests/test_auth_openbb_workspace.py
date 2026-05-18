@@ -22,12 +22,9 @@ def _request(headers: dict[str, str]) -> Request:
 async def test_resolves_user_from_xopenbbuser_header() -> None:
     backend = OpenBBWorkspaceAuthBackend()
     p = await backend.authenticate(_request({DEFAULT_HEADER: "alice@example.com"}))
-    # ``user_id`` is an opaque hash, never the raw email.
     assert p.user_id == hash_user_id("alice@example.com")
     assert p.user_id.startswith("u-")
     assert "@" not in p.user_id
-    # The email is preserved on the principal for the agent's use, but
-    # never copied into ``user_id``.
     assert p.email == "alice@example.com"
     assert p.display_name is None
 
@@ -85,9 +82,7 @@ async def test_non_email_header_returns_403_when_required() -> None:
 async def test_non_email_header_accepted_when_require_email_false() -> None:
     backend = OpenBBWorkspaceAuthBackend(require_email=False)
     p = await backend.authenticate(_request({DEFAULT_HEADER: "alice"}))
-    # Non-email identifiers also get hashed.
     assert p.user_id == hash_user_id("alice")
-    # Non-email identifiers don't populate ``email``.
     assert p.email is None
 
 
@@ -101,8 +96,6 @@ async def test_custom_header_name() -> None:
 
 @pytest.mark.asyncio
 async def test_custom_scopes_are_used() -> None:
-    backend = OpenBBWorkspaceAuthBackend(
-        scopes=("agent:query",)  # read-only — no memory writes
-    )
+    backend = OpenBBWorkspaceAuthBackend(scopes=("agent:query",))
     p = await backend.authenticate(_request({DEFAULT_HEADER: "u@x.com"}))
     assert p.scopes == ("agent:query",)

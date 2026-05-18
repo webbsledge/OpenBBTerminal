@@ -36,7 +36,7 @@ nvidia_required = pytest.mark.skipif(
 
 @nvidia_required
 async def test_nvidia_embeddings_returns_real_vectors() -> None:
-    """One aembed_documents call against the public NIM endpoint."""
+    """Return real vectors from the public NIM endpoint."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         embedder = NVIDIAEmbeddings(model="nvidia/nv-embed-v1")
         vecs = await embedder.aembed_documents(["openbb workspace agent"])
@@ -54,7 +54,7 @@ async def test_nvidia_embeddings_returns_empty_for_empty_input() -> None:
 
 @nvidia_required
 async def test_nvidia_embeddings_semantically_related_texts_cluster() -> None:
-    """The geometry sanity check the unit tests can't make."""
+    """Cluster semantically related texts."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         embedder = NVIDIAEmbeddings(model="nvidia/nv-embed-v1")
         vecs = await embedder.aembed_documents(
@@ -74,18 +74,18 @@ async def test_nvidia_embeddings_semantically_related_texts_cluster() -> None:
 
 @nvidia_required
 async def test_nvidia_embeddings_query_path() -> None:
-    """``aembed_query`` returns a single vector, not a list of vectors."""
+    """Return a single vector from aembed_query."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         embedder = NVIDIAEmbeddings(model="nvidia/nv-embed-v1")
         vec = await embedder.aembed_query("openbb workspace agent")
     assert isinstance(vec, list)
-    assert len(vec) >= 1024  # NV-Embed-v1 native dim is 4096
+    assert len(vec) >= 1024
     assert all(isinstance(x, float) for x in vec)
 
 
 @pytest_asyncio.fixture
 async def nim_memory(tmp_path: Path) -> AsyncIterator[SqliteMemoryStore]:
-    """Sqlite-backed memory store wired to live NV-Embed. Heavy fixture,"""
+    """Sqlite-backed memory store wired to live NV-Embed."""
     if not os.environ.get("NVIDIA_API_KEY"):
         pytest.skip("NVIDIA_API_KEY not set")
     url = f"sqlite+aiosqlite:///{tmp_path / 'nim-m.db'}"
@@ -104,7 +104,7 @@ async def test_nim_backed_store_recalls_paraphrased_query(
     nim_memory: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """The flagship "does it actually work" test."""
+    """Recall a paraphrased query against a NIM-backed store."""
     async with asyncio.timeout(_HEAVY_NIM_DEADLINE_S):
         facts = [
             "user follows Apple Inc quarterly results",
@@ -117,8 +117,6 @@ async def test_nim_backed_store_recalls_paraphrased_query(
         paraphrase = "What companies does this person track in their portfolio?"
         out = await nim_memory.recall(principal=alice, query=paraphrase, k=3)
     assert out, "recall returned no memories"
-    # Top-1 must be the Apple/AAPL row — the other two are dietary +
-    # geographic and have no semantic overlap with "portfolio".
     assert "Apple" in out[0].text, (
         f"semantic recall regression — got top={out[0].text!r} for query={paraphrase!r}"
     )
@@ -126,7 +124,7 @@ async def test_nim_backed_store_recalls_paraphrased_query(
 
 @nvidia_required
 async def test_nvidia_reranker_orders_candidates() -> None:
-    """Reranker assigns a higher score to the candidate semantically"""
+    """Order candidates by semantic relevance."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         reranker = NvidiaReranker(model="nv-rerank-qa-mistral-4b:1")
         candidates = [
@@ -140,7 +138,6 @@ async def test_nvidia_reranker_orders_candidates() -> None:
             top_k=3,
         )
     assert len(ranked) == 3
-    # The two finance-related candidates beat the weather one.
     ids = [cid for cid, _ in ranked]
     weather_pos = ids.index("weather")
     assert weather_pos == 2, f"weather should be last; got {ids}"
@@ -154,7 +151,7 @@ async def test_nvidia_reranker_handles_empty_candidates() -> None:
 
 @nvidia_required
 async def test_nvidia_reranker_handles_empty_query() -> None:
-    """An empty query produces no discriminative signal; the adapter"""
+    """Handle an empty query."""
     reranker = NvidiaReranker(model="nv-rerank-qa-mistral-4b:1")
     out = await reranker.rerank(
         query="   ",
@@ -169,7 +166,7 @@ async def test_nim_store_with_reranker_runs_two_stage_retrieval(
     tmp_path: Path,
     alice: UserPrincipal,
 ) -> None:
-    """Wires the full two-stage pipeline: NV-Embed for the fanout,"""
+    """Run two-stage retrieval against a NIM-backed store."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'two-stage.db'}"
     history = SqliteHistoryStore(url)
     await history.init_schema()
@@ -197,8 +194,6 @@ async def test_nim_store_with_reranker_runs_two_stage_retrieval(
             )
         assert out, "two-stage recall returned nothing"
         assert "Apple" in out[0].text
-        # Each result carries a score from the reranker (not the
-        # embedding cosine).
         assert out[0].score is not None
     finally:
         await history.aclose()
@@ -226,7 +221,7 @@ def _gemini_ctx() -> RunContext:
 
 @gemini_required
 async def test_gemini_embed_text_returns_real_vectors() -> None:
-    """Drive the agent-facing ``embed_text`` tool through ``.ainvoke``"""
+    """Return real vectors from the embed_text tool."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         src = GeminiEmbeddingsToolSource()
         tools = await src.tools(_gemini_ctx(), {})
@@ -251,7 +246,7 @@ async def test_gemini_embed_text_returns_real_vectors() -> None:
 
 @gemini_required
 async def test_gemini_embed_text_semantically_separates_topics() -> None:
-    """Real Gemini geometry sanity: two finance-y prompts cluster more"""
+    """Separate topics semantically via Gemini embeddings."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         src = GeminiEmbeddingsToolSource()
         tools = await src.tools(_gemini_ctx(), {})
@@ -277,7 +272,7 @@ async def test_gemini_embed_text_semantically_separates_topics() -> None:
 
 @gemini_required
 async def test_gemini_embed_text_handles_empty_input() -> None:
-    """The fast-path must NOT call the network for empty input —"""
+    """Handle empty input without a network call."""
     src = GeminiEmbeddingsToolSource()
     tools = await src.tools(_gemini_ctx(), {})
     [tool] = tools
@@ -291,7 +286,7 @@ async def test_gemini_embed_text_handles_empty_input() -> None:
 
 @gemini_required
 async def test_gemini_embed_text_rejects_unknown_task_type() -> None:
-    """The Pydantic args schema doesn't constrain ``task_type`` (the"""
+    """Reject an unknown task_type."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         src = GeminiEmbeddingsToolSource()
         tools = await src.tools(_gemini_ctx(), {})

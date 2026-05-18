@@ -1,4 +1,4 @@
-"""``pdf_extract`` tool source — real PDF text + bounding-box extraction."""
+"""``pdf_extract`` tool source."""
 
 from __future__ import annotations
 
@@ -24,19 +24,11 @@ from openbb_agent_server.runtime.plugins import ToolSource
 logger = logging.getLogger("openbb_agent_server.tools.pdf_extract")
 
 
-_PREVIEW_PAGES = 3  # Pages of text returned when ``page_range`` is omitted.
+_PREVIEW_PAGES = 3
 
 
 def _coerce_page_range(value: Any) -> Any:
-    """Coerce loose ``page_range`` shapes into the ``(int, int)`` tuple.
-
-    LLM tool-call args arrive as JSON. Some models emit the range as a
-    JSON list (``[1, 5]``); some emit it as a JSON-encoded string
-    (``"[1, 5]"``); some as ``"1-5"`` or ``"1,5"``. Decode all of
-    those so Pydantic's strict ``tuple[int, int]`` validator can
-    accept them, instead of erroring out and triggering an
-    agent-retry loop with the same bad shape.
-    """
+    """Coerce loose ``page_range`` shapes into an ``(int, int)`` tuple."""
     if value is None or isinstance(value, (tuple, list)):
         return value
     if isinstance(value, int):
@@ -45,7 +37,6 @@ def _coerce_page_range(value: Any) -> Any:
         s = value.strip()
         if not s:
             return None
-        # JSON list / tuple form: ``"[1, 5]"`` or ``"(1, 5)"``.
         if s.startswith("[") or s.startswith("("):
             try:
                 parsed = _json.loads(s.replace("(", "[").replace(")", "]"))
@@ -53,7 +44,6 @@ def _coerce_page_range(value: Any) -> Any:
                 parsed = None
             if isinstance(parsed, (list, tuple)) and len(parsed) == 2:
                 return parsed
-        # ``"1-5"`` / ``"1..5"`` / ``"1,5"`` shorthand.
         for sep in ("-", "..", ","):
             if sep in s:
                 parts = [p.strip() for p in s.split(sep) if p.strip()]
@@ -62,7 +52,6 @@ def _coerce_page_range(value: Any) -> Any:
                         return (int(parts[0]), int(parts[1]))
                     except ValueError:
                         continue
-        # Single integer string.
         try:
             n = int(s)
             return (n, n)
@@ -141,7 +130,7 @@ def _coerce_str(value: Any) -> str:
 
 
 def _build_page_map(pdf: Any) -> dict[int, int]:
-    """Map pdfminer page object id → 1-based page number."""
+    """Map pdfminer page object id to a 1-based page number."""
     out: dict[int, int] = {}
     for idx, page in enumerate(pdf.pages, start=1):
         try:
@@ -155,7 +144,7 @@ def _build_page_map(pdf: Any) -> dict[int, int]:
 
 
 def _resolve_outline_page(dest: Any, page_map: dict[int, int]) -> int | None:
-    """Best-effort: turn a pdfminer outline destination into a page number."""
+    """Turn a pdfminer outline destination into a page number."""
     try:
         from pdfminer.pdftypes import resolve1
     except ImportError:  # pragma: no cover — pdfminer is bundled with pdfplumber
@@ -176,12 +165,7 @@ def _resolve_outline_page(dest: Any, page_map: dict[int, int]) -> int | None:
 
 
 def _extract_toc(pdf: Any) -> list[dict[str, Any]]:
-    """Walk the PDF outline (bookmarks) into a flat ``[{level, title, page}]``.
-
-    PDFs with no embedded outline return ``[]``. Page resolution is
-    best-effort — entries we can't resolve get ``page=None`` and the
-    agent has to search the extracted text for the title.
-    """
+    """Walk the PDF outline into a flat ``[{level, title, page}]`` list."""
     try:
         outlines_iter = list(pdf.doc.get_outlines())
     except Exception:
@@ -189,7 +173,6 @@ def _extract_toc(pdf: Any) -> list[dict[str, Any]]:
     page_map = _build_page_map(pdf)
     toc: list[dict[str, Any]] = []
     for entry in outlines_iter:
-        # pdfminer yields ``(level, title, dest, action, se)``.
         try:
             level, title, dest, _action, _se = entry
         except (TypeError, ValueError):
@@ -206,7 +189,7 @@ def _extract_toc(pdf: Any) -> list[dict[str, Any]]:
 
 
 def _extract_pdf_metadata(pdf: Any) -> dict[str, Any]:
-    """Pull title / author / creation_date / total_pages out of a PDF."""
+    """Pull title, author, dates, and page count out of a PDF."""
     raw = {}
     try:
         raw = dict(pdf.metadata or {})
@@ -229,7 +212,7 @@ _PDF_RAW_MAGIC = "%PDF-"
 
 
 def _string_to_pdf_b64(s: str) -> str | None:
-    """Detect a PDF byte payload in ``s``, mirroring router._extract_pdf_b64_from_string."""
+    """Detect a PDF byte payload in ``s``."""
     if not isinstance(s, str) or not s:
         return None
     stripped = s.lstrip()
@@ -251,7 +234,7 @@ def _string_to_pdf_b64(s: str) -> str | None:
 
 
 def _find_any_http_url(blob: Any, *, _depth: int = 0) -> str | None:
-    """Recursively walk a value for any fetchable URL."""
+    """Recursively walk a value for a fetchable URL."""
     if _depth > 6:
         return None
     if isinstance(blob, str):
@@ -276,9 +259,7 @@ def _find_any_http_url(blob: Any, *, _depth: int = 0) -> str | None:
 
 
 def _find_any_pdf_b64(blob: Any, *, _depth: int = 0) -> str | None:
-    """Recursively walk a value for any PDF byte payload (base64,
-    ``data:`` URL, or raw ``%PDF-`` bytes).
-    """
+    """Recursively walk a value for a PDF byte payload."""
     if _depth > 6:
         return None
     if isinstance(blob, str):
@@ -297,7 +278,7 @@ def _find_any_pdf_b64(blob: Any, *, _depth: int = 0) -> str | None:
 
 
 def _bytes_from_data_url(url: str) -> bytes | None:
-    """Decode a ``data:application/pdf;base64,...`` URL into raw bytes."""
+    """Decode a ``data:`` PDF URL into raw bytes."""
     if not isinstance(url, str):
         return None
     head = url[:64].lower()
@@ -322,10 +303,6 @@ def _resolve_pdf_bytes(fileref: FileRef, http_client: Any) -> bytes:
         resp = http_client.get(fileref.url, headers=_PDF_FETCH_HEADERS)
         resp.raise_for_status()
         return resp.content
-    # Last-resort: scan every extra field for a usable URL or base64
-    # payload. Wire shapes vary across Workspace deployments — a
-    # ``download_link`` here, a ``file_uri`` there, sometimes the PDF
-    # is just sitting inline as ``content``. Walk everything.
     extras = getattr(fileref, "model_extra", None) or {}
     b64 = _find_any_pdf_b64(extras)
     if b64:
@@ -368,7 +345,7 @@ def _is_pdf(f: FileRef) -> bool:
 
 
 def _normalise_pdf_name(name: str) -> str:
-    """Lowercase + strip + drop the .pdf suffix for fuzzy matching."""
+    """Lowercase, strip, and drop the .pdf suffix for fuzzy matching."""
     n = name.strip().lower()
     if n.endswith(".pdf"):
         n = n[:-4]
@@ -376,13 +353,7 @@ def _normalise_pdf_name(name: str) -> str:
 
 
 def _match_uploaded_pdf(uploads: tuple[FileRef, ...], requested: str) -> FileRef | None:
-    """Resolve the agent's ``name`` argument to one of the uploaded PDFs.
-
-    The agent occasionally passes ``"IEFA - Prospectus"`` (no extension),
-    a case-variant, or a partial match. We try exact equality first,
-    then case-insensitive with-or-without ``.pdf`` suffix, then a
-    contains-based fallback so common typos still resolve.
-    """
+    """Resolve the agent's ``name`` argument to one of the uploaded PDFs."""
     pdfs = [f for f in uploads if _is_pdf(f)]
     if not pdfs:
         return None
@@ -405,7 +376,7 @@ def _match_uploaded_pdf(uploads: tuple[FileRef, ...], requested: str) -> FileRef
 
 
 class PdfExtractToolSource(ToolSource):
-    """``pdf_extract`` + ``list_pdfs``."""
+    """Expose PDF extraction and listing tools."""
 
     name = "pdf_extract"
 
@@ -421,19 +392,8 @@ class PdfExtractToolSource(ToolSource):
 
         http_client = httpx.Client(timeout=30.0)
 
-        # Per-run dedup of PDF citations. ``pdf_extract`` /
-        # ``search_pdf`` auto-emit one citation per unique ``(pdf, page)``
-        # — the chip jumps back to the source widget with the
-        # highlighted quote in Workspace's PDF viewer.
         pdf_cited: set[tuple[str, int]] = set()
 
-        # Build a per-run index of the user's currently-attached
-        # widgets so PDF citations can resolve to the source widget's
-        # live UUID. The router stamps each PDF FileRef with
-        # ``source_widget_uuid`` / ``source_widget_id`` when promoting
-        # from a widget's data — we use those as the citation's
-        # ``widget`` (per-instance UUID Workspace matches against the
-        # dashboard) and ``widget_id`` (internal slug).
         dashboard_by_uuid: dict[str, Any] = {}
         dashboard_by_widget_id: dict[str, Any] = {}
         for w in ctx.widgets or []:
@@ -444,7 +404,7 @@ class PdfExtractToolSource(ToolSource):
                 dashboard_by_widget_id[wid] = w
 
         def _name_tokens(s: str) -> set[str]:
-            """Tokenise a name/filename into 3+ char lowercase tokens."""
+            """Tokenise a name into 3+ char lowercase tokens."""
             normalised = (
                 (s or "")
                 .lower()
@@ -475,17 +435,7 @@ class PdfExtractToolSource(ToolSource):
             return value_tokens
 
         def _content_match(target_file: Any) -> Any:
-            """Find the pinned widget whose **params** match the PDF.
-
-            We REQUIRE non-trivial overlap between the PDF filename's
-            distinguishing tokens (ticker, fund id, doc_type) and the
-            widget's ``params`` values. Widget display ``name`` is
-            ignored for scoring because every instance of a
-            ``blk_drill_fund_documents`` widget shares the same name
-            — only the params disambiguate them. Without this
-            constraint, the matcher would silently pick whichever
-            instance the dashboard happened to list first.
-            """
+            """Find the pinned widget whose params match the PDF."""
             pdf_tokens = _name_tokens(target_file.name or "")
             if not pdf_tokens:
                 return None
@@ -503,26 +453,7 @@ class PdfExtractToolSource(ToolSource):
             return best
 
         def _resolve_source_widget(target_file: Any) -> Any:
-            """Pick the pinned widget that backs ``target_file``.
-
-            Priority order:
-            1. Content match — widget whose ``params`` values share
-               distinguishing tokens (ticker / fund id / doc type)
-               with the PDF filename. This is the ONLY mechanism that
-               disambiguates sibling instances sharing a widget_id.
-            2. ``source_widget_uuid`` stamp — used only when content
-               match returned None AND the stamped UUID actually
-               corresponds to a pinned widget. The stamp is shaky
-               because the router walks widget.data and picks
-               whichever instance lists the PDF first; many widgets
-               share documents across instances.
-            3. ``source_widget_id`` slug fallback — last resort, often
-               wrong when multiple instances exist.
-
-            Returns ``None`` when no confident match is found — the
-            citation chip is then emitted as a plain ``type="web"``
-            entry without a broken "Add widget to dashboard" affordance.
-            """
+            """Pick the pinned widget that backs ``target_file``."""
             extras = getattr(target_file, "model_extra", None) or {}
             src_uuid = str(extras.get("source_widget_uuid") or "")
             src_widget_id = str(extras.get("source_widget_id") or "")
@@ -553,16 +484,7 @@ class PdfExtractToolSource(ToolSource):
         def _resolve_widget_context(
             target_file: Any,
         ) -> tuple[str | None, str | None, str | None, str | None, dict[str, Any]]:
-            """Return (widget_uuid, widget_id, name, origin, input_args).
-
-            Passing the widget's display ``name`` and ``origin`` through
-            to ``cite()`` is what makes Workspace render the chip from
-            the data we explicitly attach. Without them the chip is
-            re-rendered from the live dashboard state, which (when the
-            user has multiple widgets sharing the same ``widget_id``)
-            can pick a different widget than the one the PDF actually
-            belongs to.
-            """
+            """Return widget uuid, id, name, origin, and input args."""
             pinned = _resolve_source_widget(target_file)
             widget_uuid: str | None = None
             widget_id: str | None = None
@@ -593,22 +515,7 @@ class PdfExtractToolSource(ToolSource):
         def _navigation_bbox(
             words: list[dict[str, Any]], page_num: int
         ) -> dict[str, Any]:
-            """Build ONE small navigation bbox for the citation.
-
-            Coordinates are taken from the first word on the page so
-            the bbox lands at a real spot near the top of the page
-            (where the PDF viewer will scroll to). When the page has
-            no extractable words we fall back to a 1×1 box at the
-            origin — Workspace still navigates because the ``page``
-            number is what drives the scroll.
-
-            ``text`` is intentionally a stable label (``"Page N"``)
-            and NOT the first word's text: pdfplumber's per-word
-            output is glyph-merged on common financial-document
-            PDFs (``consistofshares...``) and putting that in the
-            bbox causes Workspace's PDF viewer to fail its text-
-            match step and drop the highlight entirely.
-            """
+            """Build one small navigation bbox for the citation."""
             label = f"Page {page_num}"
             if words:
                 first = words[0]
@@ -638,21 +545,9 @@ class PdfExtractToolSource(ToolSource):
             reference_label: str | None = None,
             quote: str | None = None,
         ) -> None:
-            """Emit ONE PDF citation with EXACTLY ONE small navigation bbox.
-
-            We don't try to highlight the matched quote: pdfplumber's
-            per-word extraction returns glyph-merged tokens on
-            common financial-document PDFs
-            (``consistofsharesofan...`` instead of
-            ``consist of shares of an``), and emitting that text in
-            the bbox both spams the PDF viewer with 15+ overlapping
-            highlight rectangles and breaks Workspace's text-based
-            highlight matcher. One small bbox anchored to a real
-            spot on the page is enough to make "Go to reference"
-            navigate to the right page reliably.
-            """
-            del fallback_text  # unused — Reference comes from page_text
-            del quote  # unused — see docstring
+            """Emit one PDF citation with one small navigation bbox."""
+            del fallback_text
+            del quote
             key = (target_file.name, page_num)
             if key in pdf_cited:
                 return
@@ -665,14 +560,8 @@ class PdfExtractToolSource(ToolSource):
                 input_args,
             ) = _resolve_widget_context(target_file)
 
-            # Nested ``[[bbox]]`` — outer list is the set of quote
-            # groups for this citation, inner list is the per-line
-            # bboxes for one quote. Workspace navigates to
-            # ``inner[0].page`` and draws each ``inner[i]`` as a
-            # highlight rectangle. A flat single-level list does not
-            # work — the chip's PDF viewer rejects it as malformed.
             quote_bounding_boxes = [[_navigation_bbox(words, page_num)]]
-            del reference_label  # superseded — details use Name/Filename/Page
+            del reference_label
 
             extra_details: dict[str, Any] = {
                 "Name": widget_name or "",
@@ -690,7 +579,7 @@ class PdfExtractToolSource(ToolSource):
             )
 
         def _cite_pdf_pages(target_file: Any, pages: list[dict[str, Any]]) -> None:
-            """Emit ONE PDF citation per ``pdf_extract`` call."""
+            """Emit one PDF citation per ``pdf_extract`` call."""
             if not pages:
                 return
             anchor: dict[str, Any] | None = None
@@ -715,15 +604,7 @@ class PdfExtractToolSource(ToolSource):
             words: list[dict[str, Any]],
             page_text: str = "",
         ) -> None:
-            """Emit ONE PDF citation for a single ``search_pdf`` hit.
-
-            ``hit_text`` came out of the same pdfplumber pipeline that
-            populated ``words`` (search_pdf indexes pdfplumber-
-            extracted text), so it's the right string to match against
-            the word list — that lets us produce real
-            ``CitationHighlightBoundingBox``es per visual line of the
-            hit.
-            """
+            """Emit one PDF citation for a single ``search_pdf`` hit."""
             _emit_pdf_citation(
                 target_file,
                 page_num=hit_page,
@@ -733,9 +614,6 @@ class PdfExtractToolSource(ToolSource):
                 quote=hit_text,
             )
 
-        # One-shot guard. ``list_pdfs`` is a pure index lookup —
-        # calling it twice in the same turn returns the same list.
-        # NIM-class models otherwise loop on empty results.
         list_called = {"v": False}
 
         def list_pdfs() -> dict[str, Any]:
@@ -760,9 +638,6 @@ class PdfExtractToolSource(ToolSource):
                 }
             list_called["v"] = True
             if not entries:
-                # Surface attached document widgets so the agent can
-                # call get_widget_data on them — that's the round-trip
-                # that produces the PDF bytes Workspace serves.
                 doc_widgets = [
                     {
                         "widget_id": getattr(w, "widget_id", None),
@@ -844,9 +719,6 @@ class PdfExtractToolSource(ToolSource):
                     )
                     or []
                 )
-                # Pages from the store always include word bboxes —
-                # cite using the full word data, then strip them from
-                # the response if the agent didn't request them.
                 _cite_pdf_pages(target, pages)
                 return {
                     "name": target.name,
@@ -859,13 +731,8 @@ class PdfExtractToolSource(ToolSource):
                     "pages": _shape_pages(pages, include_words),
                 }
 
-            # Prefer the background-ingested copy when it's ready —
-            # parsing was already done in a worker thread at request
-            # ingest time, so this becomes a single SQL read.
             pdf_store = services.get_pdf_store()
             if pdf_store is not None:
-                # Fast path: ready from a prior turn — no polling, no
-                # reasoning-step noise.
                 st0 = await pdf_store.status(
                     principal=current.principal,
                     name=target.name,
@@ -882,8 +749,6 @@ class PdfExtractToolSource(ToolSource):
                         ),
                         "name": target.name,
                     }
-                # Not ready yet — poll up to 30s, emitting a
-                # progress heartbeat every ~3s.
                 emit.reasoning_step(
                     f"Waiting for background PDF ingestion of {target.name!r}…"
                 )
@@ -909,8 +774,6 @@ class PdfExtractToolSource(ToolSource):
                             f"Still ingesting {target.name!r} ({tick / 10:.0f}s elapsed)…"
                         )
                     await asyncio.sleep(0.1)
-                # Still not ready after 30s — fall through to the
-                # inline parse below.
             try:
                 data = _resolve_pdf_bytes(target, http_client)
             except Exception as exc:
@@ -940,11 +803,6 @@ class PdfExtractToolSource(ToolSource):
                         if not (effective_range[0] <= idx <= effective_range[1]):
                             continue
                         text = page.extract_text() or ""
-                        # Always extract word coordinates internally so
-                        # auto-citation can build per-line bounding
-                        # boxes — the agent's response is shaped down
-                        # to text-only by ``_shape_pages`` when
-                        # ``include_words=False``.
                         words = page.extract_words() or []
                         page_entry: dict[str, Any] = {
                             "page": idx,
@@ -989,9 +847,6 @@ class PdfExtractToolSource(ToolSource):
                 return []
             current = run_context.current()
             hits = await pdf_store.search(principal=current.principal, query=query, k=k)
-            # Group hits by PDF name; for each unique (pdf, page),
-            # fetch the page's word data from the store and emit a
-            # proper widget-anchored citation with bounding boxes.
             by_name: dict[str, list[dict[str, Any]]] = {}
             for h in hits:
                 name = str(h.get("name") or "")
@@ -1001,7 +856,6 @@ class PdfExtractToolSource(ToolSource):
             for name, pdf_hits in by_name.items():
                 target_file = _match_uploaded_pdf(current.uploaded_files, name)
                 if target_file is None:
-                    # No FileRef — fall back to a name-only chip.
                     for h in pdf_hits:
                         page = int(h.get("page") or 0)
                         if (name, page) in pdf_cited:
@@ -1011,10 +865,6 @@ class PdfExtractToolSource(ToolSource):
                             source=f"{name} (p. {page})" if page else name,
                         )
                     continue
-                # One citation per hit page — search_pdf hits are
-                # already a bounded, ranked set (k defaults to 8), so
-                # one chip per hit is a reasonable signal of "these
-                # pages were the relevant ones".
                 for h in pdf_hits:
                     page = int(h.get("page") or 0)
                     if not page:
@@ -1059,10 +909,6 @@ class PdfExtractToolSource(ToolSource):
                     "error": "PDF store is not configured on this server.",
                     "name": target.name,
                 }
-            # Fast path: status is already ``ready`` from a prior
-            # turn's bg parse. Return immediately, NO reasoning step.
-            # ``waiting for ingestion`` only makes sense when we're
-            # actually waiting.
             initial_st = await pdf_store.status(
                 principal=current.principal,
                 name=target.name,
@@ -1085,7 +931,6 @@ class PdfExtractToolSource(ToolSource):
                     "name": target.name,
                 }
 
-            # Not ready yet — emit the waiting indicator and poll.
             emit.reasoning_step(
                 f"Waiting for background PDF ingestion of {target.name!r}…"
             )

@@ -1,4 +1,4 @@
-"""``bearer_static`` — single shared secret, single-user dev backend."""
+"""Single shared secret, single-user dev auth backend."""
 
 from __future__ import annotations
 

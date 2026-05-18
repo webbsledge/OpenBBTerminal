@@ -17,7 +17,7 @@ from openbb_agent_server.plugins.tools.snowflake_tools.safety import (
 
 
 class _TestConn(sqlite3.Connection):
-    """sqlite3 connection that adds the Snowflake-specific bits we use."""
+    """sqlite3 connection adding the Snowflake-specific bits we use."""
 
     def cursor(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         cur = super().cursor(*args, **kwargs)
@@ -25,7 +25,7 @@ class _TestConn(sqlite3.Connection):
 
 
 class _TestCursor:
-    """Wrap a sqlite3 cursor, adding ``sfqid`` and tolerating Snowflake-style placeholders."""
+    """Wrap a sqlite3 cursor with sfqid and Snowflake placeholder support."""
 
     def __init__(self, cur: sqlite3.Cursor) -> None:
         self._cur = cur
@@ -35,7 +35,6 @@ class _TestCursor:
         if params is None:
             return self._cur.execute(sql)
         if isinstance(params, dict):
-            # Translate Snowflake's %(name)s placeholders → sqlite's :name.
             converted = sql
             for key in params:
                 converted = converted.replace(f"%({key})s", f":{key}")
@@ -87,15 +86,14 @@ def test_execute_select_returns_rows_and_query_id(sqlite_factory) -> None:
     result = client.execute("SELECT id, name FROM t")
     assert result.statement_kind == "SELECT"
     assert result.row_count == 10
-    assert result.truncated is False  # 10 rows + LIMIT 10 fits exactly
+    assert result.truncated is False
     assert result.columns == ["id", "name"]
-    assert result.query_id  # non-empty (synthetic when sqlite-backed)
+    assert result.query_id
     assert result.elapsed_ms is not None
 
 
 def test_execute_show_tables(sqlite_factory) -> None:
     client = _client(sqlite_factory)
-    # sqlite doesn't speak SHOW TABLES; substitute the equivalent.
     result = client.execute("SELECT name FROM sqlite_master WHERE type='table'")
     assert result.row_count >= 1
 
@@ -108,8 +106,6 @@ def test_execute_rejects_mutating_when_read_only(sqlite_factory) -> None:
 
 def test_execute_allows_mutating_when_read_only_disabled(sqlite_factory) -> None:
     client = _client(sqlite_factory, read_only=False)
-    # Direct mutation succeeds (not normally exercised by an LLM, but
-    # operators may toggle this off for known-safe pipelines).
     client.execute("UPDATE t SET name = 'updated' WHERE id = 0")
 
 
@@ -135,7 +131,6 @@ def test_open_close_round_trip(sqlite_factory) -> None:
     client = _client(sqlite_factory)
     client.open()
     client.close()
-    # Re-open after close.
     client.open()
     client.close()
 

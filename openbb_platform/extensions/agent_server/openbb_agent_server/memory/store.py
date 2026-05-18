@@ -16,7 +16,7 @@ class Memory(BaseModel):
     kind: str = "fact"
     pinned: bool = False
     source_trace_id: str | None = None
-    score: float | None = None  # populated on retrieval
+    score: float | None = None
 
 
 class MemoryStore(ABC):
@@ -68,4 +68,4 @@ class MemoryStore(ABC):
 
     @abstractmethod
     async def delete_all_for_user(self, principal: UserPrincipal) -> int:
-        """Right-to-erasure: drop every memory for ``principal.user_id``."""
+        """Drop every memory for the principal."""

@@ -1,4 +1,4 @@
-"""``tool_call_announcer`` middleware — surface every tool call to the user."""
+"""Tool call announcer middleware."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from openbb_agent_server.runtime.plugins import Middleware
 
 logger = logging.getLogger("openbb_agent_server.middleware.tool_call_announcer")
 
-# Workspace's status-detail panel renders dict entries as key/value rows
-# of plain strings. Long blobs blow the panel out — clip them.
 _MAX_ARG_VALUE_LEN = 400
 
 
@@ -37,14 +35,14 @@ def _stringify_arg(value: Any) -> str:
 
 
 def _args_as_detail(args: Any) -> dict[str, str]:
-    """Flatten a tool-call args dict to a string-only mapping for the UI."""
+    """Flatten a tool-call args dict to a string-only mapping."""
     if not isinstance(args, dict) or not args:
         return {}
     return {str(k): _stringify_arg(v) for k, v in args.items()}
 
 
 def _from_tool_call(tool_call: Any, key: str) -> Any:
-    """``ToolCall`` is a dict in LangChain v1; older shapes used objects."""
+    """Read a field from a tool call dict or object."""
     if tool_call is None:
         return None
     if isinstance(tool_call, dict):
@@ -96,5 +94,5 @@ class ToolCallAnnouncerMiddlewareFactory(Middleware):
     name = "tool_call_announcer"
 
     def build(self, ctx: RunContext, config: dict[str, Any]) -> AgentMiddleware:
-        """Construct the announcer middleware for one agent run."""
+        """Construct the announcer middleware."""
         return _ToolCallAnnouncerMiddleware()

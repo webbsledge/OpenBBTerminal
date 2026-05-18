@@ -1,4 +1,4 @@
-"""``tool_call_ledger`` middleware."""
+"""Tool call ledger middleware."""
 
 from __future__ import annotations
 

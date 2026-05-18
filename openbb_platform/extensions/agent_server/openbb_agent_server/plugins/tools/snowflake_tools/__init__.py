@@ -1,4 +1,4 @@
-"""Snowflake tool source — full Snowflake feature set as LangChain tools."""
+"""Snowflake tool source."""
 
 from openbb_agent_server.plugins.tools.snowflake_tools.source import (
     SnowflakeToolSource,

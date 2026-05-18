@@ -30,8 +30,6 @@ class _Cursor:
         self.sfqid = "test"
 
     def execute(self, sql: str, params: Any = None):  # type: ignore[no-untyped-def]
-        # Translate Snowflake-qualified ``FROM DB.INFORMATION_SCHEMA.COLUMNS``
-        # to the test fixture's bare ``INFORMATION_SCHEMA_COLUMNS`` table.
         sql = sql.replace(
             "FROM CUSTDB.INFORMATION_SCHEMA.COLUMNS",
             "FROM INFORMATION_SCHEMA_COLUMNS",
@@ -109,7 +107,6 @@ async def test_get_table_info_returns_column_metadata(sqlite_factory) -> None:
     assert "column_name" in columns
     assert out["row_count"] == 2
     rows = out["rows"]
-    # ordered by ordinal_position
     assert rows[0][1] == "id"
     assert rows[1][1] == "name"
 
@@ -123,7 +120,7 @@ async def test_get_table_info_rejects_unqualified_name(sqlite_factory) -> None:
     tools = await src.tools(_ctx(), {})
     info = next(t for t in tools if t.name == "snowflake_get_table_info")
     with pytest.raises(Exception):
-        info.invoke({"table": "CUSTOMERS"})  # no DB.SCHEMA prefix
+        info.invoke({"table": "CUSTOMERS"})
 
 
 @pytest.mark.asyncio
@@ -159,7 +156,6 @@ async def test_get_multiple_table_definitions_fan_out(sqlite_factory) -> None:
     )
     assert "tables" in out
     assert "CUSTDB.PUBLIC.CUSTOMERS" in out["tables"]
-    # Failures don't abort the fan-out — they're recorded as ``error``.
     bad = out["tables"]["CUSTDB.PUBLIC.NONE"]
     assert "error" in bad or bad.get("row_count") == 0
 
@@ -180,20 +176,18 @@ def test_is_session_expired_returns_false_for_other_errors() -> None:
 
 
 def test_session_expired_codes_constant_unchanged() -> None:
-    # Defensive: the openbb-snowflake-ai project relies on these three.
     assert frozenset({390111, 390112, 390114}) == SESSION_EXPIRED_CODES
 
 
 @pytest.mark.asyncio
 async def test_client_retries_after_session_expired() -> None:
-    """Real-ish reconnect path: factory raises 390112 once, then succeeds."""
+    """Reconnect after the factory raises 390112 once, then succeeds."""
     calls = {"count": 0}
 
     def factory(creds: SnowflakeCredentials):
         calls["count"] += 1
         if calls["count"] == 2:
-            # First connection used; on the *next* cursor open we'll
-            # raise 390xxx to simulate the broker dropping our session.
+
             class BrokenConn:
                 def cursor(self):  # noqa: D401
                     raise Exception("session expired 390112")
@@ -206,7 +200,6 @@ async def test_client_retries_after_session_expired() -> None:
 
     creds = SnowflakeCredentials(account="acc", user="u")
     client = SnowflakeClient(creds, connection_factory=factory)
-    # First execute uses the real connection.
     client.open()
     real_conn = client._conn  # noqa: SLF001
     raised = {"once": False}
@@ -222,7 +215,6 @@ async def test_client_retries_after_session_expired() -> None:
             pass
 
     client._conn = _OneShotBroken()  # noqa: SLF001
-    # Restore the real connection on reconnect by tweaking the factory.
     client._factory = lambda c: real_conn  # noqa: SLF001
     result = client.execute("SELECT 1 AS x")
     assert result.row_count == 1

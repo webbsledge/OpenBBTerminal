@@ -11,8 +11,6 @@ from typing import Any
 
 logger = logging.getLogger("openbb_agent_server.config")
 
-#: ``$VAR`` / ``${VAR}`` reference pattern. ``$`` not followed by a
-#: valid identifier (e.g. ``$5``, ``$ ``, ``$@``) is left untouched.
 _ENV_REF_PATTERN = re.compile(
     r"\$\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}"
     r"|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
@@ -24,8 +22,6 @@ EXPLICIT_CONFIG_ENVS: tuple[str, ...] = (
     "OPENBB_CONFIG",
 )
 
-#: CLI flag that supplies an explicit config path. ``main.py`` sniffs
-#: this out of argv before any heavy import runs.
 CONFIG_FILE_FLAG = "--config-file"
 
 
@@ -231,8 +227,6 @@ def bootstrap_launcher_config(
     cfg = load_launcher_config(explicit_path)
     apply_user_settings_credentials()
     apply_launcher_env(cfg.get("env"))
-    # Expand ``${VAR}`` references inside non-env tables too — by now
-    # the [env] keys are merged into os.environ so references resolve.
     cfg = expand_in_dict(cfg)
     return cfg
 
@@ -249,8 +243,6 @@ def load_preset(preset: str) -> dict[str, Any]:
     """Parse one of the bundled preset TOMLs into a config dict."""
     from importlib import resources
 
-    # Local import keeps the symbol public at module scope without
-    # circularity vs. ``main`` (which imports from this module).
     from openbb_agent_server.main import _PRESETS  # noqa: PLC0415
 
     resource = _PRESETS.get(preset)
@@ -269,7 +261,6 @@ def load_preset(preset: str) -> dict[str, Any]:
         .read_text(encoding="utf-8")
     )
     cfg = tomllib.loads(body)
-    # Same env / expansion contract as the file loader path.
     apply_launcher_env(cfg)
     cfg = expand_in_dict(cfg)
     return cfg

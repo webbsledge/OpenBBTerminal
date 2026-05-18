@@ -31,12 +31,10 @@ READ_ONLY_TYPES: frozenset[type] = frozenset(
         exp.Union,
         exp.Intersect,
         exp.Except,
-        exp.Use,  # USE WAREHOUSE/DATABASE/SCHEMA/ROLE — session state only
+        exp.Use,
     }
 )
 
-#: Top-level statement classes that are *always* mutating. We use
-#: this as a fast-path classifier alongside the AST inspection.
 MUTATING_TYPES: frozenset[type] = frozenset(
     {
         exp.Insert,

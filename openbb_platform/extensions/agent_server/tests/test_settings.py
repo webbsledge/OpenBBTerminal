@@ -46,3 +46,35 @@ def test_metadata_defaults_present() -> None:
     assert meta.name
     assert meta.description
     assert meta.image_url is None
+
+
+def test_resolved_checkpoint_path_default(tmp_path: Path) -> None:
+    s = AgentServerSettings(data_dir=tmp_path)
+    assert s.resolved_checkpoint_path() == str(tmp_path / "checkpoints.db")
+
+
+def test_resolved_checkpoint_path_none_for_non_sqlite() -> None:
+    s = AgentServerSettings(checkpointer_provider="inmemory")
+    assert s.resolved_checkpoint_path() is None
+
+
+def test_resolved_checkpoint_path_from_config(tmp_path: Path) -> None:
+    s = AgentServerSettings(checkpointer_config={"path": str(tmp_path / "explicit.db")})
+    assert s.resolved_checkpoint_path() == str(tmp_path / "explicit.db")
+
+
+def test_resolved_checkpoint_path_from_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("OPENBB_AGENT_CHECKPOINTER_PATH", str(tmp_path / "env.db"))
+    s = AgentServerSettings()
+    assert s.resolved_checkpoint_path() == str(tmp_path / "env.db")
+
+
+def test_retention_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENBB_AGENT_PRUNE_INTERVAL_HOURS", raising=False)
+    s = AgentServerSettings()
+    assert s.checkpoint_keep_last == 1
+    assert s.checkpoint_retention_days == 14
+    assert s.history_retention_days == 90
+    assert s.prune_interval_hours == 24

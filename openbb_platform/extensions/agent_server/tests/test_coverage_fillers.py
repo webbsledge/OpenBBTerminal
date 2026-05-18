@@ -1,4 +1,4 @@
-"""Targeted tests that fill the remaining coverage gaps to 100%."""
+"""Targeted tests that fill the remaining coverage gaps."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ async def api_key_backend(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_api_key_table_rejects_empty_fragments(api_key_backend) -> None:
-    """``oba_.`` (empty key_id and secret) hits the empty-fragment guard."""
+    """Reject an api key with empty fragments."""
     with pytest.raises(HTTPException) as exc:
         await api_key_backend.authenticate(_request({"x-api-key": "oba_."}))
     assert exc.value.status_code == 403
@@ -57,7 +57,6 @@ async def test_api_key_table_rejects_empty_fragments(api_key_backend) -> None:
 @pytest.mark.asyncio
 async def test_api_key_table_wrong_secret_returns_403(api_key_backend) -> None:
     issued = await api_key_backend.issue(user_id="alice")
-    # Tamper the secret half of the plaintext.
     parts = issued.plaintext.split(".")
     forged = parts[0] + "." + "x" * 32
     with pytest.raises(HTTPException) as exc:
@@ -69,7 +68,7 @@ async def test_api_key_table_wrong_secret_returns_403(api_key_backend) -> None:
 async def test_api_key_table_issue_updates_existing_user_metadata(
     api_key_backend,
 ) -> None:
-    """Second ``issue()`` for the same user fills empty display_name/email."""
+    """Fill empty user metadata on a second issue() call."""
     await api_key_backend.issue(user_id="bob")
     await api_key_backend.issue(
         user_id="bob", display_name="Bob", email="bob@example.com"
@@ -123,12 +122,11 @@ def test_memory_writer_split_drops_short_and_none_lines() -> None:
 
     assert _split("NONE") == []
     assert _split("") == []
-    # Lines under 7 chars are filtered out.
     assert _split("- short\n- this is a real one") == ["this is a real one"]
 
 
 def test_fake_provider_yields_string_messages_as_ai_chunks() -> None:
-    """``responses=[str]`` exercises the AIMessageChunk(str) branch."""
+    """Yield string responses as AIMessageChunks."""
     from openbb_agent_server.plugins.models.fake_provider import FakeProvider
 
     provider = FakeProvider(responses=["plain string"])
@@ -149,7 +147,7 @@ def test_bucket_refill_is_noop_when_no_time_elapsed() -> None:
     bucket = _Bucket.of(capacity=10, period_seconds=10)
     bucket.consume(5)
     snap_a = bucket.available
-    bucket.last_refill = time.monotonic() + 1.0  # in the future → elapsed <= 0
+    bucket.last_refill = time.monotonic() + 1.0
     bucket.refill()
     assert bucket.available == snap_a
 
@@ -172,7 +170,6 @@ def test_artifacts_decode_if_string_passes_through_non_string_inputs() -> None:
 
     sentinel = {"already": "decoded"}
     assert _decode_if_string(sentinel) is sentinel
-    # Invalid JSON falls back to the raw string.
     assert _decode_if_string("not json") == "not json"
 
 
@@ -230,7 +227,7 @@ def test_mcp_local_read_mcp_table_swallows_bootstrap_error(
 async def test_mcp_local_skips_args_extension_when_transport_already_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If the operator passed ``--transport stdio`` already, don't double it."""
+    """Skip args extension when transport is already set."""
     from openbb_agent_server.plugins.tools import mcp_local
 
     captured: dict[str, Any] = {}
@@ -296,7 +293,6 @@ def test_widget_data_stable_json_falls_back_to_str_for_unserialisable() -> None:
     a: dict[str, Any] = {}
     a["self"] = a
     out = _stable_json(a)
-    # Either the default=str path or the str fallback lands; both are fine.
     assert isinstance(out, str)
 
 
@@ -391,9 +387,7 @@ def test_runtime_state_raises_when_no_run_bound() -> None:
 
 
 def test_runtime_builder_tool_messages_round_trip_as_toolmessage() -> None:
-    """``role: tool`` messages survive as ``ToolMessage`` so LangGraph can
-    pair them to the prior ``AIMessage``'s tool_call_id.
-    """
+    """Round-trip role:tool messages as ToolMessage."""
     from langchain_core.messages import ToolMessage
 
     from openbb_agent_server.protocol.schemas import ChatMessage
@@ -406,8 +400,6 @@ def test_runtime_builder_tool_messages_round_trip_as_toolmessage() -> None:
             ChatMessage(role="tool", content="result", tool_call_id="abc"),
         ]
     )
-    # human + ai prose + (synthesised pairing ai) + tool — the builder
-    # synthesises the pairing ai if it can't find one in history.
     assert isinstance(out[0], HumanMessage)
     assert isinstance(out[1], AIMessage)
     assert isinstance(out[-1], ToolMessage)
@@ -415,13 +407,11 @@ def test_runtime_builder_tool_messages_round_trip_as_toolmessage() -> None:
 
 
 def test_protocol_adapter_passes_citations_through() -> None:
-    """Citations are buffered through ``_translate`` and flushed as one"""
+    """Buffer citations through _translate and flush them as one."""
     from openbb_agent_server.protocol.adapter import DeepAgentEventAdapter
     from openbb_agent_server.protocol.schemas import CitationCollectionSSE
 
     adapter = DeepAgentEventAdapter(client_tool_names=set())
-    # Buffering via ``_translate`` itself returns no events for citation
-    # frames — they're held until end-of-stream.
     inline = adapter._translate(
         {
             "type": "custom",
@@ -509,7 +499,7 @@ def test_create_app_resolves_settings_from_toml_when_omitted(
 
     monkeypatch.delenv("OPENBB_AGENT_BOOTSTRAP_TOML", raising=False)
     monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
-    app = create_app()  # ``settings=None`` exercises the cascade branch
+    app = create_app()
     assert app is not None
 
 
@@ -520,7 +510,6 @@ def test_settings_resolve_profile_inherits_metadata_when_overlay_omits_it() -> N
         profiles={"alt": {"system_prompt_file": "/etc/openbb/alt.md"}}
     )
     profile = settings.resolve_profile("alt")
-    # Overlay didn't define metadata → falls back to base settings.metadata.
     assert profile.metadata.name == settings.metadata.name
 
 
@@ -559,7 +548,7 @@ def test_postgres_resolve_url_uses_env_override(
 
     class _Settings:
         def resolved_db_url(self) -> str:
-            return "sqlite:///nope.db"  # would be rejected if reached
+            return "sqlite:///nope.db"
 
     monkeypatch.setenv("OPENBB_AGENT_CHECKPOINTER_URL", "postgresql+asyncpg://u@h/db")
     provider = PostgresCheckpointerProvider()
@@ -701,7 +690,7 @@ async def test_pdf_extract_page_range_filters(monkeypatch: pytest.MonkeyPatch) -
 def test_web_search_ddg_falls_back_to_duckduckgo_search(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``ddgs`` isn't importable, falls through to ``duckduckgo_search``."""
+    """Fall through to duckduckgo_search when ddgs is unimportable."""
     import sys
 
     from openbb_agent_server.plugins.tools import web_search
@@ -719,7 +708,7 @@ def test_web_search_ddg_falls_back_to_duckduckgo_search(
             return sentinel_results
 
     fake_module = type("M", (), {"DDGS": _StubDDGS})
-    monkeypatch.setitem(sys.modules, "ddgs", None)  # forces ImportError
+    monkeypatch.setitem(sys.modules, "ddgs", None)
     monkeypatch.setitem(sys.modules, "duckduckgo_search", fake_module)
 
     out = web_search._ddg_search("apple", k=1)
@@ -748,7 +737,7 @@ async def test_fake_provider_streams_string_chunk_via_astream() -> None:
 
 @pytest.mark.asyncio
 async def test_usage_aggregate_filters_by_conversation_id(tmp_path: Path) -> None:
-    """Reach the conversation_id JOIN branch in ``aggregate_usage``."""
+    """Filter aggregate usage by conversation_id."""
     from openbb_agent_server.persistence.sqlite_store import SqliteHistoryStore
     from openbb_agent_server.persistence.store import UsageRecord
 
@@ -832,7 +821,7 @@ def test_runtime_builder_resolves_middleware_from_profile(
 def test_runtime_builder_subagent_carries_model_kwarg(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``spec.model`` (non-None) is forwarded into the subagent dict."""
+    """Forward a non-None spec.model into the subagent dict."""
     from openbb_agent_server.app.settings import (
         AgentMetadata,
         AgentProfile,
@@ -872,7 +861,7 @@ def test_runtime_builder_subagent_carries_model_kwarg(
 
 
 def test_settings_resolve_profile_metadata_overlay_partial() -> None:
-    """Overlay metadata with only a subset of fields uses base for the rest."""
+    """Use base metadata for fields a partial overlay omits."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(profiles={"alt": {"metadata": {"name": "Alt-Name"}}})
@@ -926,7 +915,7 @@ def test_snowflake_credentials_layer_picks_every_supported_env_var() -> None:
 def test_snowflake_tool_surface_invokes_every_function(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Drives each ``snowflake_*`` tool through a stub built via ``build_tools``."""
+    """Drive each snowflake tool through a stub client."""
     from openbb_agent_server.plugins.tools.snowflake_tools import (
         SnowflakeToolSource,
         cortex as cortex_mod,
@@ -1029,7 +1018,7 @@ def test_snowflake_tool_surface_invokes_every_function(
 
 
 def test_snowflake_get_table_info_rejects_short_path() -> None:
-    """Reach the ``ValueError`` branch in ``snowflake_get_table_info``."""
+    """Reject a short table path in snowflake_get_table_info."""
     from openbb_agent_server.plugins.tools.snowflake_tools import SnowflakeToolSource
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeCredentials,
@@ -1049,7 +1038,7 @@ def test_snowflake_get_table_info_rejects_short_path() -> None:
 
 
 def _qresult_factory(*, rows_per_call: list[list[tuple[Any, ...]]] | None = None):
-    """Tiny fake Snowflake connection that hands out cursors over canned rows."""
+    """Fake Snowflake connection that hands out cursors over canned rows."""
 
     class _Cursor:
         sfqid = "stub-qid"
@@ -1173,7 +1162,7 @@ def test_snowflake_client_truncates_when_rows_exceed_cap() -> None:
 def test_snowflake_client_reconnects_when_session_expired_on_cursor_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reach the ``except`` branch around ``conn.cursor()`` (line 266)."""
+    """Reconnect when the session expires on cursor open."""
     from openbb_agent_server.plugins.tools.snowflake_tools import client as client_mod
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeClient,
@@ -1238,7 +1227,7 @@ def test_snowflake_client_reconnects_when_session_expired_on_cursor_open(
 def test_snowflake_client_reconnects_when_session_expired_on_execute(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reach the inner ``except`` branch around ``cur.execute`` (lines 281-292)."""
+    """Reconnect when the session expires on execute."""
     from openbb_agent_server.plugins.tools.snowflake_tools import client as client_mod
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeClient,
@@ -1277,8 +1266,6 @@ def test_snowflake_client_reconnects_when_session_expired_on_execute(
         def close(self) -> None:
             pass
 
-    # ``open()`` calls ``_apply_session_settings`` which itself takes a
-    # cursor — every Conn needs an "init" cursor before the execute one.
     conn1 = _Conn([_Cursor(fail=False), _Cursor(fail=True)])
     conn2 = _Conn([_Cursor(fail=False), _Cursor(fail=False)])
     factory = iter([conn1, conn2])
@@ -1292,7 +1279,7 @@ def test_snowflake_client_reconnects_when_session_expired_on_execute(
 
 
 def test_snowflake_credentials_load_private_key_from_file(tmp_path: Path) -> None:
-    """Reach the file-path branch in ``_loaded_private_key`` (lines 99-101)."""
+    """Load a private key from a file path."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -1436,34 +1423,30 @@ def test_safety_is_read_only_accepts_show_describe_etc() -> None:
 
 
 def test_safety_is_read_only_rejects_with_returning() -> None:
-    """Statement with no read-only base type returns False (line 106)."""
+    """Reject a statement with no read-only base type."""
     from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
 
-    # ``COPY INTO`` is not in READ_ONLY_TYPES so the second guard kicks in.
     assert is_read_only("COPY INTO @stage FROM tbl") is False
 
 
 def test_safety_is_read_only_rejects_unsafe_command() -> None:
-    """A ``Command``-shaped statement outside the allow-list returns False (102)."""
+    """Reject a Command-shaped statement outside the allow-list."""
     from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
 
-    # ``GRANT`` parses as ``exp.Command`` and is not in the allow-list.
     assert is_read_only("GRANT ROLE analyst TO USER bob") is False
 
 
 def test_safety_is_read_only_rejects_neither_mutating_nor_read_only() -> None:
-    """A statement outside both type sets falls through to ``return False`` (line 106)."""
+    """Reject a statement in neither the mutating nor read-only type set."""
     from openbb_agent_server.plugins.tools.snowflake_tools.safety import is_read_only
 
-    # ``SET`` parses to ``exp.Set`` — not in MUTATING_TYPES and not in
-    # READ_ONLY_TYPES, so the second guard returns False.
     assert is_read_only("SET QUERY_TAG = 'x'") is False
 
 
 def test_snowflake_client_propagates_non_session_error_on_cursor_open(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reach the ``raise`` branch (line 268) when the error isn't expiry."""
+    """Propagate a non-session error raised on cursor open."""
     from openbb_agent_server.plugins.tools.snowflake_tools import client as client_mod
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeClient,
@@ -1501,7 +1484,7 @@ def test_snowflake_client_propagates_non_session_error_on_cursor_open(
 def test_snowflake_client_retries_execute_with_no_params(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Retry path when ``params is None`` (line 292)."""
+    """Retry execute when params is None."""
     from openbb_agent_server.plugins.tools.snowflake_tools import client as client_mod
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeClient,
@@ -1548,13 +1531,12 @@ def test_snowflake_client_retries_execute_with_no_params(
     client = SnowflakeClient(
         creds, connection_factory=lambda _c: next(factory), max_rows=10
     )
-    # No ``params=`` → retry path takes the ``cur.execute(prepared)`` line.
     result = client.execute("SELECT 1")
     assert result.row_count == 1
 
 
 def test_snowflake_get_multiple_table_definitions_collects_per_table_errors() -> None:
-    """Reach the ``except`` branch in ``snowflake_get_multiple_table_definitions``."""
+    """Collect per-table errors in snowflake_get_multiple_table_definitions."""
     from openbb_agent_server.plugins.tools.snowflake_tools import SnowflakeToolSource
     from openbb_agent_server.plugins.tools.snowflake_tools.client import (
         SnowflakeCredentials,
@@ -1576,7 +1558,7 @@ def test_snowflake_get_multiple_table_definitions_collects_per_table_errors() ->
 
 
 def test_settings_resolve_profile_overlay_with_no_metadata_at_all() -> None:
-    """When the overlay omits ``metadata`` entirely, base metadata is reused."""
+    """Reuse base metadata when the overlay omits it entirely."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(profiles={"alt": {}})
@@ -1586,7 +1568,7 @@ def test_settings_resolve_profile_overlay_with_no_metadata_at_all() -> None:
 
 
 def test_settings_resolve_profile_overlay_with_non_dict_metadata_falls_back() -> None:
-    """When ``metadata`` overlay is not a dict, base metadata is reused (line 239)."""
+    """Reuse base metadata when the overlay metadata is not a dict."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(profiles={"alt": {"metadata": "not-a-dict"}})
@@ -1595,7 +1577,7 @@ def test_settings_resolve_profile_overlay_with_non_dict_metadata_falls_back() ->
 
 
 def test_settings_resolve_profile_flattens_nested_model_table() -> None:
-    """``[agent.profiles.<name>.model]`` with ``provider``/``name``/``config``"""
+    """Flatten a nested profile model table."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(
@@ -1618,7 +1600,7 @@ def test_settings_resolve_profile_flattens_nested_model_table() -> None:
 
 
 def test_settings_resolve_profile_flat_model_keys_still_win_over_nested() -> None:
-    """Operator-supplied flat keys win over the nested ``[model]`` table."""
+    """Let flat model keys win over the nested model table."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(
@@ -1636,7 +1618,7 @@ def test_settings_resolve_profile_flat_model_keys_still_win_over_nested() -> Non
 
 
 def test_settings_resolve_profile_partial_model_overlay_inherits_other_fields() -> None:
-    """Overlay sets only ``provider`` — base ``model_name`` is preserved."""
+    """Inherit base model_name when the overlay sets only provider."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(
@@ -1652,7 +1634,7 @@ def test_settings_resolve_profile_partial_model_overlay_inherits_other_fields() 
 def test_router_cancel_matches_user_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Pre-stage a cancel event, hit the cancel endpoint, ensure event.set ran."""
+    """Match the cancel event by user id."""
     import asyncio as _asyncio
 
     from fastapi.testclient import TestClient
@@ -1690,7 +1672,7 @@ def test_router_cancel_matches_user_id(
 def test_router_streams_error_status_when_run_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Force ``run_agent`` to raise — exercise the except / finally branches."""
+    """Stream an error status when run_agent raises."""
     from fastapi.testclient import TestClient
 
     from openbb_agent_server.app.app import create_app
@@ -1733,7 +1715,7 @@ def test_router_streams_error_status_when_run_raises(
 def test_router_cancel_during_stream_short_circuits(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Stream a step, then trigger the registered cancel event mid-stream."""
+    """Short-circuit the stream when a cancel event fires mid-stream."""
     from fastapi.testclient import TestClient
 
     from openbb_agent_server.app import router as router_mod
@@ -1755,7 +1737,6 @@ def test_router_cancel_during_stream_short_circuits(
     monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
 
     async def _slow_stream(*args: Any, **kwargs: Any):
-        # Set every cancel event registered for this run after the first step.
         yield StatusUpdateSSE(event_type="INFO", message="step", details={})
         for ev in list(router_mod._cancellations.values()):
             ev.set()
@@ -1780,14 +1761,13 @@ def test_router_cancel_during_stream_short_circuits(
 async def test_runtime_builder_run_agent_resolves_profile_when_omitted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """``profile is None`` triggers the fallback ``settings.resolve_profile`` call."""
+    """Resolve the profile when run_agent is given none."""
     import sys
     import types
 
     from openbb_agent_server.app.settings import AgentServerSettings
     from openbb_agent_server.protocol.schemas import QueryRequest
 
-    # Stub ``deepagents.create_deep_agent`` so we never touch the real loop.
     fake_module = types.ModuleType("deepagents")
 
     class _FakeAgent:
@@ -1813,7 +1793,6 @@ async def test_runtime_builder_run_agent_resolves_profile_when_omitted(
     _services_mod.set_services(checkpointer=InMemorySaver())
     settings = AgentServerSettings()
 
-    # Capture which profile name run_agent resolves to when given ``None``.
     real_resolve = AgentServerSettings.resolve_profile
     seen: list[str | None] = []
 
@@ -1848,7 +1827,7 @@ async def test_runtime_builder_run_agent_resolves_profile_when_omitted(
 def test_runtime_builder_passes_skills_when_set(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """``profile.skills`` non-empty hits the ``agent_kwargs['skills']`` branch."""
+    """Pass profile skills through to the agent kwargs."""
     import sys
     import types
 
@@ -1914,7 +1893,7 @@ def test_runtime_builder_passes_skills_when_set(
             captured_error.append(exc)
 
     asyncio.run(_drive())
-    if "skills" not in captured_kwargs:  # surface the failure with details
+    if "skills" not in captured_kwargs:
         raise AssertionError(
             f"create_deep_agent never received skills kwarg. "
             f"captured_kwargs={captured_kwargs!r}, "
@@ -1925,7 +1904,7 @@ def test_runtime_builder_passes_skills_when_set(
 
 
 def test_fake_provider_string_message_yields_chunk_via_stream() -> None:
-    """Reach the ``isinstance(message, str)`` branch in ``_stream``."""
+    """Yield a string message as a chunk via stream."""
     from openbb_agent_server.plugins.models.fake_provider import (
         _ToolAwareFakeChatModel,
     )
@@ -1938,7 +1917,7 @@ def test_fake_provider_string_message_yields_chunk_via_stream() -> None:
 def test_web_search_tavily_returns_callable_when_key_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Build the tavily callable. The ``_run`` body itself has ``pragma: no cover``."""
+    """Build the tavily callable when a key is present."""
     from openbb_agent_server.plugins.tools.web_search import _build_search_callable
 
     callable_ = _build_search_callable("tavily", {"TAVILY_API_KEY": "stub"})
@@ -1946,7 +1925,7 @@ def test_web_search_tavily_returns_callable_when_key_present(
 
 
 def test_system_prompt_never_contains_user_identity(tmp_path: Path) -> None:
-    """The agent must not see the user's email / display_name / user_id."""
+    """Keep user identity out of the system prompt."""
     from openbb_agent_server.app.settings import AgentMetadata, AgentProfile
     from openbb_agent_server.runtime.builder import (
         _build_system_prompt,
@@ -1964,13 +1943,11 @@ def test_system_prompt_never_contains_user_identity(tmp_path: Path) -> None:
         run_id="r",
         conversation_id="c",
     )
-    # 1) In-memory fallback template.
     out = _build_system_prompt(ctx)
     assert sensitive_email not in out
     assert "Alice Confidential" not in out
     assert "trace-123" not in out
 
-    # 2) Bundled file template.
     profile = AgentProfile(
         name="default",
         metadata=AgentMetadata(),
@@ -1982,7 +1959,7 @@ def test_system_prompt_never_contains_user_identity(tmp_path: Path) -> None:
         middleware=(),
         skills=(),
         features={},
-        system_prompt_file=None,  # → falls back to the bundled default
+        system_prompt_file=None,
         tool_source_config={},
     )
     out = _load_system_prompt(ctx, profile)
@@ -2000,14 +1977,14 @@ def test_system_prompt_never_contains_user_identity(tmp_path: Path) -> None:
 
 
 def test_router_coerce_feature_handles_dict_and_other_shapes() -> None:
-    """``_coerce_feature`` accepts plain bool, ``{"default": bool}``, or coerces."""
+    """Coerce features from bools and dict shapes."""
     from openbb_agent_server.app.router import _coerce_feature
 
     assert _coerce_feature(True) is True
     assert _coerce_feature(False) is False
     assert _coerce_feature({"default": True}) is True
     assert _coerce_feature({"default": False}) is False
-    assert _coerce_feature({}) is False  # missing default
+    assert _coerce_feature({}) is False
     assert _coerce_feature(1) is True
     assert _coerce_feature(0) is False
     assert _coerce_feature(None) is False
@@ -2016,7 +1993,7 @@ def test_router_coerce_feature_handles_dict_and_other_shapes() -> None:
 def test_router_agents_json_emits_image_when_set(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """``image`` is included in the entry when ``metadata.image_url`` is set."""
+    """Include the image in the agents.json entry when image_url is set."""
     from fastapi.testclient import TestClient
 
     from openbb_agent_server.app.app import create_app
@@ -2039,7 +2016,7 @@ def test_router_agents_json_emits_image_when_set(
 
 
 def test_settings_resolve_profile_handles_non_dict_model_overlay() -> None:
-    """``[agent.profiles.<name>].model = "garbage"`` falls back to base."""
+    """Fall back to base when a profile model overlay is not a dict."""
     from openbb_agent_server.app.settings import AgentServerSettings
 
     settings = AgentServerSettings(
@@ -2082,7 +2059,7 @@ def test_vertex_provider_forwards_credentials_kwarg(
 def test_router_agents_json_drops_profiles_with_invalid_agent_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Agent IDs that violate the Workspace ``^[a-z0-9-]+$`` regex are skipped."""
+    """Drop profiles whose agent id violates the Workspace regex."""
     from fastapi.testclient import TestClient
 
     from openbb_agent_server.app.app import create_app
@@ -2110,13 +2087,13 @@ def test_router_agents_json_drops_profiles_with_invalid_agent_id(
         body = client.get("/agents.json").json()
     assert "default" in body
     assert "fine-id" in body
-    assert "Bad_ID" not in body  # uppercase + underscore — fails the spec regex
+    assert "Bad_ID" not in body
 
 
 def test_router_agents_json_skips_unresolvable_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A KeyError in ``resolve_profile`` is silently dropped from the listing."""
+    """Skip a profile that resolve_profile cannot resolve."""
     from fastapi.testclient import TestClient
 
     from openbb_agent_server.app.app import create_app

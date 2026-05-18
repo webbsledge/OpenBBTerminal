@@ -1,4 +1,4 @@
-"""Tests for :mod:`openbb_agent_server.memory.factory`."""
+"""Tests for the memory factory."""
 
 from __future__ import annotations
 
@@ -89,7 +89,6 @@ def test_make_embeddings_propagates_optional_kwargs(
         "nvidia",
         config={"base_url": "https://x/v1", "dimensions": 512, "truncate": "START"},
     )
-    # NVIDIAEmbeddings normalises trailing slashes; verify the path body sticks.
     assert "https://x" in out.base_url
     assert out.dimensions == 512
     assert out.truncate == "START"

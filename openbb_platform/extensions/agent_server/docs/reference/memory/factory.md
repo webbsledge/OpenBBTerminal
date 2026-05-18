@@ -1,6 +1,6 @@
 # `openbb_agent_server.memory.factory`
 
-Three factory functions that turn a provider name + optional model / config into a concrete embeddings / reranker / translator object. Called by `app/app.py` during server startup and re-used inside `SqliteMemoryStore` and the ingestion pipeline.
+Three factory functions that turn a provider name + optional model / config into a concrete embeddings / reranker / translator object. Called by `app/app.py` during server startup and reused inside `SqliteMemoryStore` and the ingestion pipeline.
 
 **Source:** [`openbb_agent_server/memory/factory.py`](../../../openbb_agent_server/memory/factory.py)
 

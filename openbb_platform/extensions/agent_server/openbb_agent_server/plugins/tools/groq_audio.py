@@ -218,7 +218,7 @@ def _find_uploaded(
     return None
 
 
-async def _transcribe(  # noqa: PLR0912 — flat orchestration over many flags.
+async def _transcribe(  # noqa: PLR0912
     *,
     ctx: RunContext,
     endpoint: str,
@@ -258,7 +258,6 @@ async def _transcribe(  # noqa: PLR0912 — flat orchestration over many flags.
     if args.prompt:
         data["prompt"] = args.prompt
     if args.timestamp_granularities:
-        # httpx repeats list-valued form fields automatically.
         data["timestamp_granularities[]"] = list(args.timestamp_granularities)
 
     files = {"file": (name, io.BytesIO(audio_bytes), mime)}
@@ -325,9 +324,9 @@ async def _transcribe(  # noqa: PLR0912 — flat orchestration over many flags.
             }
             return payload
 
-        if last_exc is None:  # pragma: no cover - loop only exits via return / raise
+        if last_exc is None:  # pragma: no cover
             raise RuntimeError("groq_audio retry loop exited without an exception")
-        raise last_exc  # pragma: no cover - retry branches raise inline
+        raise last_exc  # pragma: no cover
 
 
 def _retry_after(resp: httpx.Response) -> float | None:
@@ -341,5 +340,5 @@ def _retry_after(resp: httpx.Response) -> float | None:
 
 
 def _backoff(attempt: int) -> float:
-    """Exponential backoff: 0.5s, 1s, 2s, 4s, 8s, capped at 30s."""
+    """Return an exponential backoff delay capped at 30 seconds."""
     return min(30.0, 0.5 * (2 ** (attempt - 1)))

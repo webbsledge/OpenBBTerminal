@@ -48,22 +48,13 @@ def test_run_writes_checkpoint_to_thread(client: TestClient) -> None:
 
     import asyncio
 
-    # thread_id is per-turn (includes trace_id) — multi-turn coherence
-    # comes from the message list, not the checkpointer. Walk every
-    # thread under this user's namespace and assert at least one was
-    # written.
     items = asyncio.run(_collect_all(saver))
     threads = {it.config["configurable"]["thread_id"] for it in items}
     assert any(t.startswith("anonymous:default:") for t in threads)
 
 
 def test_two_turns_each_get_their_own_thread(client: TestClient) -> None:
-    """Per-turn thread_id design: two turns produce two distinct threads.
-
-    Conversation continuity comes from the message list (which the
-    client resends every turn), not from sharing a checkpointer
-    thread — sharing would replay half-completed tool calls.
-    """
+    """Two turns produce two distinct per-turn threads."""
     for content in ("turn one", "turn two"):
         client.post(
             "/v1/query",
@@ -78,16 +69,12 @@ def test_two_turns_each_get_their_own_thread(client: TestClient) -> None:
 
     items = asyncio.run(_collect_all(saver))
     threads = {it.config["configurable"]["thread_id"] for it in items}
-    # Two turns ⇒ two distinct threads under this user/profile namespace.
     matching = [t for t in threads if t.startswith("anonymous:default:")]
     assert len(matching) >= 2
 
 
 def test_thread_id_isolates_conversations(client: TestClient) -> None:
-    """Distinct conversations produce distinct per-turn threads — the
-    new design relies on conversation_id only for trace correlation,
-    not for thread sharing.
-    """
+    """Distinct conversations produce distinct per-turn threads."""
     client.post(
         "/v1/query",
         json={
@@ -109,7 +96,6 @@ def test_thread_id_isolates_conversations(client: TestClient) -> None:
     items = asyncio.run(_collect_all(saver))
     threads = {it.config["configurable"]["thread_id"] for it in items}
     matching = [t for t in threads if t.startswith("anonymous:default:")]
-    # Two queries from distinct conversations ⇒ at least two threads.
     assert len(matching) >= 2
 
 

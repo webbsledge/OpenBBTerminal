@@ -104,7 +104,7 @@ def _install_fake_google_genai(
     raise_exc: BaseException | None = None,
     on_call: Any = None,
 ) -> dict[str, Any]:
-    """Replace ``google.genai`` and ``google.genai.types`` with stubs."""
+    """Replace google.genai and google.genai.types with stubs."""
     captured: dict[str, Any] = {"calls": []}
 
     fake_types = pytypes.ModuleType("google.genai.types")
@@ -341,7 +341,6 @@ async def test_edit_image_with_uploaded_base(
     assert call["kind"] == "generate_content"
     [content] = call["contents"]
     assert content.role == "user"
-    # First part is the prompt text, second is the inline image.
     assert content.parts[0].text == "add a wizard hat"
     assert content.parts[1].inline_data.data == b"ORIGINAL"
 
@@ -386,7 +385,6 @@ async def test_edit_image_with_url_base(
     [call] = captured["calls"]
     [content] = call["contents"]
     assert content.parts[1].inline_data.data == b"FROM-URL"
-    # Seed forwarded into GenerateContentConfig.
     assert call["config"].kwargs == {"seed": 7}
 
 
@@ -520,7 +518,7 @@ async def test_edit_image_unknown_uploaded_name(
 async def test_generate_image_retries_then_succeeds_on_429(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Honour Gemini's ``retryDelay`` hint via _retry_delay()."""
+    """Retry then succeed on a 429."""
     monkeypatch.setattr(
         "openbb_agent_server.plugins.tools.gemini_image._backoff", lambda _n: 0.0
     )
@@ -677,7 +675,7 @@ def test_backoff_is_capped() -> None:
     from openbb_agent_server.plugins.tools.gemini_image import _backoff
 
     assert _backoff(1) == 0.5
-    assert _backoff(20) == 30.0  # cap
+    assert _backoff(20) == 30.0
 
 
 def _install_fake_embeddings(
@@ -772,7 +770,6 @@ async def test_embed_text_passes_model_through_unchanged_when_already_prefixed(
     [tool] = await src.tools(_ctx(), {})
     with bind(_ctx()):
         await tool.ainvoke({"texts": ["x"], "model": "models/gemini-embedding-001"})
-    # ``models/`` prefix is preserved (no double-prefix).
     assert captured["init_kwargs"]["model"] == "models/gemini-embedding-001"
 
 
@@ -837,7 +834,7 @@ async def test_image_picks_api_key_from_per_call_config(
 async def test_imagen_skips_generated_entries_with_no_image_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``generated_images`` entries with no ``image_bytes`` are skipped (line 476)."""
+    """Skip generated_images entries with no image_bytes."""
     captured: dict[str, Any] = {}
 
     fake_types = pytypes.ModuleType("google.genai.types")
@@ -883,7 +880,6 @@ async def test_imagen_skips_generated_entries_with_no_image_bytes(
     [gen, _] = await src.tools(_ctx(), {})
     with bind(_ctx()):
         out = await gen.ainvoke({"prompt": "x", "backend": "imagen"})
-    # Only the entry with real bytes lands.
     assert out["image_count"] == 1
     assert out["byte_sizes"] == [len(b"REAL")]
 
@@ -891,7 +887,7 @@ async def test_imagen_skips_generated_entries_with_no_image_bytes(
 async def test_gemini_skips_parts_without_inline_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Parts without ``inline_data.data`` are skipped (line 523)."""
+    """Skip parts without inline_data.data."""
     fake_types = pytypes.ModuleType("google.genai.types")
 
     class _Part:
@@ -907,7 +903,7 @@ async def test_gemini_skips_parts_without_inline_data(
             self, *, model: str, contents: Any, config: Any = None
         ) -> Any:
             parts = [
-                _Part(data=None, mime_type=None),  # skipped
+                _Part(data=None, mime_type=None),
                 _Part(data=b"REAL", mime_type="image/png"),
             ]
             cand = pytypes.SimpleNamespace(content=pytypes.SimpleNamespace(parts=parts))
@@ -934,14 +930,14 @@ async def test_gemini_skips_parts_without_inline_data(
 
 
 def test_retry_delay_skips_non_dict_entries() -> None:
-    """A non-dict entry inside ``error.details`` is skipped (line 578)."""
+    """Skip a non-dict entry inside error.details."""
     from openbb_agent_server.plugins.tools.gemini_image import _retry_delay
 
     class _E(Exception):
         details = {
             "error": {
                 "details": [
-                    "not-a-dict",  # skipped
+                    "not-a-dict",
                     {
                         "@type": "type.googleapis.com/google.rpc.RetryInfo",
                         "retryDelay": "3s",
@@ -954,7 +950,7 @@ def test_retry_delay_skips_non_dict_entries() -> None:
 
 
 def test_retry_delay_returns_none_on_unparseable_seconds() -> None:
-    """Bad ``retryDelay`` string falls into the ValueError branch (584-585)."""
+    """Return None on an unparseable retryDelay string."""
     from openbb_agent_server.plugins.tools.gemini_image import _retry_delay
 
     class _E(Exception):
@@ -963,7 +959,7 @@ def test_retry_delay_returns_none_on_unparseable_seconds() -> None:
                 "details": [
                     {
                         "@type": "type.googleapis.com/google.rpc.RetryInfo",
-                        "retryDelay": "abcs",  # parses to nothing
+                        "retryDelay": "abcs",
                     }
                 ]
             }

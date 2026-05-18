@@ -93,7 +93,7 @@ except ImportError:  # pragma: no cover — import-time defence
 
 
 class WebSearchToolSource(ToolSource):
-    """Single ``web_search`` tool, swappable backend, feature-gated."""
+    """Provide a single feature-gated ``web_search`` tool."""
 
     name = "web_search"
 

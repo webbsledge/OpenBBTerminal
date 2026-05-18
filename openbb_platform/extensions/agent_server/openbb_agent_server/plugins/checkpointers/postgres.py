@@ -1,4 +1,4 @@
-"""``postgres`` — async Postgres checkpointer."""
+"""Async Postgres checkpointer."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ logger = logging.getLogger("openbb_agent_server.checkpointer.postgres")
 
 
 def _normalise_pg_url(url: str) -> str:
-    """Strip SQLAlchemy-style ``+driver`` suffixes that psycopg can't parse."""
+    """Strip SQLAlchemy-style driver suffixes that psycopg cannot parse."""
     if url.startswith("postgresql+psycopg://"):
         return "postgresql://" + url[len("postgresql+psycopg://") :]
     if url.startswith("postgresql+asyncpg://"):

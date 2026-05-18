@@ -10,7 +10,6 @@ from openbb_agent_server.runtime.plugins import AuthBackend
 
 def test_available_lists_registered_auth_backends() -> None:
     names = registry.available("openbb_agent_server.auth")
-    # All four real backends ship in this package.
     assert {
         "none",
         "bearer_static",
@@ -33,8 +32,6 @@ def test_load_unknown_plugin_raises_keyerror() -> None:
 
 
 def test_load_passes_config_kwargs_to_constructor() -> None:
-    # NoneAuthBackend accepts arbitrary kwargs and ignores them — proves
-    # the registry forwards config dict as kwargs.
     registry.load(
         "openbb_agent_server.auth",
         "none",
@@ -92,12 +89,7 @@ def test_middleware_group_registers_all_middleware() -> None:
 def test_load_drops_unknown_config_keys_with_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A strict-signature plugin keeps only kwargs its ``__init__`` accepts.
-
-    ``OpenAICompatProvider.__init__`` does not take ``**kwargs``, so a
-    misplaced config key is dropped (and logged) rather than crashing
-    construction.
-    """
+    """A strict-signature plugin keeps only kwargs its __init__ accepts."""
     import logging
 
     with caplog.at_level(logging.WARNING):
@@ -117,19 +109,12 @@ def test_load_drops_unknown_config_keys_with_warning(
 def test_load_tolerates_uninspectable_init_signature(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``inspect.signature`` cannot read ``__init__``, all config keys pass.
-
-    ``_accepted_kwargs`` returns ``None`` on ``TypeError`` / ``ValueError``
-    from ``inspect.signature`` — the registry then forwards every config
-    key untouched instead of dropping them.
-    """
+    """When inspect.signature cannot read __init__, all config keys pass."""
 
     def _raising_signature(obj: object, *args: object, **kw: object) -> object:
         raise ValueError("synthetic signature failure")
 
     monkeypatch.setattr(registry.inspect, "signature", _raising_signature)
-    # ``none`` auth backend accepts arbitrary kwargs; with signature
-    # introspection failing the registry forwards the config verbatim.
     backend = registry.load(
         "openbb_agent_server.auth",
         "none",
@@ -139,7 +124,7 @@ def test_load_tolerates_uninspectable_init_signature(
 
 
 def test_accepted_kwargs_ignores_var_positional() -> None:
-    """A ``*args`` parameter is skipped; only named kwargs are collected."""
+    """Skip a *args parameter and collect only named kwargs."""
     from openbb_agent_server.runtime.registry import _accepted_kwargs
 
     class _HasVarPositional:

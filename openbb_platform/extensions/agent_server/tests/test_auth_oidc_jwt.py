@@ -1,4 +1,4 @@
-"""oidc_jwt auth backend tests — real RS256 verification, no mocks."""
+"""oidc_jwt auth backend tests."""
 
 from __future__ import annotations
 
@@ -211,7 +211,6 @@ def test_scopes_as_list_claim_are_extracted(
 
 
 def test_invalid_signature_returns_403(jwks_server: str) -> None:
-    # Sign with a DIFFERENT key — JWKS won't have the matching kid.
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     from cryptography.hazmat.primitives import serialization
 

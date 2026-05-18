@@ -1,4 +1,4 @@
-"""Unit tests for ``gemma_audio`` — exercises closure-bound tools."""
+"""gemma_audio tool source tests."""
 
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def stub_nvidia_module(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 @pytest.fixture
 def stub_split(monkeypatch: pytest.MonkeyPatch) -> list[tuple[bytes, float]]:
-    """Replace ``split_audio_bytes`` so tests don't need ffmpeg."""
+    """Replace split_audio_bytes so tests don't need ffmpeg."""
     from openbb_agent_server.plugins.tools import gemma_audio
 
     called: list[tuple[bytes, float]] = []
@@ -133,7 +133,7 @@ def stub_split(monkeypatch: pytest.MonkeyPatch) -> list[tuple[bytes, float]]:
 
 @pytest.fixture
 def stub_split_multi(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``split_audio_bytes`` that returns multiple segments."""
+    """Replace split_audio_bytes with one that returns multiple segments."""
     from openbb_agent_server.plugins.tools import gemma_audio
 
     async def fake_split(raw: bytes, *, max_seconds: float) -> list[AudioSegment]:
@@ -477,7 +477,6 @@ async def test_transcribe_audio_uploaded_no_mime_falls_back(
         tools = await src.tools(ctx, {})
         [tool] = [t for t in tools if t.name == "transcribe_audio"]
         out = await tool.ainvoke({"name": "clip"})
-    # No mime, no extension → defaults to "audio/mpeg" via the fallback.
     assert out["segments"] == 1
 
 
@@ -507,7 +506,7 @@ async def test_submit_transcribe_audio_returns_job_id(
 
 @pytest.mark.asyncio
 async def test_tools_respects_config_overrides(stub_nvidia_module: Any) -> None:
-    """Custom model/base_url propagates to ChatNVIDIA kwargs."""
+    """Propagate a custom model/base_url to ChatNVIDIA kwargs."""
 
     import base64
 

@@ -166,10 +166,8 @@ class ToolCall(Base):
     result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    side: Mapped[str] = mapped_column(String, default="server")  # "server" | "client"
-    state: Mapped[str] = mapped_column(
-        String, default="complete"
-    )  # "pending" | "complete" | "error"
+    side: Mapped[str] = mapped_column(String, default="server")
+    state: Mapped[str] = mapped_column(String, default="complete")
     ts: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     __table_args__ = (Index("ix_tool_calls_user_trace", "user_id", "trace_id", "seq"),)
@@ -259,11 +257,7 @@ class WidgetData(Base):
 
 
 class PdfDocument(Base):
-    """One ingested PDF with its metadata + table of contents.
-
-    Per-page text + word bounding boxes live on :class:`PdfPage` so a
-    big prospectus doesn't load every page just to read the TOC.
-    """
+    """One ingested PDF with its metadata and table of contents."""
 
     __tablename__ = "pdf_documents"
 
@@ -276,9 +270,7 @@ class PdfDocument(Base):
     total_pages: Mapped[int] = mapped_column(Integer, default=0)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     toc_json: Mapped[list[Any]] = mapped_column(JSON, default=list)
-    status: Mapped[str] = mapped_column(
-        String, default="pending"
-    )  # "pending" | "ready" | "error"
+    status: Mapped[str] = mapped_column(String, default="pending")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     ingested_at: Mapped[_dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_now

@@ -5,7 +5,7 @@ One SQLite (or Postgres) file holds two parallel layers:
 | Layer | Storage |
 | --- | --- |
 | Chat history, traces, usage, artifacts, citations, widget data, PDF ingest, users, api keys | SQLAlchemy ORM (see schema below) |
-| Cross-thread vector memory + per-row widget ANN index | `langchain_community.vectorstores.SQLiteVec` tables in the same file |
+| Cross-thread vector memory + per-page PDF ANN index | `langchain_community.vectorstores.SQLiteVec` tables in the same file |
 
 ## URLs
 
@@ -50,7 +50,9 @@ Vector tables (managed by SQLiteVec):
 
 - `memories_text`, `memories_text_vec` — text-embedded memory rows.
 - `memories_code`, `memories_code_vec` — created only when `embeddings_code_provider` is set.
-- `widget_rows_vec` — per-row ANN index referencing `widget_data.id`.
+- `pdf_pages_vec` — per-page ANN index over ingested PDF text.
+
+Widget tabular data is **not** vector-indexed — it is queried with SQL via `query_widget_data` and keyword-matched via `search_widget_data`. A legacy `widget_rows_vec` table on an older database is dropped by the next prune.
 
 Metadata on every vector row carries `user_id` so cross-user isolation is preserved at the SQL filter level.
 
@@ -69,6 +71,30 @@ Set `db_url` to a `postgresql+psycopg://...` URL. The ORM schema is identical; S
 
 Cross-process cancellation is in-process only; `POST /v1/conversations/{id}/cancel` signals an `asyncio.Event` on the worker that's serving the run.
 
+## Retention / pruning
+
+Two files grow without bound otherwise:
+
+- **`checkpoints.db`** — LangGraph's checkpointer writes a *full snapshot of the agent state* on every super-step, per thread, forever. This is the dominant bloat: a heavy multi-tool turn produces dozens of snapshots of an ever-growing state.
+- **`history.db`** — every trace, message, tool call, usage row, artifact, citation, ingested widget payload, and PDF page accumulates, plus the `pdf_pages_vec` SQLiteVec index over PDF text. (Widget tabular data is no longer vector-indexed; a legacy `widget_rows_vec` table from an older build is dropped by the prune.)
+
+Pruning has two levers, configured via the [retention keys](configuration.md#retention--pruning):
+
+1. **`checkpoint_keep_last`** (default `1`) — per conversation thread, keep only the newest N checkpoints. Resume only ever needs the latest; the intermediate super-step snapshots are dead weight. This is what keeps `checkpoints.db` small.
+2. **`checkpoint_retention_days`** / **`history_retention_days`** — age cutoffs. Checkpoint threads are dropped when their trace falls outside the window (correlated via the `thread_id`, which embeds the `trace_id`); history rows are dropped by their own timestamp column. `prune_history_vectors` then reclaims the SQLiteVec space: it drops a legacy `widget_rows_vec` table wholesale and orphan-cleans `pdf_pages_vec` rows whose parent PDF is gone (the vec tables have no foreign key, so they would otherwise leak).
+
+Each prune ends with a `VACUUM` (unless `--no-vacuum`) — SQLite does not shrink the file on `DELETE` alone, it only frees pages for reuse.
+
+A prune runs at server startup and every `prune_interval_hours` thereafter (`0` disables the sweep). On demand:
+
+```sh
+openbb-agent-server prune                     # use configured retention
+openbb-agent-server prune --history-days 30 --keep-last 1
+openbb-agent-server prune --no-vacuum         # delete only, skip the file rewrite
+```
+
+`prune_checkpoints` operates only on a SQLite checkpointer; `run_prune` is a no-op against `inmemory` / Postgres checkpointers.
+
 ## Backups
 
 - **SQLite:** copy the `.db` file (quiescent) or use `sqlite3 .backup`.
@@ -78,6 +104,7 @@ Cross-process cancellation is in-process only; `POST /v1/conversations/{id}/canc
 
 - [`persistence/store.py`](../../openbb_agent_server/persistence/store.py)
 - [`persistence/sqlite_store.py`](../../openbb_agent_server/persistence/sqlite_store.py)
+- [`persistence/prune.py`](../../openbb_agent_server/persistence/prune.py)
 - [`persistence/models.py`](../../openbb_agent_server/persistence/models.py)
 - [`runtime/widget_store.py`](../../openbb_agent_server/runtime/widget_store.py)
 - [`memory/sqlite_store.py`](../../openbb_agent_server/memory/sqlite_store.py)

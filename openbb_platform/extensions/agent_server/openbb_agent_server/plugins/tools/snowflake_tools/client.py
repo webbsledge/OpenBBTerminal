@@ -37,7 +37,7 @@ class SnowflakeCredentials(BaseModel):
     network_timeout: int = 60
 
     def to_connect_kwargs(self) -> dict[str, Any]:
-        """Build kwargs for :func:`snowflake.connector.connect`."""
+        """Build kwargs for ``snowflake.connector.connect``."""
         kwargs: dict[str, Any] = {}
         for k in (
             "account",

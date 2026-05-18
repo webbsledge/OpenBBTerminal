@@ -1,4 +1,4 @@
-"""``PdfStore`` unit tests — SQL store, background parse, vector index."""
+"""PdfStore unit tests."""
 
 from __future__ import annotations
 
@@ -26,18 +26,7 @@ from openbb_agent_server.runtime.principal import UserPrincipal
 def _build_pdf(
     text: str = "Hello World", *, pages: int = 1, outline: bool = False
 ) -> bytes:
-    """Build a minimal real multi-page PDF via reportlab.
-
-    Parameters
-    ----------
-    text
-        Drawn on each page (page number appended).
-    pages
-        Number of pages.
-    outline
-        When True, embed bookmarks + document metadata so the
-        pdfminer outline / metadata extraction paths are exercised.
-    """
+    """Build a minimal real multi-page PDF via reportlab."""
     pytest.importorskip("pdfplumber")
     from reportlab.pdfgen import canvas
 
@@ -80,7 +69,7 @@ def test_apply_sqlite_pragmas_skips_non_sqlite() -> None:
     class _Engine:
         pass
 
-    _apply_sqlite_pragmas(_Engine(), "postgresql://host/db")  # no AttributeError
+    _apply_sqlite_pragmas(_Engine(), "postgresql://host/db")
 
 
 def test_apply_sqlite_pragmas_registers_listener(tmp_path: Path) -> None:
@@ -112,9 +101,7 @@ def test_file_key_branches() -> None:
     by_b64 = _file_key("a.pdf", None, "JVBERi0xLjQ=")
     by_name = _file_key("a.pdf", None, None)
     assert by_url != by_b64 != by_name
-    # Idempotent on content — name drift does not change the key.
     assert _file_key("renamed.pdf", "https://x/a.pdf", None) == by_url
-    # Distinct unfetchable refs do not collide.
     assert _file_key("b.pdf", None, None) != by_name
 
 
@@ -130,7 +117,7 @@ async def test_engine_property_and_status_unknown() -> None:
 
 @pytest.mark.asyncio
 async def test_init_with_external_engine_skips_pragmas() -> None:
-    """Passing ``engine=`` bypasses ``_apply_sqlite_pragmas``."""
+    """Passing an explicit engine bypasses _apply_sqlite_pragmas."""
     from sqlalchemy.ext.asyncio import create_async_engine
 
     eng = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
@@ -185,7 +172,7 @@ async def test_ingest_skips_when_already_ready() -> None:
     await store.await_pending()
     store._tasks.clear()
     await store.ingest_async(principal=p, name="a.pdf", data_base64=pdf_b64)
-    assert not store._tasks  # no new background task scheduled
+    assert not store._tasks
     await store.engine.dispose()
 
 
@@ -211,7 +198,7 @@ async def test_ingest_skips_when_in_flight() -> None:
     await started.wait()
     key2 = await store.ingest_async(principal=p, name="a.pdf", data_base64=pdf_b64)
     assert key1 == key2
-    assert len(store._tasks) == 1  # second call deduped on the in-flight task
+    assert len(store._tasks) == 1
     release.set()
     await store.await_pending()
     await store.engine.dispose()
@@ -220,13 +207,13 @@ async def test_ingest_skips_when_in_flight() -> None:
 @pytest.mark.asyncio
 async def test_await_pending_noop_when_empty() -> None:
     store = PdfStore("sqlite+aiosqlite:///:memory:")
-    await store.await_pending()  # returns immediately, no tasks
+    await store.await_pending()
     await store.engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_ingest_records_error_on_parse_failure() -> None:
-    """Unparseable bytes land the document in ``error`` status."""
+    """Unparsable bytes land the document in ``error`` status."""
     store = PdfStore("sqlite+aiosqlite:///:memory:")
     await _create_schema(store)
     bad_b64 = base64.b64encode(b"not a pdf at all").decode()
@@ -248,8 +235,6 @@ async def test_ingest_reuses_existing_pending_row() -> None:
     p = _principal()
     await store.ingest_async(principal=p, name="bad.pdf", data_base64=bad_b64)
     await store.await_pending()
-    # Re-ingest with valid bytes under the SAME key by reusing the row:
-    # call the background coro directly with the recorded file_key.
     key = _file_key("bad.pdf", None, bad_b64)
     good_b64 = base64.b64encode(_build_pdf()).decode()
     await store._ingest_in_background(
@@ -267,7 +252,7 @@ async def test_ingest_reuses_existing_pending_row() -> None:
 
 @pytest.mark.asyncio
 async def test_ingest_background_returns_when_existing_ready() -> None:
-    """``_ingest_in_background`` returns early if the row is already ready."""
+    """_ingest_in_background returns early if the row is already ready."""
     store = PdfStore("sqlite+aiosqlite:///:memory:")
     await _create_schema(store)
     pdf_b64 = base64.b64encode(_build_pdf()).decode()
@@ -275,7 +260,6 @@ async def test_ingest_background_returns_when_existing_ready() -> None:
     await store.ingest_async(principal=p, name="a.pdf", data_base64=pdf_b64)
     await store.await_pending()
     key = _file_key("a.pdf", None, pdf_b64)
-    # Direct call: the existing row is ``ready`` → returns without reparse.
     await store._ingest_in_background(
         principal=p,
         file_key=key,
@@ -318,17 +302,12 @@ async def test_substring_search_matches_page_text() -> None:
     hits = await store.search(principal=p, query="needle", k=5)
     assert hits and hits[0]["name"] == "s.pdf"
     assert hits[0]["score"] == 1.0
-    # No match → empty.
     assert await store.search(principal=p, query="zzzznomatch", k=5) == []
     await store.engine.dispose()
 
 
 class _StubEmbeddings(Embeddings):
-    """Tiny deterministic embedding so the SQLiteVec path is exercised.
-
-    Subclasses ``langchain_core.embeddings.Embeddings`` so ``SQLiteVec``
-    accepts it without a "must be Embeddings object" warning.
-    """
+    """Tiny deterministic embedding for the SQLiteVec path."""
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [self._one(t) for t in texts]
@@ -360,7 +339,6 @@ async def test_vector_index_and_search(tmp_path: Path) -> None:
     hits = await store.search(principal=p, query="revenue", k=3)
     assert isinstance(hits, list)
     assert all("score" in h and "page" in h for h in hits)
-    # A different user's query sees nothing — metadata filter on user_id.
     other = await store.search(principal=_principal("other"), query="revenue", k=3)
     assert other == []
     await store.engine.dispose()
@@ -386,9 +364,6 @@ async def test_vector_search_dedup_and_k_limit(tmp_path: Path) -> None:
             }
             self.page_content = f"page {page}"
 
-    # First hit belongs to another user (skipped). Page 1 then appears
-    # twice (the second is deduped). Page 2 + page 3 fill ``k=2`` so the
-    # k-limit ``break`` fires before page 3's hit is appended.
     scored = [
         (_Doc(9, 9, "other"), 0.1),
         (_Doc(1, 1), 0.2),
@@ -535,7 +510,7 @@ def test_parse_pdf_sync_raises_without_source() -> None:
 
 
 class _StubPage:
-    """A pdfplumber-like page; ``has_obj=False`` drops ``page_obj``."""
+    """A pdfplumber-like page; has_obj=False drops page_obj."""
 
     def __init__(self, idx: int, *, has_obj: bool = True) -> None:
         self._idx = idx
@@ -550,8 +525,7 @@ class _StubPage:
 
 
 class _StubDoc:
-    """A ``pdf.doc`` whose outline mixes a valid entry, a malformed
-    entry, and an entry whose ``dest`` makes ``resolve1`` raise."""
+    """A pdf.doc with a valid, a malformed, and a resolve-raising outline entry."""
 
     @staticmethod
     def get_outlines() -> list[Any]:
@@ -563,13 +537,7 @@ class _StubDoc:
 
 
 class _StubPdf:
-    """A pdfplumber-like context manager.
-
-    ``meta_raises`` makes the ``metadata`` accessor blow up (covers the
-    ``dict(pdf.metadata or {})`` guard); otherwise it returns bytes-
-    valued metadata so the bytes-decode branch of the inner ``_s``
-    helper is exercised.
-    """
+    """A pdfplumber-like context manager."""
 
     def __init__(self, *, meta_raises: bool) -> None:
         self.pages = [_StubPage(1), _StubPage(2, has_obj=False)]
@@ -590,7 +558,7 @@ class _StubPdf:
 
 
 def _patch_plumber(monkeypatch: pytest.MonkeyPatch, *, meta_raises: bool) -> None:
-    """Install a stub ``pdfplumber`` + ``resolve1`` for ``_parse_pdf_sync``."""
+    """Install a stub pdfplumber and resolve1 for _parse_pdf_sync."""
     import sys
 
     from pdfminer import pdftypes
@@ -612,15 +580,13 @@ def _patch_plumber(monkeypatch: pytest.MonkeyPatch, *, meta_raises: bool) -> Non
 def test_parse_pdf_sync_metadata_access_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A raising ``pdf.metadata`` accessor leaves ``raw_meta`` empty."""
+    """A raising pdf.metadata accessor leaves raw_meta empty."""
     _patch_plumber(monkeypatch, meta_raises=True)
     parsed = _parse_pdf_sync(
         url=None, data_base64=base64.b64encode(b"%PDF-stub").decode()
     )
     assert parsed["metadata"]["title"] is None
     assert parsed["total_pages"] == 2
-    # Well-formed outline entry resolves; malformed one is dropped;
-    # the resolve1-raising entry yields ``page=None``.
     assert [e["title"] for e in parsed["toc"]] == ["Good", "BadDest"]
     assert parsed["toc"][0]["page"] == 1
     assert parsed["toc"][1]["page"] is None
@@ -629,7 +595,7 @@ def test_parse_pdf_sync_metadata_access_failure(
 def test_parse_pdf_sync_decodes_bytes_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Bytes-valued metadata is UTF-8 decoded by the inner ``_s`` helper."""
+    """Bytes-valued metadata is UTF-8 decoded by the inner helper."""
     _patch_plumber(monkeypatch, meta_raises=False)
     parsed = _parse_pdf_sync(
         url=None, data_base64=base64.b64encode(b"%PDF-stub").decode()

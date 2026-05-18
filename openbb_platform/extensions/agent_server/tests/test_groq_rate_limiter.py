@@ -1,4 +1,4 @@
-"""GroqRateLimiter unit tests — buckets, blocking, and post-call accounting."""
+"""GroqRateLimiter unit tests."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from openbb_agent_server.plugins.models.groq_rate_limiter import (
 
 def test_bucket_refills_at_constant_rate() -> None:
     bucket = _Bucket.of(capacity=60, period_seconds=60.0)
-    bucket.consume(60)  # drain
-    bucket.last_refill -= 1.0  # simulate 1s elapsed
+    bucket.consume(60)
+    bucket.last_refill -= 1.0
     bucket.refill()
     assert bucket.available == pytest.approx(1.0, abs=0.05)
 
@@ -47,7 +47,6 @@ def test_acquire_consumes_one_request_per_call() -> None:
     snap_after = limiter.snapshot()
     assert snap_after["rpm_remaining"] < snap_before["rpm_remaining"]
     assert snap_after["rpd_remaining"] < snap_before["rpd_remaining"]
-    # Token buckets are NOT touched on acquire.
     assert snap_after["tpm_remaining"] == pytest.approx(
         snap_before["tpm_remaining"], abs=0.5
     )
@@ -62,23 +61,18 @@ def test_acquire_nonblocking_returns_false_when_drained() -> None:
 
 def test_acquire_blocking_waits_until_refill() -> None:
     limiter = GroqRateLimiter(rpm=60, rpd=None, tpm=None, tpd=None)
-    # Drain.
     for _ in range(60):
         limiter.acquire(blocking=False)
     t0 = time.monotonic()
     assert limiter.acquire(blocking=True) is True
     elapsed = time.monotonic() - t0
-    # 60 RPM = 1 req/s refill — must have waited ~1s.
     assert 0.7 <= elapsed <= 2.0
 
 
 def test_acquire_blocked_by_token_bucket_when_drained() -> None:
     limiter = GroqRateLimiter(rpm=60, rpd=None, tpm=10, tpd=None)
-    # Acquire one — should pass.
     assert limiter.acquire(blocking=False) is True
-    # Burn the entire TPM bucket.
     limiter.record_tokens(10)
-    # Next nonblocking acquire fails because TPM is at zero.
     assert limiter.acquire(blocking=False) is False
 
 
@@ -168,7 +162,6 @@ def test_get_limiter_picks_audio_buckets_for_whisper() -> None:
     assert snap["audio_seconds_per_day_remaining"] == pytest.approx(
         limits.audio_per_day, abs=0.5
     )
-    # Whisper has no token bucket.
     assert snap["tpm_remaining"] is None
     assert snap["tpd_remaining"] is None
 
@@ -212,7 +205,7 @@ def test_acquire_blocked_by_audio_bucket_when_drained() -> None:
         GroqLimits(rpm=20, audio_per_hour=10, audio_per_day=100)
     )
     assert limiter.acquire(blocking=False) is True
-    limiter.record_audio_seconds(10)  # drain hour bucket
+    limiter.record_audio_seconds(10)
     assert limiter.acquire(blocking=False) is False
 
 
@@ -220,7 +213,6 @@ def test_get_limiter_falls_back_to_default_for_unknown_model() -> None:
     reset_cache()
     limiter = get_limiter(api_key="k", model_name="not-a-published-model")
     snap = limiter.snapshot()
-    # Default fallback is conservative — RPM should be set, TPM should be set.
     assert snap["rpm_remaining"] >= 1
     assert snap["tpm_remaining"] is not None
 

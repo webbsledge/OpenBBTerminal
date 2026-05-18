@@ -1,4 +1,4 @@
-"""``analyst`` subagent — descriptive stats / table artifacts from data refs."""
+"""Analyst subagent."""
 
 from __future__ import annotations
 

@@ -83,7 +83,7 @@ auth_backend = "cookie"
 
 - **Return** a `UserPrincipal` on success.
 - **Raise** `HTTPException` with the appropriate status on failure:
-  - `401` — missing / unparseable credentials.
+  - `401` — missing / unparsable credentials.
   - `403` — credentials parsed but insufficient scopes.
   - Never `200 with anonymous principal` — use the `none` backend if that's what you actually want (dev-only).
 

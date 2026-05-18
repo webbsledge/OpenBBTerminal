@@ -35,7 +35,7 @@ async def _drive(
 
 @pytest.mark.asyncio
 async def test_natural_completion_does_not_emit_turn_complete_marker() -> None:
-    """The adapter must NOT emit a trailing ``Turn complete.`` ``StatusUpdateSSE``. Workspace closes the SSE stream when the generator exits; an extra synthetic ``SUCCESS`` event clutters the reasoning lane."""
+    """The adapter emits no trailing Turn complete StatusUpdateSSE."""
     adapter = DeepAgentEventAdapter()
 
     async def gen() -> AsyncIterator[dict[str, Any]]:
@@ -73,7 +73,7 @@ async def test_empty_text_chunk_is_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_client_side_tool_call_routes_through_execute_agent_tool() -> None:
-    """Tool names outside Workspace's closed enum must be wrapped as ``execute_agent_tool`` with the real name nested in ``input_arguments`` — Workspace's UI rejects ``function`` values it doesn't recognise."""
+    """Non-enum tool names are wrapped as execute_agent_tool."""
     raw = [
         {
             "type": "messages",
@@ -107,7 +107,7 @@ async def test_client_side_tool_call_routes_through_execute_agent_tool() -> None
 
 @pytest.mark.asyncio
 async def test_native_workspace_function_routes_directly() -> None:
-    """Names that ARE in Workspace's closed enum (e.g. ``get_widget_data``) pass through unchanged with their args at the top of input_arguments."""
+    """Enum names pass through unchanged with top-level args."""
     raw = [
         {
             "type": "messages",
@@ -153,14 +153,13 @@ async def test_explicit_client_tool_set_routes_to_function_call() -> None:
     )
     assert len(out) == 1
     assert isinstance(out[0], FunctionCallSSE)
-    # Unknown to Workspace → wrapped as execute_agent_tool.
     assert out[0].data.function == "execute_agent_tool"
     assert out[0].data.input_arguments["name"] == "render_chart"
 
 
 @pytest.mark.asyncio
 async def test_server_side_tool_call_emits_no_function_call() -> None:
-    """Plain tool calls — no ``client:`` / ``mcp:`` prefix, not in ``client_tool_names`` — execute inline inside the agent loop. Emitting a ``FunctionCallSSE`` here would cause Workspace to re-run the tool remotely and the model would never see a real result, so it must be suppressed."""
+    """Plain server-side tool calls emit no FunctionCallSSE."""
     out = await _drive(
         DeepAgentEventAdapter(client_tool_names=frozenset()),
         [
@@ -186,7 +185,7 @@ async def test_server_side_tool_call_emits_no_function_call() -> None:
 
 @pytest.mark.asyncio
 async def test_reasoning_content_coalesces_into_one_step_per_aimessage() -> None:
-    """All ``reasoning_content`` deltas within one AIMessage buffer into ONE ``StatusUpdateSSE`` row that fires when the message closes (tool dispatch / id transition / end of stream)."""
+    """All reasoning_content deltas in one AIMessage buffer into one row."""
     from openbb_agent_server.protocol.schemas import StatusUpdateSSE
 
     raw = [
@@ -220,7 +219,7 @@ async def test_reasoning_content_coalesces_into_one_step_per_aimessage() -> None
 
 @pytest.mark.asyncio
 async def test_prose_during_tool_call_routes_to_reasoning() -> None:
-    """Prose alongside tool_calls in the same AIMessage is an intermediate reasoning preface, NOT the final answer — it surfaces as a ``StatusUpdateSSE`` row inside the "Step-by-step reasoning" container, not as a message bubble in the answer area."""
+    """Prose alongside tool_calls routes to a reasoning row."""
     from openbb_agent_server.protocol.schemas import (
         MessageChunkSSE,
         StatusUpdateSSE,
@@ -254,7 +253,7 @@ async def test_prose_during_tool_call_routes_to_reasoning() -> None:
 
 @pytest.mark.asyncio
 async def test_workspace_mcp_tool_carries_server_id_through_arguments() -> None:
-    """``mcp:<server>:<fn>`` round-trips both the server id and the function name through ``execute_agent_tool``'s input_arguments."""
+    """An mcp tool name round-trips server id and function name."""
     raw = [
         {
             "type": "messages",
@@ -285,7 +284,7 @@ async def test_workspace_mcp_tool_carries_server_id_through_arguments() -> None:
 
 @pytest.mark.asyncio
 async def test_messages_event_extracts_text_from_block_list_content() -> None:
-    """Anthropic / Vertex / structured-output providers ship content as ``[{"type": "text", "text": "..."}, ...]``. The adapter must surface only the text blocks — otherwise the UI gets empty bubbles."""
+    """The adapter surfaces only text blocks from block-list content."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -419,10 +418,7 @@ async def test_custom_chunk_passthrough() -> None:
 
 @pytest.mark.asyncio
 async def test_artifacts_drain_after_final_answer() -> None:
-    """Artifacts buffer during the stream and drain AFTER the final
-    ``MessageChunkSSE`` so chat-bubble prose lands first and the
-    artifact cards stack below it in arrival order.
-    """
+    """Artifacts buffer during the stream and drain after the final chunk."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -452,7 +448,7 @@ async def test_artifacts_drain_after_final_answer() -> None:
 
 @pytest.mark.asyncio
 async def test_custom_artifact_table_is_flattened_to_records() -> None:
-    """Workspace tables consume a list-of-records ``content`` shape; adapter converts ``columns``/``rows`` shorthand to that shape."""
+    """The adapter converts columns/rows shorthand to list-of-records."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -507,7 +503,7 @@ async def test_custom_artifact_html_passthrough() -> None:
 
 @pytest.mark.asyncio
 async def test_custom_artifact_markdown_is_coerced_to_text() -> None:
-    """Workspace's wire spec doesn't list ``markdown`` as an artifact type; the adapter coerces it to ``text`` so the body still renders."""
+    """A markdown artifact type is coerced to text."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -599,13 +595,12 @@ async def test_custom_step_passthrough() -> None:
     assert isinstance(s, StatusUpdateSSE)
     assert s.data.eventType == "WARNING"
     assert s.data.message == "hot path"
-    # ``details`` is wrapped in a list per the wire spec.
     assert s.data.details == [{"x": 1}]
 
 
 @pytest.mark.asyncio
 async def test_custom_step_success_is_coerced_to_info() -> None:
-    """``SUCCESS`` is not a valid wire eventType — the adapter folds it into ``INFO`` so existing emitter sites keep working."""
+    """A SUCCESS event type is folded into INFO."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -674,8 +669,6 @@ async def test_custom_citations_passthrough() -> None:
                     ],
                 },
             },
-            # Final answer references the source so the relevance
-            # filter keeps it.
             {
                 "type": "messages",
                 "ns": [],
@@ -717,11 +710,9 @@ def test_citation_is_relevant_title_overlap_threshold() -> None:
     from openbb_agent_server.protocol.adapter import _citation_is_relevant
 
     citation = {"source_info": {"type": "web", "name": "ASML lifts 2026 sales outlook"}}
-    # Most title tokens present → kept.
     assert _citation_is_relevant(
         citation, {"asml", "lifts", "2026", "sales", "outlook"}
     )
-    # Almost none present → dropped.
     assert not _citation_is_relevant(citation, {"hsbc", "roche"})
 
 
@@ -1048,7 +1039,7 @@ def test_split_thinking_skips_empty_thinking_blocks() -> None:
 
 
 def test_extract_text_handles_block_with_no_type_but_text_field() -> None:
-    """A content block without a ``type`` field but with ``text`` still concatenates."""
+    """A content block with no type but a text field still concatenates."""
     from openbb_agent_server.protocol.adapter import _extract_text
 
     out = _extract_text([{"text": "hello"}, {"text": "world"}])
@@ -1057,7 +1048,7 @@ def test_extract_text_handles_block_with_no_type_but_text_field() -> None:
 
 
 def test_extract_text_handles_non_list_non_string() -> None:
-    """Anything other than ``str`` / ``list`` falls through to ``str(...)``."""
+    """Anything other than str or list falls through to str."""
     from openbb_agent_server.protocol.adapter import _extract_text
 
     assert _extract_text(42) == "42"
@@ -1065,7 +1056,7 @@ def test_extract_text_handles_non_list_non_string() -> None:
 
 
 def test_thinking_splitter_routes_blocks_to_status_then_chunk() -> None:
-    """Inline ``<think>...</think>`` routes to ``StatusUpdateSSE``, the rest to ``MessageChunkSSE``."""
+    """Inline think blocks route to status, the rest to chunks."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
     from openbb_agent_server.protocol.schemas import (
         MessageChunkSSE,
@@ -1082,9 +1073,7 @@ def test_thinking_splitter_routes_blocks_to_status_then_chunk() -> None:
 
 
 def test_thinking_splitter_buffers_prose_until_close() -> None:
-    """Prose buffers in ``_prose_buf`` and is routed at boundary-time
-    (tool dispatch → reasoning row, end-of-stream → final answer).
-    """
+    """Prose buffers and is routed at boundary time."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     adapter = DeepAgentEventAdapter()
@@ -1095,7 +1084,7 @@ def test_thinking_splitter_buffers_prose_until_close() -> None:
 
 
 def test_thinking_splitter_holds_back_only_partial_tag_tail() -> None:
-    """Hold-back is the minimum needed to detect a tag split across chunks. Everything before a trailing ``<`` flushes on the same tick; ``hello `` streams immediately, only the ``<thi`` tail waits for the rest of the tag."""
+    """Only a partial-tag tail is held back; everything before flushes."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
@@ -1110,7 +1099,7 @@ def test_thinking_splitter_holds_back_only_partial_tag_tail() -> None:
 def test_thinking_splitter_switches_channel_when_full_tag_arrives_in_one_delta() -> (
     None
 ):
-    """When the whole ``<thinking>...</thinking>`` block lands in a single chunk, the splitter routes the body to the thinking channel and the trailing prose back to the prose channel."""
+    """A whole thinking block in one chunk routes body and trailing prose."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
@@ -1123,7 +1112,7 @@ def test_thinking_splitter_switches_channel_when_full_tag_arrives_in_one_delta()
 
 
 def test_thinking_splitter_does_not_hold_back_when_no_lt_in_buffer() -> None:
-    """If the buffer contains no ``<``, every character flushes — no spurious buffering of plain prose."""
+    """With no angle bracket in the buffer, every character flushes."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
@@ -1169,7 +1158,7 @@ def test_build_function_call_skips_blank_name() -> None:
 
 
 def test_build_function_call_skips_workspace_native_when_not_client_tool() -> None:
-    """Workspace's built-in functions are filtered unless the agent declared them."""
+    """Built-in functions are filtered unless the agent declared them."""
     from openbb_agent_server.protocol.adapter import _WORKSPACE_NATIVE_FUNCTIONS
 
     natives = list(_WORKSPACE_NATIVE_FUNCTIONS)
@@ -1183,7 +1172,7 @@ def test_build_function_call_skips_workspace_native_when_not_client_tool() -> No
 
 
 def test_translate_messages_emits_reasoning_kwarg_as_status_update() -> None:
-    """``additional_kwargs.reasoning_content`` is surfaced as an INFO step."""
+    """reasoning_content is surfaced as an INFO step."""
     from openbb_agent_server.protocol.schemas import StatusUpdateSSE
 
     adapter = DeepAgentEventAdapter()
@@ -1206,7 +1195,7 @@ def test_translate_messages_emits_reasoning_kwarg_as_status_update() -> None:
 
 
 def test_translate_messages_flattens_reasoning_block_list() -> None:
-    """``reasoning_content`` as a list of blocks is joined."""
+    """reasoning_content as a list of blocks is joined."""
     from openbb_agent_server.protocol.schemas import StatusUpdateSSE
 
     adapter = DeepAgentEventAdapter()
@@ -1232,7 +1221,7 @@ def test_translate_messages_flattens_reasoning_block_list() -> None:
 
 
 def test_translate_error_event_emits_error_status() -> None:
-    """``type=error`` events become ``StatusUpdateSSE`` ERRORs."""
+    """Error events become StatusUpdateSSE ERRORs."""
     from openbb_agent_server.protocol.schemas import StatusUpdateSSE
 
     adapter = DeepAgentEventAdapter()
@@ -1251,7 +1240,7 @@ def test_translate_unknown_kind_returns_empty() -> None:
 
 
 def test_translate_messages_id_less_with_tool_indicator_routes_to_reasoning() -> None:
-    """Content alongside tool_calls in an ID-less message routes to the reasoning lane — it's an intermediate preface, not the final answer."""
+    """Content with tool_calls in an id-less message routes to reasoning."""
     from openbb_agent_server.protocol.schemas import MessageChunkSSE, StatusUpdateSSE
 
     adapter = DeepAgentEventAdapter()
@@ -1287,15 +1276,12 @@ def test_splitter_suppresses_after_harmony_marker() -> None:
     sp = _ThinkingStreamSplitter()
     out = sp.feed("visible answer <|channel|>functions.tool_call")
     assert out == [("prose", "visible answer ")]
-    # Every subsequent delta is dropped on the harmony-suppress guard.
     assert sp.feed("more leaked text") == []
     assert sp._harmony_suppress is True
 
 
 def test_splitter_stray_close_reclassifies_preceding_prose() -> None:
-    """A ``</think>`` with no matching open emits a ``close_unmatched`` marker
-    and routes the preceding text to the thinking channel.
-    """
+    """A stray close emits a close_unmatched marker and reroutes prose."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
@@ -1303,23 +1289,18 @@ def test_splitter_stray_close_reclassifies_preceding_prose() -> None:
     assert ("close_unmatched", "") in out
     assert ("thinking", "hidden reasoning") in out
     assert ("prose", "visible tail") in out
-    # Single-shot: a second stray close does NOT re-emit the marker.
     out2 = sp.feed("more</think>again")
     assert ("close_unmatched", "") not in out2
 
 
 def test_splitter_flush_emits_held_thinking_tail() -> None:
-    """``flush`` inside an unterminated thinking block emits on the thinking
-    channel.
-    """
+    """A flush inside an unterminated thinking block emits on that channel."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
-    # Trailing ``<`` is held back as a possible partial tag.
     sp.feed("<thinking>still going <")
     flushed = sp.flush()
     assert flushed == [("thinking", "<")]
-    # A second flush with an empty buffer yields nothing.
     assert sp.flush() == []
 
 
@@ -1328,35 +1309,24 @@ def test_splitter_safe_emit_end_holds_back_long_buffer_past_marker() -> None:
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
-    # ``<`` at index 0, buffer far longer than _PARTIAL_TAG_HOLD → flush all.
     out = sp.feed("<" + "x" * 64)
     assert out == [("prose", "<" + "x" * 64)]
 
 
 def test_splitter_holds_unclosed_citation_marker_until_closed() -> None:
-    """An unclosed ``【`` is held in full — even far past _PARTIAL_TAG_HOLD —
-    until its ``】`` arrives, so a long ``【cite_source …】`` marker never
-    streams out half-formed.
-    """
+    """An unclosed citation marker is held in full until it closes."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
-    # ``【`` then far more than _PARTIAL_TAG_HOLD chars, still unclosed —
-    # only the text before ``【`` is safe to emit.
     out = sp.feed('answer text 【cite_source text="' + "y" * 200)
     assert out == [("prose", "answer text ")]
-    # Closing ``】`` + trailing prose arrive: the whole marker flushes
-    # as one chunk so the strip regex can match it.
     [(channel, text)] = sp.feed('" source="f.pdf"】 and the rest')
     assert channel == "prose"
     assert text.startswith("【cite_source") and text.endswith(" and the rest")
 
 
 def test_splitter_holds_unclosed_pipe_citation_token_until_closed() -> None:
-    """An unclosed ``<|start_citation_id|>`` pipe-token is held in full —
-    past the short ``<`` window — until ``<|end_citation_id|>`` arrives,
-    so a gpt-oss citation token never streams out half-formed.
-    """
+    """An unclosed pipe-token citation is held in full until it closes."""
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
@@ -1369,9 +1339,7 @@ def test_splitter_holds_unclosed_pipe_citation_token_until_closed() -> None:
 
 
 def test_emit_splits_strips_inline_cite_source_marker() -> None:
-    """A ``【cite_source …】`` marker emitted as text is stripped from prose
-    before it reaches the chat bubble.
-    """
+    """An inline cite_source marker is stripped from prose."""
     adapter = DeepAgentEventAdapter()
     adapter._emit_splits(
         [
@@ -1386,10 +1354,7 @@ def test_emit_splits_strips_inline_cite_source_marker() -> None:
 
 
 def test_emit_splits_strips_bare_citation_id_markers() -> None:
-    """Bare ``【<token-id>】`` refs — citation ids a model echoed inline
-    instead of calling ``cite_source`` — are stripped from prose, while
-    short / CJK bracketed prose is left intact.
-    """
+    """Bare citation-id refs are stripped, short CJK prose is kept."""
     adapter = DeepAgentEventAdapter()
     adapter._emit_splits(
         [
@@ -1406,9 +1371,7 @@ def test_emit_splits_strips_bare_citation_id_markers() -> None:
 
 
 def test_emit_splits_strips_pipe_token_citation_markers() -> None:
-    """gpt-oss ``<|start_citation_id|>…<|end_citation_id|>`` pipe-tokens —
-    both the paired form and an orphan token — are stripped from prose.
-    """
+    """Pipe-token citation markers are stripped from prose."""
     adapter = DeepAgentEventAdapter()
     adapter._emit_splits(
         [
@@ -1424,16 +1387,14 @@ def test_emit_splits_strips_pipe_token_citation_markers() -> None:
 
 
 def test_flatten_reasoning_non_string_non_list_stringifies() -> None:
-    """A reasoning payload that is neither ``str`` nor ``list`` is stringified."""
+    """A reasoning payload that is neither str nor list is stringified."""
     from openbb_agent_server.protocol.adapter import _flatten_reasoning
 
     assert _flatten_reasoning(42) == "42"
 
 
 def test_emit_splits_close_unmatched_moves_prose_to_reasoning() -> None:
-    """A ``close_unmatched`` signal retroactively moves buffered prose into
-    the reasoning buffer.
-    """
+    """A close_unmatched signal moves buffered prose into reasoning."""
     adapter = DeepAgentEventAdapter()
     adapter._prose_buf = ["earlier prose"]
     adapter._emit_splits([("close_unmatched", "")])
@@ -1442,7 +1403,7 @@ def test_emit_splits_close_unmatched_moves_prose_to_reasoning() -> None:
 
 
 def test_emit_splits_skips_empty_text_pairs() -> None:
-    """An empty ``(channel, text)`` pair contributes nothing."""
+    """An empty channel-text pair contributes nothing."""
     adapter = DeepAgentEventAdapter()
     adapter._emit_splits([("prose", ""), ("thinking", "")])
     assert adapter._prose_buf == []
@@ -1505,11 +1466,7 @@ async def test_widget_citation_falls_back_to_widget_id() -> None:
 
 @pytest.mark.asyncio
 async def test_artifact_build_failure_is_swallowed() -> None:
-    """An artifact payload that breaks ``_build_artifact`` logs and emits
-    nothing instead of crashing the stream.
-    """
-    # A ``table`` artifact whose rows are not subscriptable makes the
-    # records comprehension in ``_resolve_artifact_table_content`` raise.
+    """An artifact payload that breaks _build_artifact emits nothing."""
     out = await _drive(
         DeepAgentEventAdapter(),
         [
@@ -1533,9 +1490,7 @@ async def test_artifact_build_failure_is_swallowed() -> None:
 
 @pytest.mark.asyncio
 async def test_custom_step_flushes_splitter_and_reasoning() -> None:
-    """A ``step`` custom event after streamed prose flushes the splitter and
-    the buffered reasoning segment before emitting the step.
-    """
+    """A step event flushes the splitter and reasoning before emitting."""
     raw = [
         {
             "type": "messages",
@@ -1555,7 +1510,7 @@ async def test_custom_step_flushes_splitter_and_reasoning() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_tool_without_inner_colon_uses_namespace_server_id() -> None:
-    """An ``mcp:<fn>`` name with no inner ``:`` takes the server id from ``ns``."""
+    """An mcp name with no inner colon takes the server id from ns."""
     raw = [
         {
             "type": "messages",
@@ -1579,9 +1534,7 @@ async def test_mcp_tool_without_inner_colon_uses_namespace_server_id() -> None:
 
 @pytest.mark.asyncio
 async def test_new_message_id_rotates_splitter_and_flushes_old() -> None:
-    """A new message id flushes the prior message's splitter before
-    rotating to a fresh one.
-    """
+    """A new message id flushes the prior splitter before rotating."""
     raw = [
         {
             "type": "messages",
@@ -1612,9 +1565,7 @@ def test_translate_messages_idless_event_makes_disposable_splitter() -> None:
 
 
 def test_translate_custom_inline_artifact_emits_message_artifact() -> None:
-    """``_translate_custom`` with an ``artifact`` kind emits a
-    ``MessageArtifactSSE`` directly (inline path).
-    """
+    """_translate_custom with an artifact kind emits a MessageArtifactSSE."""
     adapter = DeepAgentEventAdapter()
     out = adapter._translate_custom(
         {

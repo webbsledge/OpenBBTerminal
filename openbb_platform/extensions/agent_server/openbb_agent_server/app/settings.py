@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +118,6 @@ class AgentServerSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 6900
 
-    # Plugin selection.
     auth_backend: str = "none"
     auth_config: dict[str, Any] = Field(default_factory=dict)
 
@@ -141,8 +141,6 @@ class AgentServerSettings(BaseSettings):
         "pdf_extract",
         "dashboard",
         "recall_user_memory",
-        # NVIDIA NIM stack — translation, cross-encoder rerank, and
-        # multimodal (chart / image / spreadsheet understanding).
         "translate",
         "rerank",
         "vision_qa",
@@ -151,7 +149,6 @@ class AgentServerSettings(BaseSettings):
 
     tool_source_config: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
-    # Subagents and middleware ship enabled by default.
     subagents: tuple[str, ...] = (
         "researcher",
         "charter",
@@ -161,23 +158,14 @@ class AgentServerSettings(BaseSettings):
     middleware: tuple[str, ...] = (
         "tool_message_normaliser",
         "tool_filter",
-        # Surfaces every tool call as a copilotStatusUpdate so the user
-        # sees what the agent is doing as it does it.
         "tool_call_announcer",
         "usage_recorder",
         "tool_call_ledger",
-        # Short-circuits identical consecutive tool calls (model in a
-        # loop): after ``max_repeats`` it returns a synthetic
-        # ToolMessage telling the model to stop and answer.
         "loop_guard",
-        # Hard caps so a model that gets stuck in a tool-loop terminates
-        # gracefully with a final answer instead of streaming forever.
         "call_limit",
         "tool_call_limit",
     )
 
-    # Dynamic skills — list of filesystem paths the deepagents
-    # ``SkillsMiddleware`` will scan at run start.
     skills: tuple[str, ...] = ()
 
     system_prompt_file: str | None = None
@@ -208,12 +196,14 @@ class AgentServerSettings(BaseSettings):
     translate_for_ingestion: bool = True
     ingest_target_language: str = "English"
 
-    # Persistence: SQLite at ``$HOME/.openbb_platform/agent/history.db``
-    # by default. Override with a Postgres URL for multi-worker prod.
     db_url: str | None = None
     data_dir: Path = Path.home() / ".openbb_platform" / "agent"
 
-    # Feature catalog rendered in /agents.json. Operators can override.
+    checkpoint_keep_last: int = 1
+    checkpoint_retention_days: int | None = 14
+    history_retention_days: int | None = 90
+    prune_interval_hours: int = 24
+
     features: dict[str, Any] = Field(default_factory=lambda: dict(DEFAULT_FEATURES))
 
     metadata: AgentMetadata = Field(default_factory=AgentMetadata)
@@ -276,7 +266,6 @@ class AgentServerSettings(BaseSettings):
                     "paligemma_vision",
                     "inspect_widget_data",
                 ],
-                # No subagents — single-purpose endpoint.
                 "subagents": [],
             },
             "qwen3-coder": {
@@ -387,6 +376,17 @@ class AgentServerSettings(BaseSettings):
             return self.db_url
         path = self.data_dir / "history.db"
         return f"sqlite+aiosqlite:///{path}"
+
+    def resolved_checkpoint_path(self) -> str | None:
+        """Resolve the sqlite checkpointer file path, or ``None`` if not sqlite."""
+        if self.checkpointer_provider != "sqlite":
+            return None
+        explicit = self.checkpointer_config.get("path") or os.environ.get(
+            "OPENBB_AGENT_CHECKPOINTER_PATH"
+        )
+        if explicit:
+            return str(explicit)
+        return str(self.data_dir / "checkpoints.db")
 
     def all_profile_names(self) -> tuple[str, ...]:
         """Every profile this server hosts, including the default."""
@@ -508,11 +508,6 @@ class AgentServerSettings(BaseSettings):
                 flat["model_config"] = model["config"]
 
         if "features" in agent_section and isinstance(agent_section["features"], dict):
-            # Merge over the built-in defaults so the always-available
-            # toggles (``search-web``, ``fetch-url``, the reserved
-            # booleans) survive an operator-supplied ``[agent.features]``
-            # block — the operator overrides individual entries, not the
-            # whole set.
             flat["features"] = {
                 **DEFAULT_FEATURES,
                 **agent_section["features"],

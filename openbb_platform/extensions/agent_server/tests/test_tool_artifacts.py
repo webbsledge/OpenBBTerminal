@@ -99,13 +99,9 @@ async def test_cite_source_writes_citations(captured: list[dict[str, Any]]) -> N
     [payload] = captured
     assert payload["type"] == "citations"
     [citation] = payload["citations"]
-    # The wire shape is openbb-ai's ``Citation`` (id + source_info +
-    # details), not a flat ``{text, source, ...}`` map.
     assert citation["id"]
     assert citation["source_info"]["name"] == "10-K"
     assert citation["source_info"]["origin"] == "http://x"
-    # Popover ``details`` is enriched with ``url`` + ``title`` so the
-    # chip lets the user copy / inspect the source without leaving.
     assert citation["details"] == [
         {"text": "quote", "url": "http://x", "title": "10-K"}
     ]
@@ -125,7 +121,7 @@ async def test_emit_markdown_writes_markdown_payload(
 
 
 def test_sanitise_markdown_strips_scratchpad_heading_section() -> None:
-    """A ``Tool activity`` heading and its body are removed; notes report it."""
+    """Remove a Tool activity heading and its body, reporting it in notes."""
     from openbb_agent_server.plugins.tools.artifacts import _sanitise_markdown_body
 
     body = (
@@ -141,7 +137,7 @@ def test_sanitise_markdown_strips_scratchpad_heading_section() -> None:
 
 
 def test_sanitise_markdown_strips_inline_tool_call_lines() -> None:
-    """List lines that enumerate tool calls are stripped with a note."""
+    """Strip list lines that enumerate tool calls and add a note."""
     from openbb_agent_server.plugins.tools.artifacts import _sanitise_markdown_body
 
     body = (
@@ -158,7 +154,7 @@ def test_sanitise_markdown_strips_inline_tool_call_lines() -> None:
 
 
 def test_sanitise_markdown_strips_trailing_scratchpad_section() -> None:
-    """A scratchpad heading at the very end (no following heading) is removed."""
+    """Remove a trailing scratchpad heading with no following heading."""
     from openbb_agent_server.plugins.tools.artifacts import _sanitise_markdown_body
 
     body = "# Analysis\n\nGood numbers.\n\n## Next steps\n\nReview the filing.\n"
@@ -170,7 +166,7 @@ def test_sanitise_markdown_strips_trailing_scratchpad_section() -> None:
 
 
 def test_sanitise_markdown_clean_body_returned_unchanged() -> None:
-    """Content with no scratchpad sections comes back byte-for-byte."""
+    """Return content with no scratchpad sections unchanged."""
     from openbb_agent_server.plugins.tools.artifacts import _sanitise_markdown_body
 
     body = "# Analysis\n\nJust the polished prose, nothing to strip.\n"
@@ -180,13 +176,11 @@ def test_sanitise_markdown_clean_body_returned_unchanged() -> None:
 
 
 def test_decode_if_string_parses_json_and_passes_through() -> None:
-    """``_decode_if_string`` decodes JSON strings and leaves bad input alone."""
+    """Decode JSON strings and leave bad input alone."""
     from openbb_agent_server.plugins.tools.artifacts import _decode_if_string
 
     assert _decode_if_string('["a", "b"]') == ["a", "b"]
-    # Non-JSON string is returned untouched.
     assert _decode_if_string("not json") == "not json"
-    # Non-string passes straight through.
     assert _decode_if_string([1, 2]) == [1, 2]
 
 
@@ -194,7 +188,7 @@ def test_decode_if_string_parses_json_and_passes_through() -> None:
 async def test_emit_markdown_appends_sanitiser_warning(
     captured: list[dict[str, Any]],
 ) -> None:
-    """When the body trips the sanitiser, the tool result carries a WARNING."""
+    """Carry a WARNING in the tool result when the body trips the sanitiser."""
     src = ArtifactsToolSource()
     tools = await src.tools(_ctx(), {})
     md = next(t for t in tools if t.name == "emit_markdown_artifact")
@@ -210,7 +204,7 @@ async def test_emit_markdown_appends_sanitiser_warning(
 async def test_emit_html_appends_sanitiser_warning(
     captured: list[dict[str, Any]],
 ) -> None:
-    """The HTML emitter also surfaces the sanitiser WARNING suffix."""
+    """Surface the sanitiser WARNING suffix from the HTML emitter."""
     src = ArtifactsToolSource()
     tools = await src.tools(_ctx(), {})
     html = next(t for t in tools if t.name == "emit_html_artifact")

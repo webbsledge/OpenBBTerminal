@@ -1,4 +1,4 @@
-"""``loop_guard`` middleware — short-circuits identical tool-call loops."""
+"""Loop guard middleware."""
 
 from __future__ import annotations
 
@@ -55,9 +55,6 @@ class _LoopGuardMiddleware(AgentMiddleware):
         self._max_repeats = max_repeats
         self._last_key: tuple[str, str] | None = None
         self._repeat_count: int = 0
-        # Once tripped, every further identical call short-circuits
-        # silently (no extra reasoning_step spam). Resets when the
-        # model picks a different tool or different args.
         self._tripped: bool = False
 
     async def awrap_tool_call(self, request: Any, handler: Any) -> Any:
@@ -79,11 +76,6 @@ class _LoopGuardMiddleware(AgentMiddleware):
             except GraphBubbleUp:
                 raise
 
-        # The model is repeating the same (name, args) pair. Return a
-        # synthetic ToolMessage telling it to stop instead of running
-        # the tool again. The agent loop sees this as a normal
-        # ToolMessage and continues — but with a message that the
-        # model's training tells it to react to (i.e. stop calling).
         if not self._tripped:
             self._tripped = True
             emit.reasoning_step(
@@ -110,10 +102,6 @@ class _LoopGuardMiddleware(AgentMiddleware):
             ),
             tool_call_id=_tool_call_id(request),
             name=name,
-            # ``success`` (the default) — not ``error`` — so the
-            # model treats this as a normal tool result with an
-            # unusual instruction rather than a hard failure that
-            # justifies giving up.
         )
 
 
@@ -123,10 +111,6 @@ class LoopGuardMiddlewareFactory(Middleware):
     name = "loop_guard"
 
     def __init__(self, *, max_repeats: int = 2) -> None:
-        # Two identical consecutive calls is the threshold — the
-        # first is legitimate, the second is a plausible retry
-        # after a parse glitch, the third+ is a loop and gets
-        # short-circuited.
         self._max_repeats = max_repeats
 
     def build(self, ctx: RunContext, config: dict[str, Any]) -> AgentMiddleware:

@@ -21,7 +21,7 @@ class WidgetRef(BaseModel):
     widget_id: str = ""
     origin: str = ""
     params: dict[str, Any] = Field(default_factory=dict)
-    data: Any = None  # Filled in only after a ``get_widget_data`` round-trip.
+    data: Any = None
 
 
 class FileRef(BaseModel):

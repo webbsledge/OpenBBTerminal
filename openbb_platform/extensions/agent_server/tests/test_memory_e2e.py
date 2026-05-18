@@ -32,7 +32,7 @@ from openbb_agent_server.runtime.principal import UserPrincipal
 
 @pytest_asyncio.fixture
 async def memory(tmp_path: Path) -> AsyncIterator[SqliteMemoryStore]:
-    """Fresh sqlite-backed memory store on a tempdir DB. Uses the real"""
+    """Fresh sqlite-backed memory store on a tempdir DB."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'm.db'}"
     history = SqliteHistoryStore(url)
     await history.init_schema()
@@ -44,7 +44,7 @@ async def memory(tmp_path: Path) -> AsyncIterator[SqliteMemoryStore]:
 
 
 def test_split_returns_empty_on_none_reply() -> None:
-    """Extractor outputs the literal word "NONE" when nothing's worth"""
+    """Return an empty list for a NONE extractor reply."""
     assert _split("NONE") == []
     assert _split("none") == []
     assert _split(" NONE ") == []
@@ -65,7 +65,6 @@ def test_split_strips_bullet_prefixes_and_whitespace() -> None:
 
 
 def test_split_filters_lines_too_short_to_be_facts() -> None:
-    # Lines under 6 chars are noise (e.g. "ok", "yes", "n/a") — drop them.
     raw = "hi\n- ok\n- the user is a quant analyst\n"
     out = _split(raw)
     assert out == ["the user is a quant analyst"]
@@ -79,7 +78,7 @@ def test_split_handles_empty_and_whitespace_only() -> None:
 async def test_write_memories_persists_extracted_lines(
     memory: SqliteMemoryStore, alice: UserPrincipal
 ) -> None:
-    """The full flow: feed a transcript + a fake extractor → end up with"""
+    """Persist extracted lines from a transcript."""
     extractor_reply = (
         "- user tracks AAPL fundamentals quarterly\n"
         "- user prefers dark mode in Workspace\n"
@@ -104,7 +103,6 @@ async def test_write_memories_persists_extracted_lines(
     }
     assert all(r.source_trace_id == "trace-1" for r in rows)
 
-    # And the recall path surfaces them.
     recalled = await memory.recall(principal=alice, query="AAPL", k=5)
     assert any("AAPL" in m.text for m in recalled)
 
@@ -129,7 +127,7 @@ async def test_write_memories_returns_zero_on_none_extractor_reply(
 async def test_write_memories_requires_memory_write_scope(
     memory: SqliteMemoryStore,
 ) -> None:
-    """A principal without ``memory:write`` is silently a no-op"""
+    """No-op when the principal lacks memory:write."""
     reader_only = UserPrincipal(user_id="reader", scopes=("memory:read",))
     extractor = FakeListChatModel(responses=["- user likes orange"])
     n = await write_memories(
@@ -163,7 +161,7 @@ async def test_write_memories_swallows_extractor_failures(
     alice: UserPrincipal,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Extractor exceptions are best-effort — they must NOT poison the"""
+    """Swallow extractor failures."""
     extractor = FakeListChatModel(responses=["never used"])
 
     async def _boom(*_args: object, **_kwargs: object) -> object:
@@ -182,8 +180,6 @@ async def test_write_memories_swallows_extractor_failures(
 
 
 def test_extractor_system_prompt_is_non_empty() -> None:
-    # Sanity check: the prompt is what we pass to NIM; a regression that
-    # accidentally clears it would silently break extraction.
     assert "NONE" in EXTRACTOR_SYSTEM_PROMPT
     assert "memory" in EXTRACTOR_SYSTEM_PROMPT.lower()
 
@@ -191,7 +187,7 @@ def test_extractor_system_prompt_is_non_empty() -> None:
 async def test_schedule_returns_none_when_memory_disabled(
     alice: UserPrincipal,
 ) -> None:
-    """When the operator hasn't configured memory infra (store or"""
+    """Return None when memory is disabled."""
     assert (
         schedule(
             principal=alice,
@@ -279,14 +275,13 @@ async def test_recall_tool_yields_nothing_when_no_store_bound() -> None:
         ),
         {},
     )
-    # No store ⇒ no tool emitted (silently disabled).
     assert tools == []
 
 
 async def test_recall_tool_returns_user_memories_through_ainvoke(
     memory: SqliteMemoryStore, alice: UserPrincipal
 ) -> None:
-    """Drive the full LangChain tool path the agent uses."""
+    """Return user memories through the tool's ainvoke path."""
     await memory.write(principal=alice, text="user prefers AAPL fundamentals")
     await memory.write(principal=alice, text="user runs Quart-bench daily")
 
@@ -296,7 +291,6 @@ async def test_recall_tool_returns_user_memories_through_ainvoke(
         result = await tool.ainvoke({"query": "AAPL", "k": 5})
     assert isinstance(result, list)
     assert any("AAPL" in row["text"] for row in result)
-    # Every row carries the public shape the agent expects.
     for row in result:
         assert {"id", "text", "kind", "pinned", "score"} <= set(row.keys())
 
@@ -306,7 +300,7 @@ async def test_recall_tool_enforces_principal_scope(
     alice: UserPrincipal,
     bob: UserPrincipal,
 ) -> None:
-    """A principal-scoped store CANNOT leak memories across users even"""
+    """Enforce principal scope in the recall tool."""
     canary = "AAAA-CANARY-DO-NOT-LEAK-AAAA"
     await memory.write(principal=alice, text=canary)
 
@@ -318,8 +312,7 @@ async def test_recall_tool_enforces_principal_scope(
 
 
 async def test_recall_tool_respects_k() -> None:
-    """``k`` clamps the result set — exercises both the Pydantic"""
-    # Use an in-memory store so we don't share with other tests.
+    """Clamp the result set with k."""
     url = "sqlite+aiosqlite:///:memory:"
     history = SqliteHistoryStore(url)
     await history.init_schema()
@@ -345,7 +338,6 @@ def test_make_embeddings_defaults_to_hash_with_warning(
     caplog.set_level(logging.WARNING)
     e = make_embeddings(None)
     assert isinstance(e, HashEmbeddings)
-    # Loud warning so operators notice they're on the mediocre fallback.
     assert any("HashEmbeddings" in r.message for r in caplog.records)
 
 
@@ -363,7 +355,7 @@ def test_make_embeddings_rejects_unknown_provider() -> None:
 def test_make_embeddings_nvidia_returns_langchain_class(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``factory`` returns the official LangChain integration directly."""
+    """Return the official LangChain NVIDIA integration."""
     monkeypatch.setenv("NVIDIA_API_KEY", "fake")
     from langchain_nvidia_ai_endpoints import NVIDIAEmbeddings
 
@@ -390,7 +382,6 @@ def test_make_reranker_rejects_unknown_provider() -> None:
 
 
 def test_make_reranker_nvidia_constructs_without_network() -> None:
-    # Same lazy-construction expectation as embeddings.
     r = make_reranker("nvidia", config={"api_key": "fake-key"})
     from openbb_agent_server.memory.reranker import NvidiaReranker
 
@@ -410,7 +401,7 @@ def test_make_translator_rejects_unknown_provider() -> None:
 async def test_hash_embeddings_recall_finds_exact_keyword_match(
     memory: SqliteMemoryStore, alice: UserPrincipal
 ) -> None:
-    """HashEmbeddings is a deliberate quality compromise; this test"""
+    """Find an exact keyword match via HashEmbeddings recall."""
     await memory.write(principal=alice, text="user tracks AAPL")
     await memory.write(principal=alice, text="completely unrelated banana stuff")
     [top, *_] = await memory.recall(principal=alice, query="AAPL", k=2)
@@ -424,5 +415,5 @@ def test_cosine_self_similarity_is_one() -> None:
 
 
 def test_test_env_does_not_leak_real_nvidia_api_key() -> None:
-    """Belt-and-braces — the conftest scrubs OPENBB_AGENT_* but not the"""
+    """Confirm the test env does not leak a real NVIDIA API key."""
     assert os.environ.get("OPENBB_AGENT_MODEL_PROVIDER") is None

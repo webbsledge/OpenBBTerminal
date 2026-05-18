@@ -19,7 +19,6 @@ from openbb_agent_server.runtime import services
 def client(settings_env: AgentServerSettings) -> Iterator[TestClient]:
     services.reset()
     app = create_app(settings_env)
-    # ``with`` triggers lifespan (init_schema runs).
     with TestClient(app) as client:
         yield client
 
@@ -38,7 +37,7 @@ def test_agents_json_returns_workspace_metadata(client: TestClient) -> None:
 
 
 def test_v1_query_accepts_real_workspace_body_shape(client: TestClient) -> None:
-    """Post a body shaped like Workspace's actual ``POST /v1/query`` payload."""
+    """Post a body shaped like Workspace's actual query payload."""
     body = {
         "messages": [
             {"role": "human", "content": "Hi there."},
@@ -66,10 +65,8 @@ def test_v1_query_accepts_real_workspace_body_shape(client: TestClient) -> None:
             "extra": [],
         },
         "uploaded_files": [],
-        # openbb-ai's UserAPIKeys — note the null is allowed.
         "api_keys": {"openai_api_key": None},
         "api_urls": {},
-        # The list-of-feature-names form Workspace actually sends.
         "workspace_options": ["deep-research", "web-search"],
         "timezone": "UTC",
         "urls": None,
@@ -99,10 +96,8 @@ def test_agents_json_conforms_to_workspace_spec(client: TestClient) -> None:
     required_per_agent = {"name", "description", "endpoints", "features"}
 
     for agent_id, entry in body.items():
-        # Top-level dict keys must match the agent_id regex.
         assert agent_id_re.match(agent_id), f"agent_id {agent_id!r} fails regex"
 
-        # Per-agent block: only the allowed properties, all required ones present.
         assert isinstance(entry, dict)
         assert required_per_agent.issubset(entry.keys()), (
             f"missing required keys: {required_per_agent - entry.keys()}"
@@ -112,22 +107,17 @@ def test_agents_json_conforms_to_workspace_spec(client: TestClient) -> None:
             f"{set(entry.keys()) - allowed_per_agent}"
         )
 
-        # name + description must be non-empty strings.
         assert isinstance(entry["name"], str) and entry["name"]
         assert isinstance(entry["description"], str) and entry["description"]
 
-        # image is optional; if present must be string-or-null.
         if "image" in entry:
             assert entry["image"] is None or isinstance(entry["image"], str)
 
-        # endpoints must be {"query": <non-empty string>} and nothing else.
         endpoints = entry["endpoints"]
         assert isinstance(endpoints, dict)
         assert set(endpoints.keys()) == {"query"}
         assert isinstance(endpoints["query"], str) and endpoints["query"]
 
-        # features: known keys MUST be plain booleans (extra keys are
-        # allowed by the spec but our server never emits any).
         features = entry["features"]
         assert isinstance(features, dict)
         for known_key in (
@@ -157,7 +147,6 @@ def test_list_conversations_empty_for_fresh_user(client: TestClient) -> None:
 
 
 def test_memory_endpoint_requires_memory_read_scope(client: TestClient) -> None:
-    # NoneAuthBackend grants memory:read by default.
     resp = client.get("/v1/memory")
     assert resp.status_code == 200
     assert resp.json() == {"memories": []}
@@ -172,7 +161,6 @@ def test_create_app_with_code_embeddings_provider_boots(
     settings = AgentServerSettings()
     app = create_app(settings)
     with TestClient(app) as client:
-        # Liveness probe — booted with the second embedder.
         assert client.get("/agents.json").status_code == 200
 
 

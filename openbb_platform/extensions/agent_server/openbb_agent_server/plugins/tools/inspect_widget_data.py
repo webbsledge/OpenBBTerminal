@@ -96,18 +96,7 @@ class InspectWidgetDataToolSource(ToolSource):
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[BaseTool]:
         """Bind the per-run widget-data inspection tools."""
-
-        # Per-run set of widget uuids already cited — emit one Citation
-        # per widget at most, even if the agent reads it many times.
         cited: set[str] = set()
-        # Index of currently-pinned dashboard widgets by uuid AND by
-        # internal widget_id, so we can resolve a stored entry (which
-        # may carry the per-instance uuid OR the widget_id slug,
-        # depending on which wire path got it into the store) back
-        # to the LIVE dashboard widget. The citation's
-        # ``source_info.widget_id`` must be a current per-instance
-        # uuid — otherwise Workspace renders "Widget not on current
-        # dashboard" and the chip is dead.
         dashboard_by_uuid: dict[str, Any] = {}
         dashboard_by_widget_id: dict[str, Any] = {}
         for w in ctx.widgets or []:
@@ -122,34 +111,21 @@ class InspectWidgetDataToolSource(ToolSource):
                 return
             stored_uuid = str(entry.get("widget_uuid") or "")
             stored_name = str(entry.get("widget_name") or "")
-            # Resolve the stored entry to a currently-pinned widget.
-            # Try uuid first (fast path), then internal widget_id slug.
             pinned = dashboard_by_uuid.get(stored_uuid) or dashboard_by_widget_id.get(
                 stored_name
             )
             if pinned is None:
-                # The data is in the user's store but the originating
-                # widget isn't on this dashboard right now — emitting a
-                # citation would only render "Widget not on current
-                # dashboard" noise.
                 return
-            # Cite using the LIVE dashboard uuid, not the stored one,
-            # so Workspace's "is this on the dashboard?" check passes.
             dashboard_uuid = pinned.uuid or stored_uuid
             if not dashboard_uuid or dashboard_uuid in cited:
                 return
             cited.add(dashboard_uuid)
-            # Prefer the dashboard widget's display label for the chip
-            # title; fall back to the internal widget_id slug.
             display = (
                 getattr(pinned, "name", None)
                 or getattr(pinned, "widget_id", None)
                 or stored_name
                 or None
             )
-            # ``widget`` = the per-instance UUID Workspace matches
-            # against the dashboard. ``widget_id`` = the internal
-            # source slug — separate field.
             internal_id = (
                 (getattr(pinned, "widget_id", "") or "").strip() or stored_name or None
             )
@@ -162,10 +138,6 @@ class InspectWidgetDataToolSource(ToolSource):
                 input_arguments=entry.get("input_args") or {},
             )
 
-        # One-shot guard: NIM-class models loop on empty tool results.
-        # ``list_widget_data`` is purely an index lookup — calling it
-        # twice in the same turn can never change the answer, so the
-        # second call returns a hard-stop message.
         list_called = {"v": False}
 
         async def list_widget_data() -> dict[str, Any]:
@@ -173,12 +145,6 @@ class InspectWidgetDataToolSource(ToolSource):
             current = run_context.current()
             entries: list[dict[str, Any]] = []
             if store is not None:
-                # ``conversation_id=None`` spans every conversation
-                # for this user — Workspace's widget UUIDs are stable
-                # across conversations, so data fetched in any prior
-                # chat is reusable here. No on-dashboard filter:
-                # the user owns this data and may want to query it
-                # even if the originating widget is no longer pinned.
                 entries = await store.list_entries(
                     principal=current.principal,
                     conversation_id=None,

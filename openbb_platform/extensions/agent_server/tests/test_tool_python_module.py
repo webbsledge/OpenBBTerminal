@@ -73,7 +73,5 @@ async def test_invalid_spec_format_raises() -> None:
 @pytest.mark.asyncio
 async def test_unsupported_resolved_type_raises() -> None:
     src = PythonModuleToolSource(modules=["builtins:dict"])
-    # ``dict`` is callable so the factory branch fires and returns ``{}`` —
-    # not a BaseTool, list, or tuple, so the type guard rejects.
     with pytest.raises(TypeError):
         await src.tools(_ctx(), {})

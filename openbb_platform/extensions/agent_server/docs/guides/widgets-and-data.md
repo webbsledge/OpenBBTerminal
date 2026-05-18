@@ -33,12 +33,9 @@ The SSE stream closes. Workspace fetches the data and re-posts to `/v1/query` wi
 
 ## Ingestion
 
-`runtime/widget_store.py::WidgetDataStore.record` persists each ingest:
+`runtime/widget_store.py::WidgetDataStore.record` persists each ingest into the `widget_data` SQL table (`persistence/models.py::WidgetData`) — the row dicts plus metadata (`user_id`, `conversation_id`, `widget_uuid`, `widget_name`, `origin`, `input_args`, `columns`, `ingested_at`).
 
-- **SQL table** — `widget_data` (`persistence/models.py::WidgetData`) holds the row dicts plus metadata (`user_id`, `conversation_id`, `widget_uuid`, `widget_name`, `origin`, `input_args`, `columns`, `ingested_at`).
-- **Vector index** — a `langchain_community.vectorstores.SQLiteVec` table (`widget_rows_vec`) holds one row per `(parent_id, row_idx)` with metadata `{parent_id, row_idx, user_id, conversation_id, widget_uuid, widget_name}` and `page_content = _row_text(row)`.
-
-Ingestion is best-effort. If the embedder fails (NIM down, bad key, etc.), the SQL write still succeeds and `search()` falls back to substring match.
+Tabular rows are **not** vector-indexed: structured data is queried with SQL (`query_widget_data`) and keyword-matched (`search_widget_data`), both of which beat semantic similarity over numbers and tickers.
 
 ## Agent-facing tools
 
@@ -48,7 +45,7 @@ Ingestion is best-effort. If the embedder fails (NIM down, bad key, etc.), the S
 | --- | --- |
 | `list_widget_data` | Enumerate every widget ingested for this conversation. Returns `[{id, widget_uuid, widget_name, origin, input_args, columns, row_count, ingested_at}]`. |
 | `read_widget_data` | Full row set for one widget by `widget_uuid` or `widget_name`. Honors `max_rows` for sampling. |
-| `search_widget_data` | Semantic search across all rows in this conversation. Returns `[{score, row, widget_uuid, widget_name}]`. ANN-backed when embeddings are configured. |
+| `search_widget_data` | Keyword (substring) search across all rows in this conversation. Returns `[{score, row, widget_uuid, widget_name}]`. For filters / aggregates use `query_widget_data`. |
 | `describe_widget_data` | Schema view for `query_widget_data`. Returns `[{table, widget_name, widget_uuid, columns, row_count}]` — `table` is the slug-cased name to reference in SQL. |
 | `query_widget_data` | Read-only SQLite SQL over the ingested rows exposed as temp views. Supports `SELECT` and `WITH … SELECT …` only; columns are TEXT — use `CAST("col" AS REAL)` for arithmetic. |
 
@@ -103,7 +100,7 @@ Each `Document` carries `metadata = {widget_uuid, widget_name, score, row}` so d
 
 ## Tests
 
-The fixture `tests/test_tool_inspect_widget_data.py` exercises every tool end-to-end with a real SQLite + SQLiteVec store. `tests/test_widget_store.py` covers the storage layer (record / search / pinned-fanout / ANN failure → substring fallback).
+The fixture `tests/test_tool_inspect_widget_data.py` exercises every tool end-to-end with a real SQLite store. `tests/test_widget_store.py` covers the storage layer (record / substring search / pinned-fanout / SQL query).
 
 ## Source
 

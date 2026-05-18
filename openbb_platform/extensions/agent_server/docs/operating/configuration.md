@@ -27,6 +27,19 @@ Writes a working `openbb.toml` to the path you supply (or stdout with no path). 
 | `data_dir` | `~/.openbb_platform/agent` | `OPENBB_AGENT_DATA_DIR` |
 | `checkpointer_provider` | `sqlite` | `OPENBB_AGENT_CHECKPOINTER_PROVIDER` |
 
+## Retention / pruning
+
+Left unbounded, `checkpoints.db` and `history.db` grow forever — the LangGraph checkpointer writes a full state snapshot every super-step. These keys cap that; see [persistence.md](persistence.md#retention--pruning).
+
+| Key | Default | Env var | Purpose |
+| --- | --- | --- | --- |
+| `checkpoint_keep_last` | `1` | `OPENBB_AGENT_CHECKPOINT_KEEP_LAST` | Checkpoints kept per conversation thread. Only the latest is needed to resume; this is the main size control. |
+| `checkpoint_retention_days` | `14` | `OPENBB_AGENT_CHECKPOINT_RETENTION_DAYS` | Drop checkpoint threads whose trace is older than this. `null` disables the age pass. |
+| `history_retention_days` | `90` | `OPENBB_AGENT_HISTORY_RETENTION_DAYS` | Drop history rows (traces, messages, tool calls, usage, artifacts, citations, widget data, PDF ingest) older than this. `null` disables. |
+| `prune_interval_hours` | `24` | `OPENBB_AGENT_PRUNE_INTERVAL_HOURS` | Cadence of the in-process retention sweep (one runs at startup). `0` disables the sweep — prune stays available via the CLI. |
+
+Run a prune on demand: `openbb-agent-server prune` (see CLI flags below).
+
 ## Auth
 
 | Key | Default |
@@ -182,12 +195,15 @@ openbb-agent-server [serve]
   --model-provider NAME      # override agent.model.provider
   --model-name NAME          # override agent.model.name
   --reload                   # hot-reload (dev)
-  --log-level info|debug|... # passes through to logging.basicConfig
+  --log-level info|debug|trace|...  # root log level (TRACE is the custom level)
   --config-file PATH         # explicit openbb.toml
 
 openbb-agent-server keys issue --user-id ID [--scope agent:query --scope memory:read --scope memory:write] [--label NAME]
 openbb-agent-server keys revoke --key-id ID
 openbb-agent-server keys list [--user-id ID]
+
+openbb-agent-server prune [--keep-last N] [--checkpoint-days N] [--history-days N] [--no-vacuum]
+  # one-shot retention prune of checkpoints.db + history.db; flags override config.
 
 openbb-agent-server --generate-config [PATH]   # write template
 ```

@@ -1,4 +1,4 @@
-"""Wire-protocol schema tests — exact-shape conformance with openbb-ai."""
+"""Wire-protocol schema conformance tests."""
 
 from __future__ import annotations
 
@@ -61,13 +61,13 @@ def test_citation_collection_event_name_is_canonical() -> None:
 
 
 def test_message_chunk_data_payload_is_just_delta() -> None:
-    """The wire payload is ``{"delta": "..."}`` — Workspace's parser"""
+    """The wire payload is just a delta field."""
     sse = MessageChunkSSE(data=MessageChunkSSEData(delta="hello"))
     assert json.loads(sse.data.model_dump_json()) == {"delta": "hello"}
 
 
 def test_status_update_uses_camelcase_eventtype_field() -> None:
-    """Workspace's parser keys off ``eventType`` (camelCase) — using"""
+    """The status update uses a camelCase eventType field."""
     sse = StatusUpdateSSE(
         data=StatusUpdateSSEData(eventType="WARNING", message="hot path"),
     )
@@ -78,7 +78,7 @@ def test_status_update_uses_camelcase_eventtype_field() -> None:
 
 
 def test_status_update_accepts_success_eventtype() -> None:
-    """``SUCCESS`` is a first-class wire value (used for the hidden"""
+    """SUCCESS is a first-class wire eventType value."""
     sse = StatusUpdateSSEData(eventType="SUCCESS", message="ok")
     assert sse.eventType == "SUCCESS"
     with pytest.raises(ValidationError):
@@ -86,7 +86,7 @@ def test_status_update_accepts_success_eventtype() -> None:
 
 
 def test_function_call_function_field_is_closed_enum() -> None:
-    """Only the ten named Workspace functions are valid. Anything else"""
+    """The function field is a closed enum."""
     with pytest.raises(ValidationError):
         FunctionCallSSEData(function="my_custom_tool", input_arguments={})  # type: ignore[arg-type]
 
@@ -140,7 +140,7 @@ def test_chat_message_tool_role_carries_tool_call_id() -> None:
 
 
 def test_chat_message_tool_role_can_carry_function_call_result_shape() -> None:
-    """openbb-ai's LlmClientFunctionCallResultMessage shape: no"""
+    """A tool-role message can carry the function-call result shape."""
     m = ChatMessage.model_validate(
         {
             "role": "tool",

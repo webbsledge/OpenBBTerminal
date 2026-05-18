@@ -35,7 +35,6 @@ class _RecordingCursor:
     def execute(self, sql: str, params: Any = None):  # type: ignore[no-untyped-def]
         self._conn.last_sql = sql
         self._conn.last_params = params
-        # Return the canned scalar from a 1-row SELECT.
         if "SNOWFLAKE.CORTEX" in sql.upper() or "CORTEX" in sql.upper():
             value = self._conn.canned
             if isinstance(value, (dict, list)):
@@ -82,7 +81,6 @@ def test_cortex_complete_sends_correct_sql_and_returns_text(
     )
     assert out == "Hello world."
     assert "SNOWFLAKE.CORTEX.COMPLETE" in recording_conn.last_sql
-    # Per the recording cursor, the SQL is rewritten to a 1-row SELECT.
 
 
 def test_cortex_complete_with_options(

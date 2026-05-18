@@ -28,7 +28,7 @@ _CONFIG_FILE_ENVS: tuple[str, ...] = (
 
 
 def _resolve_command(command: str) -> str | None:
-    """Try ``which``, then the venv's bin dir, then the literal path."""
+    """Resolve a command via which, the venv bin dir, or the literal path."""
     if os.path.sep in command:
         return command if Path(command).is_file() else None
     found = shutil.which(command)
@@ -51,7 +51,7 @@ def _resolve_config_file(explicit: str | None) -> str | None:
 
 
 def _read_mcp_table(config_path: str | None) -> dict[str, Any]:
-    """Re-walk the TOML cascade and return the ``[mcp]`` table."""
+    """Re-walk the TOML cascade and return the mcp table."""
     from openbb_agent_server.app.config import bootstrap_launcher_config
 
     try:
@@ -64,7 +64,7 @@ def _read_mcp_table(config_path: str | None) -> dict[str, Any]:
 
 
 def _ensure_arg(args: list[str], flag: str, value: str) -> list[str]:
-    """Append ``[flag, value]`` unless ``flag`` is already present."""
+    """Append the flag and value unless the flag is already present."""
     if flag in args:
         return args
     return [*args, flag, value]
@@ -75,8 +75,6 @@ class LocalMcpToolSource(ToolSource):
 
     name = "mcp_local"
 
-    #: ``openbb-mcp`` defaults to ``streamable-http`` transport when run
-    #: with no args. We need stdio because we own the subprocess pipe.
     DEFAULT_ARGS: tuple[str, ...] = ("--transport", "stdio")
 
     def __init__(
@@ -102,13 +100,10 @@ class LocalMcpToolSource(ToolSource):
                 "[agent.tool_source_config.mcp_local].command to an absolute path."
             )
 
-        # Resolve which TOML the subprocess should read.
         config_file = _resolve_config_file(
             config.get("config_file") or self._config_file
         )
 
-        # Read [mcp] from that cascade for visibility — purely informational.
-        # The subprocess gets the same [mcp] via --config-file below.
         mcp_section = _read_mcp_table(config_file)
         if mcp_section:
             logger.debug(
@@ -118,14 +113,11 @@ class LocalMcpToolSource(ToolSource):
             )
 
         args = list(config.get("args", self._args))
-        # Always force stdio (override anything in [mcp].transport).
         if "--transport" not in args:
             args = [*args, "--transport", "stdio"]
-        # Forward the config path so the subprocess reads the same [mcp].
         if config_file:
             args = _ensure_arg(args, "--config-file", config_file)
 
-        # Merge: process env -> plugin env -> per-call env -> ctx api_keys.
         sub_env = {**os.environ, **self._env, **dict(config.get("env", {}))}
         sub_env.update(ctx.api_keys)
 

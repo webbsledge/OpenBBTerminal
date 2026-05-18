@@ -1,4 +1,4 @@
-"""``openbb_workspace`` auth backend — reads ``X-OpenBB-User`` header."""
+"""OpenBB Workspace auth backend."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ DEFAULT_SCOPES: tuple[str, ...] = (
 
 
 class OpenBBWorkspaceAuthBackend(AuthBackend):
-    """Trust ``X-OpenBB-User`` from an upstream Workspace gateway."""
+    """Trust the X-OpenBB-User header from an upstream Workspace gateway."""
 
     name = "openbb_workspace"
 

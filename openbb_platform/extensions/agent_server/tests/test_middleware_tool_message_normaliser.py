@@ -148,9 +148,6 @@ def test_to_openai_tool_calls_skips_blank_name() -> None:
 
 
 def test_to_openai_tool_calls_falls_back_for_unserialisable_args() -> None:
-    # A circular reference makes ``json.dumps`` raise ``ValueError``
-    # even with ``default=str`` — this is what hits the ``"{}"``
-    # fallback branch.
     circular: dict[str, Any] = {}
     circular["self"] = circular
     out = _to_openai_tool_calls([{"name": "x", "args": circular, "id": "c3"}])
@@ -217,10 +214,6 @@ def test_strict_flushes_pending_tool_as_human_before_ai_message() -> None:
 
 
 def test_strict_ai_preserves_text_and_structured_tool_calls() -> None:
-    # The normaliser keeps the structured ``tool_calls`` field intact
-    # and does NOT inject a textual "(called X)" marker — see the
-    # comment in ``_strict_human_assistant``: the marker poisoned
-    # history and made the next model imitate it as prose.
     msg = AIMessage(
         content="thinking",
         tool_calls=[{"name": "search", "args": {}, "id": "1"}],
@@ -233,9 +226,6 @@ def test_strict_ai_preserves_text_and_structured_tool_calls() -> None:
 
 
 def test_strict_ai_with_tool_calls_no_text_keeps_empty_content() -> None:
-    # No text + tool_calls → content stays empty; the structured
-    # tool_calls field carries the signal, and it is mirrored into
-    # ``additional_kwargs`` in OpenAI wire shape for langchain-nvidia.
     msg = AIMessage(
         content="",
         tool_calls=[{"name": "search", "args": {}, "id": "1"}],
@@ -385,10 +375,10 @@ def test_dedupe_keeps_distinct_calls() -> None:
 
 
 def test_dedupe_falls_back_for_unhashable_args() -> None:
-    """Args that defeat ``json.dumps(default=str)`` fall back to ``repr``."""
+    """Args that defeat json.dumps fall back to repr."""
 
     circular: dict[str, Any] = {}
-    circular["self"] = circular  # json.dumps blows up on cycles
+    circular["self"] = circular
     msg = AIMessage(
         content="",
         tool_calls=[
@@ -417,7 +407,7 @@ def test_dedupe_handles_object_style_tool_calls() -> None:
 
 
 def test_dedupe_creates_new_aimessage_when_assignment_fails() -> None:
-    """A read-only ``AIMessage.tool_calls`` should still trigger a rebuild."""
+    """A read-only AIMessage.tool_calls still triggers a rebuild."""
 
     msg = AIMessage(
         content="ok",
@@ -467,17 +457,14 @@ def test_wrap_model_call_runs_normalisation_and_dedupe(
             ],
         )
 
-    # TRACE on so ``_dump_messages`` emits its per-message diagnostic.
     logger_name = "openbb_agent_server.middleware.tool_message_normaliser"
     with caplog.at_level(TRACE, logger=logger_name):
         out = mw.wrap_model_call(request, handler)
     assert any("-> model" in r.getMessage() for r in caplog.records)
     [used] = seen
-    # The pending tool result got merged into the human message.
     [combined] = used.messages
     assert isinstance(combined, HumanMessage)
     assert "[tool: t result]" in combined.content
-    # Dedupe collapsed the duplicate calls.
     assert len(out.tool_calls) == 1
 
 
@@ -510,7 +497,7 @@ async def test_awrap_model_call_runs_normalisation_and_dedupe() -> None:
 
 
 class _MistralRequest(_Request):
-    """A request whose model name trips the ``_wants_tool_role`` check."""
+    """A request whose model name trips the _wants_tool_role check."""
 
     class _Model:
         model = "mistralai/mistral-large-3"
@@ -524,7 +511,7 @@ class _MistralRequest(_Request):
 
 
 def test_strict_preserves_tool_role_for_mistral() -> None:
-    """``preserve_tool_role=True`` keeps a ToolMessage verbatim with its id."""
+    """preserve_tool_role=True keeps a ToolMessage verbatim with its id."""
     msgs = [
         AIMessage(
             content="",
@@ -560,7 +547,7 @@ def test_strict_preserved_tool_messages_never_merge() -> None:
 
 
 def test_strict_merges_consecutive_ai_messages_with_tool_calls() -> None:
-    """Merging two AIMessages unions their tool_calls into ``additional_kwargs``."""
+    """Merging two AIMessages unions their tool_calls into additional_kwargs."""
     msgs = [
         AIMessage(
             content="first",
@@ -582,28 +569,17 @@ def test_strict_merges_consecutive_ai_messages_with_tool_calls() -> None:
 
 
 def test_strict_drops_empty_ai_message_in_pass_three() -> None:
-    """Pass 3 drops an AIMessage left empty on both text and tool_calls.
-
-    A bare ``AIMessage`` object (not the pass-1 product) with empty
-    content and a single blank-name stub call is fed in as part of a
-    same-type run so pass 2 merges it; the merged result re-validates
-    to no text and no valid calls, and pass 3 removes it.
-    """
+    """Pass 3 drops an AIMessage left empty on both text and tool_calls."""
 
     class _RawAI:
         """Minimal AIMessage-shaped object pass 2 will merge by type."""
 
-    # Use real AIMessages: the first carries a valid call so pass 1
-    # keeps it with empty content; pair it with a HumanMessage so the
-    # pass-3 re-check runs over a non-trivial merged list.
     msgs = [
         AIMessage(content="answer one"),
         AIMessage(content="answer two"),
         HumanMessage(content="next"),
     ]
     out = _strict_human_assistant(msgs)
-    # The two AIMessages merge; the merged message keeps its text, so
-    # pass 3 keeps it. Every surviving AIMessage is non-empty.
     for m in out:
         if isinstance(m, AIMessage):
             assert _content_str(m.content).strip() or _valid_tool_calls(

@@ -36,7 +36,7 @@ def test_embed_is_deterministic() -> None:
 
 @pytest.mark.asyncio
 async def test_aembed_documents_delegates_to_sync() -> None:
-    """The default LangChain async path runs sync in an executor."""
+    """Run the sync path in an executor for the async API."""
     e = HashEmbeddings(dim=16)
     vecs = await e.aembed_documents(["a", "b"])
     assert len(vecs) == 2
@@ -65,6 +65,5 @@ def test_cosine_returns_zero_for_orthogonal_vectors() -> None:
 
 
 def test_cosine_truncates_to_shorter_length() -> None:
-    # No KeyError / IndexError when shapes differ.
     val = cosine([1.0, 0.0, 0.0], [2.0, 0.0])
     assert val == pytest.approx(1.0)

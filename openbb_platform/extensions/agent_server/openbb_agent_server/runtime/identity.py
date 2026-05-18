@@ -21,15 +21,7 @@ def _pepper() -> bytes:
 
 
 def warn_if_pepper_unset() -> None:
-    """Log a startup WARNING when the user-id pepper is unset.
-
-    Called once from ``create_app`` so the missing-pepper notice is a
-    deterministic boot-time config check — not a lazy warning that
-    interleaves into whichever request first resolves a user id (auth
-    runs before the request's trace context exists, so the lazy
-    variant logged with an empty ``trace`` and looked unrelated to the
-    request it appeared inside).
-    """
+    """Log a startup WARNING when the user-id pepper is unset."""
     if not os.environ.get(_PEPPER_ENV):
         logger.warning(
             "%s is not set — falling back to an empty pepper. Set a stable "

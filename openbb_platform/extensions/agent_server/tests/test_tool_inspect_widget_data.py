@@ -1,4 +1,4 @@
-"""Unit tests for ``inspect_widget_data`` tool source."""
+"""inspect_widget_data tool source tests."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ async def _get_tool(name: str) -> Any:
 
 @pytest.mark.asyncio
 async def test_list_widget_data_empty(widget_store: WidgetDataStore) -> None:
-    """An empty store returns the ``{count, widgets, attached_widgets, message}`` envelope, not a bare list. NIM-class models reject empty tool results, and the envelope guides the agent toward ``get_widget_data`` instead of looping."""
+    """Return an envelope, not a bare list, for an empty store."""
     with bind(_ctx()):
         tool = await _get_tool("list_widget_data")
         out = await tool.ainvoke({})
@@ -106,7 +106,7 @@ async def test_read_widget_data_returns_rows(
 
 @pytest.mark.asyncio
 async def test_read_widget_data_no_match(widget_store: WidgetDataStore) -> None:
-    """An unknown widget_uuid returns ``None`` (no rows in store)."""
+    """Return None for an unknown widget_uuid."""
     with bind(_ctx()):
         tool = await _get_tool("read_widget_data")
         out = await tool.ainvoke({"widget_uuid": "missing"})
@@ -117,10 +117,7 @@ async def test_read_widget_data_no_match(widget_store: WidgetDataStore) -> None:
 async def test_read_widget_data_reads_cross_conversation_orphan(
     widget_store: WidgetDataStore,
 ) -> None:
-    """A widget stored in a prior conversation can still be read by
-    its uuid even if it isn't currently pinned — the user owns the
-    data; the citation filter handles UI noise separately.
-    """
+    """Read a widget stored in a prior conversation by its uuid."""
     await widget_store.record(
         principal=_principal(),
         conversation_id="other-convo",
@@ -142,8 +139,7 @@ async def test_read_widget_data_reads_cross_conversation_orphan(
 async def test_list_widget_data_returns_cross_conversation_entries(
     widget_store: WidgetDataStore,
 ) -> None:
-    """``list_widget_data`` surfaces every widget the user has stored,
-    not just the ones on the current dashboard."""
+    """Surface every widget the user has stored, not just current ones."""
     await widget_store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -300,7 +296,7 @@ async def test_query_widget_data_invalid_sql_returns_error(
 
 @pytest.mark.asyncio
 async def test_list_returns_empty_envelope_when_store_unbound() -> None:
-    """Even with no store, the envelope shape is preserved so the agent gets actionable guidance instead of an empty list."""
+    """Preserve the envelope shape even with no store."""
     services.reset()
     with bind(_ctx()):
         tool = await _get_tool("list_widget_data")
@@ -351,12 +347,7 @@ async def test_query_returns_error_when_store_unbound() -> None:
 async def test_list_widget_data_second_call_same_turn_short_circuits(
     widget_store: WidgetDataStore,
 ) -> None:
-    """A second ``list_widget_data`` call in one turn returns a STOP message.
-
-    ``list_widget_data`` is a pure index lookup — the per-run
-    ``list_called`` guard makes the repeat call return the same data
-    plus a hard-stop message so NIM-class models don't loop.
-    """
+    """Return a STOP message on a second list_widget_data call in one turn."""
     await widget_store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -381,12 +372,7 @@ async def test_list_widget_data_second_call_same_turn_short_circuits(
 async def test_read_widget_data_cites_each_widget_only_once(
     widget_store: WidgetDataStore,
 ) -> None:
-    """Reading the same pinned widget twice emits a citation only once.
-
-    ``_cite_widget`` records cited dashboard uuids in a per-run set —
-    the second read sees the uuid already in ``cited`` and returns
-    without re-emitting.
-    """
+    """Emit a citation only once when reading the same pinned widget twice."""
     await widget_store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -440,11 +426,7 @@ async def test_query_widget_data_cites_widgets_referenced_by_sql(
 
 @pytest.mark.asyncio
 async def test_query_widget_data_swallows_schema_failure_during_citation() -> None:
-    """If ``schema`` raises while collecting citations, the query result stands.
-
-    ``_cite_widgets_referenced_by_sql`` wraps its ``store.schema`` call
-    in a broad ``except`` — a failure there must not fail the query.
-    """
+    """Keep the query result when schema raises while collecting citations."""
 
     class _FakeStore:
         async def query(self, **_: Any) -> dict[str, Any]:
@@ -467,15 +449,10 @@ async def test_query_widget_data_swallows_schema_failure_during_citation() -> No
 
 @pytest.mark.asyncio
 async def test_query_widget_data_citation_pass_handles_store_vanishing() -> None:
-    """If the widget store disappears between query and the citation pass,
-    ``_cite_widgets_referenced_by_sql`` re-resolves it, finds ``None``, and
-    returns without touching the (now absent) store.
-    """
+    """Handle the widget store vanishing between query and citation pass."""
 
     class _SelfClearingStore:
         async def query(self, **_: Any) -> dict[str, Any]:
-            # The result is built; now the store is detached, so the
-            # follow-up citation pass re-resolves to ``None``.
             services.reset()
             return {"columns": ["a"], "rows": [{"a": 1}], "table_count": 1}
 
@@ -495,14 +472,7 @@ async def test_query_widget_data_citation_pass_handles_store_vanishing() -> None
 async def test_cite_widget_indexes_dashboard_widget_by_internal_id(
     widget_store: WidgetDataStore,
 ) -> None:
-    """A pinned widget carrying a ``widget_id`` slug is indexed by that slug.
-
-    When the stored entry's ``widget_uuid`` does not match a dashboard
-    uuid, ``_cite_widget`` resolves it via the internal ``widget_id``
-    index instead — so a citation still fires.
-    """
-    # Stored entry keyed by the internal widget_id slug (no per-instance
-    # uuid match), but the pinned dashboard widget exposes that slug.
+    """Index a pinned widget carrying a widget_id slug by that slug."""
     await widget_store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -530,6 +500,5 @@ async def test_cite_widget_indexes_dashboard_widget_by_internal_id(
         await tool.ainvoke({"widget_name": "balance_slug"})
     citations = [e for e in emitted if e.get("type") == "citations"]
     assert len(citations) == 1
-    # Cited against the LIVE dashboard uuid, not the stored slug.
     src_info = citations[0]["citations"][0]["source_info"]
     assert src_info["uuid"] == "inst-uuid"

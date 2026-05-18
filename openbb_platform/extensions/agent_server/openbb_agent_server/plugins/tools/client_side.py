@@ -53,7 +53,7 @@ def _make_tool(spec: dict[str, Any]) -> StructuredTool:
     args_model = _args_model_from_schema(raw_name, parameters)
 
     def _client_side(**kwargs: Any) -> Any:
-        """Pause the run and hand control back to Workspace for execution."""
+        """Pause the run and hand control back to Workspace."""
         from langgraph.types import interrupt
 
         return interrupt(

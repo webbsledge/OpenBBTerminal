@@ -16,13 +16,12 @@ from openbb_agent_server.app.app import create_app
 from openbb_agent_server.app.settings import AgentServerSettings
 from openbb_agent_server.runtime import services
 
-# Side-effect recorder so the test can prove the tool actually ran.
 _tool_calls: list[dict] = []
 
 
 @tool
 def lookup(symbol: str) -> str:
-    """Look up a fixture symbol — records every invocation."""
+    """Look up a fixture symbol and record the invocation."""
     _tool_calls.append({"symbol": symbol})
     return f"PRICE({symbol})=42"
 
@@ -75,7 +74,6 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
 
     monkeypatch.setattr(fake_provider.FakeProvider, "build", fake_build, raising=True)
 
-    # Wire python_module to load our local @tool callable.
     from openbb_agent_server.plugins.tools import python_module
 
     monkeypatch.setattr(
@@ -101,7 +99,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
 
 
 def test_tool_loop_runs_to_final_answer(client: TestClient) -> None:
-    """The agent must invoke the tool, then return a final-answer chunk."""
+    """The agent invokes the tool, then returns a final-answer chunk."""
     resp = client.post(
         "/v1/query",
         json={
@@ -111,17 +109,13 @@ def test_tool_loop_runs_to_final_answer(client: TestClient) -> None:
     )
     assert resp.status_code == 200
 
-    # The tool was actually invoked.
     assert _tool_calls == [{"symbol": "AAPL"}]
 
-    # The final answer chunk reached the SSE stream.
     events = _parse_sse(resp.text)
     chunks = [b["delta"] for n, b in events if n == "copilotMessageChunk"]
     assert any("AAPL" in c for c in chunks)
     assert any("42" in c for c in chunks)
 
-    # The full final answer landed in history — proving the main
-    # execution thread iterated past the tool call to natural end.
     msgs = client.get("/v1/conversations/conv-tool-loop-1/messages").json()["messages"]
     ai_turns = [m for m in msgs if m["role"] == "ai"]
     assert ai_turns

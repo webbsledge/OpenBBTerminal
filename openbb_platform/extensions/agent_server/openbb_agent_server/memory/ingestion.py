@@ -70,14 +70,13 @@ def _detect_language(filename: str | None) -> Language | None:
 
 
 def _likely_non_english(text: str, *, target_lang: str = "English") -> bool:
-    """Quick heuristic: does this chunk look like it needs translation?"""
+    """Return True when the chunk likely needs translation."""
     if target_lang.strip().lower() != "english":
         return True
     sample = text[:4000]
     if not sample:
         return False
     non_ascii = sum(1 for ch in sample if ord(ch) > 127)
-    # ≥5% non-ASCII → likely non-English.
     return non_ascii * 20 >= len(sample)
 
 
@@ -91,7 +90,7 @@ def chunk_text(
     overlap: int = 200,
     language: Language | None = None,
 ) -> list[str]:
-    """Split ``text`` into semantic chunks using LangChain's recursive splitter."""
+    """Split text into semantic chunks."""
     if chunk_chars <= 0:
         raise ValueError("chunk_chars must be positive")
     if overlap < 0 or overlap >= chunk_chars:
@@ -259,10 +258,7 @@ async def ingest_request_context(
         return 0
 
     written = 0
-    # Each source carries enough metadata (filename + mime) for the
-    # classifier to pick text vs. code embedders correctly.
     sources: list[tuple[str, str, str | None, str | None]] = []
-    # tuple: (source_label, full_text, filename, mime)
 
     for f in getattr(body, "uploaded_files", []) or []:
         fname = getattr(f, "name", "") or "uploaded_file"

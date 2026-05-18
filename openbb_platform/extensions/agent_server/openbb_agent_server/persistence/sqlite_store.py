@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any
 
-from sqlalchemy import delete, event, select
+from sqlalchemy import delete, event, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -27,14 +27,7 @@ def _now() -> _dt.datetime:
 
 
 def _apply_sqlite_pragmas(engine: AsyncEngine, url: str) -> None:
-    """Enable WAL + a generous busy_timeout so writers don't deadlock.
-
-    SQLiteVec (sync) and aiosqlite (async) both write to the same file in
-    a default dev install; without WAL one will hit ``database is locked``
-    the moment the other holds the write lock. WAL allows concurrent
-    readers + a queued writer; busy_timeout makes the loser wait instead
-    of immediately erroring.
-    """
+    """Enable WAL and a busy_timeout so writers don't deadlock."""
     if "sqlite" not in url:
         return
 
@@ -58,7 +51,7 @@ class SqliteHistoryStore(HistoryStore):
         self._sessionmaker = async_sessionmaker(self._engine, expire_on_commit=False)
 
     async def init_schema(self) -> None:
-        """Create tables if they don't exist (zero-config bootstrap)."""
+        """Create tables if they don't exist."""
         async with self._engine.begin() as conn:
             await conn.run_sync(m.Base.metadata.create_all)
 
@@ -148,7 +141,6 @@ class SqliteHistoryStore(HistoryStore):
                 session.add(conv)
                 seq = 0
             elif conv.user_id != principal.user_id:
-                # Cross-user lookup. Fail closed without leaking existence.
                 raise PermissionError("conversation not found")
             else:
                 last = await session.scalar(
@@ -535,3 +527,62 @@ class SqliteHistoryStore(HistoryStore):
         ):
             await session.execute(delete(table).where(table.user_id == user_id))
         await session.execute(delete(m.User).where(m.User.user_id == user_id))
+
+    @property
+    def db_path(self) -> str | None:
+        """Filesystem path of the SQLite file, or ``None`` for non-SQLite."""
+        url = self._engine.url
+        if not url.drivername.startswith("sqlite"):
+            return None
+        return url.database
+
+    async def recent_trace_ids(self, *, since: _dt.datetime) -> set[str]:
+        """Trace ids whose run started on or after ``since``."""
+        async with self._sessionmaker() as session:
+            rows = await session.execute(
+                select(m.Trace.trace_id).where(m.Trace.started_at >= since)
+            )
+            return {r[0] for r in rows}
+
+    async def prune_older_than(
+        self, *, cutoff: _dt.datetime, vacuum: bool = True
+    ) -> dict[str, int]:
+        """Delete history rows older than ``cutoff``; return per-table counts."""
+        counts: dict[str, int] = {}
+        async with self._sessionmaker() as session:
+            for table, ts_col in (
+                (m.Trace, m.Trace.started_at),
+                (m.Run, m.Run.started_at),
+                (m.Message, m.Message.ts),
+                (m.Conversation, m.Conversation.updated_at),
+                (m.ToolCall, m.ToolCall.ts),
+                (m.Usage, m.Usage.ts),
+                (m.Artifact, m.Artifact.ts),
+                (m.WidgetData, m.WidgetData.ingested_at),
+                (m.PendingRun, m.PendingRun.created_at),
+            ):
+                result = await session.execute(delete(table).where(ts_col < cutoff))
+                counts[table.__tablename__] = int(result.rowcount or 0)  # ty: ignore[unresolved-attribute]
+            orphan = await session.execute(
+                delete(m.CitationRow).where(
+                    m.CitationRow.trace_id.not_in(select(m.Trace.trace_id))
+                )
+            )
+            counts["citations"] = int(orphan.rowcount or 0)  # ty: ignore[unresolved-attribute]
+            old_pdf_ids = select(m.PdfDocument.id).where(
+                m.PdfDocument.ingested_at < cutoff
+            )
+            pages = await session.execute(
+                delete(m.PdfPage).where(m.PdfPage.pdf_id.in_(old_pdf_ids))
+            )
+            counts["pdf_pages"] = int(pages.rowcount or 0)  # ty: ignore[unresolved-attribute]
+            docs = await session.execute(
+                delete(m.PdfDocument).where(m.PdfDocument.ingested_at < cutoff)
+            )
+            counts["pdf_documents"] = int(docs.rowcount or 0)  # ty: ignore[unresolved-attribute]
+            await session.commit()
+        if vacuum:
+            autocommit = self._engine.execution_options(isolation_level="AUTOCOMMIT")
+            async with autocommit.connect() as conn:
+                await conn.execute(text("VACUUM"))
+        return counts

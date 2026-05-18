@@ -1,4 +1,4 @@
-"""``usage_recorder`` middleware."""
+"""Usage recorder middleware."""
 
 from __future__ import annotations
 
@@ -37,8 +37,6 @@ class _UsageRecorderMiddleware(AgentMiddleware):
             logger.debug("usage_recorder: no RunContext bound, skipping")
             return
         details = usage.get("input_token_details", {}) or {}
-        # Different langchain providers stash the model name in different
-        # places; check the common ones in priority order.
         rmd = getattr(last, "response_metadata", {}) or {}
         addl = getattr(last, "additional_kwargs", {}) or {}
         model_name = (
@@ -57,7 +55,7 @@ class _UsageRecorderMiddleware(AgentMiddleware):
             output_tokens=int(usage.get("output_tokens", 0)),
             cache_read=int(details.get("cache_read", 0)),
             cache_creation=int(details.get("cache_creation", 0)),
-            cost_usd=0.0,  # cost layered in by an opt-in pricing plugin
+            cost_usd=0.0,
         )
         await services.get_history().record_usage(
             principal=ctx.principal,
@@ -67,7 +65,7 @@ class _UsageRecorderMiddleware(AgentMiddleware):
 
 
 class UsageRecorderMiddlewareFactory(Middleware):
-    """Construct a :class:`_UsageRecorderMiddleware` for the current run."""
+    """Construct a usage recorder middleware."""
 
     name = "usage_recorder"
 

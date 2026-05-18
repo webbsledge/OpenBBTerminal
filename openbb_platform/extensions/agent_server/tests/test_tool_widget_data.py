@@ -51,8 +51,6 @@ async def test_list_widgets_returns_run_widgets() -> None:
     [list_tool, _] = await src.tools(_ctx_with_widgets(), {})
     with run_context.bind(_ctx_with_widgets()):
         result = list_tool.invoke({})
-    # The tool returns a populated mapping (never a bare list/empty)
-    # because NVIDIA NIM rejects ToolMessages with empty content.
     assert isinstance(result, dict)
     assert result["count"] == 2
     assert {r["widget_id"] for r in result["widgets"]} == {"w-AAPL", "w-MSFT"}
@@ -60,7 +58,7 @@ async def test_list_widgets_returns_run_widgets() -> None:
 
 @pytest.mark.asyncio
 async def test_list_widgets_with_empty_run_returns_populated_dict() -> None:
-    """The tool MUST NOT return ``[]`` — that would serialise to a"""
+    """Return a populated dict, never an empty list, for an empty run."""
     from openbb_agent_server.runtime.context import RunContext
     from openbb_agent_server.runtime.principal import UserPrincipal
 
@@ -83,7 +81,7 @@ async def test_list_widgets_with_empty_run_returns_populated_dict() -> None:
 async def test_get_widget_data_unknown_id_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Unknown widget_id raises before reaching ``interrupt(...)``."""
+    """Raise for an unknown widget_id before reaching interrupt()."""
     monkeypatch.setattr(
         "openbb_agent_server.runtime.emit._writer", lambda: lambda *_: None
     )
@@ -98,7 +96,7 @@ async def test_get_widget_data_unknown_id_raises(
 async def test_get_widget_data_emits_workspace_data_sources_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``get_widget_data`` emits the ``copilotFunctionCall`` SSE with"""
+    """Emit the copilotFunctionCall SSE from get_widget_data."""
     emitted: list[dict[str, Any]] = []
     monkeypatch.setattr(
         "openbb_agent_server.runtime.emit._writer",
@@ -153,8 +151,6 @@ def test_system_prompt_includes_widget_snapshot_when_widgets_attached() -> None:
 
     prompt = _build_system_prompt(_ctx_with_widgets())
     assert "Attached widgets" in prompt
-    # ``w-AAPL`` is the per-instance UUID; the snapshot renders it as
-    # ``widget_uuid=...`` and the internal slug as ``widget_id=...``.
     assert "widget_uuid='w-AAPL'" in prompt
     assert "widget_id='balance'" in prompt
     assert "params_hash=" in prompt
@@ -194,7 +190,7 @@ def test_system_prompt_includes_file_snapshot_when_files_uploaded() -> None:
 async def test_get_widget_data_batches_multiple_ids_into_one_function_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One call with ``widget_ids=[a, b]`` emits a single ``FunctionCallSSE`` carrying both data sources, not one event per id."""
+    """Emit a single FunctionCallSSE carrying both data sources for one call."""
     emitted: list[dict[str, Any]] = []
     monkeypatch.setattr(
         "openbb_agent_server.runtime.emit._writer",
@@ -217,7 +213,7 @@ async def test_get_widget_data_batches_multiple_ids_into_one_function_call(
 async def test_get_widget_data_dedupes_repeated_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Repeated ids in the list collapse to a single ``data_source`` entry."""
+    """Collapse repeated ids to a single data_source entry."""
     emitted: list[dict[str, Any]] = []
     monkeypatch.setattr(
         "openbb_agent_server.runtime.emit._writer",
@@ -235,7 +231,7 @@ async def test_get_widget_data_dedupes_repeated_ids(
 
 
 def test_summarise_includes_name_and_description_when_present() -> None:
-    """``_summarise`` adds ``name`` / ``description`` when the widget has them."""
+    """Add name and description when the widget has them."""
     from openbb_agent_server.plugins.tools.widget_data import _summarise
 
     w = WidgetRef(
@@ -253,7 +249,7 @@ def test_summarise_includes_name_and_description_when_present() -> None:
 
 
 def test_coerce_widget_ids_parses_json_string_list() -> None:
-    """A JSON-stringified list is decoded back into a real list."""
+    """Decode a JSON-stringified list back into a real list."""
     from openbb_agent_server.plugins.tools.widget_data import _GetWidgetArgs
 
     args = _GetWidgetArgs(widget_ids='["a", "b"]')
@@ -261,18 +257,15 @@ def test_coerce_widget_ids_parses_json_string_list() -> None:
 
 
 def test_coerce_widget_ids_falls_back_to_comma_split_on_bad_json() -> None:
-    """A bracketed-but-invalid JSON string falls back to comma splitting."""
+    """Fall back to comma splitting for a bracketed-but-invalid JSON string."""
     from openbb_agent_server.plugins.tools.widget_data import _GetWidgetArgs
 
-    # Starts/ends with brackets but is not valid JSON — the
-    # ``json.loads`` raises, ``parsed`` stays None, and the validator
-    # comma-splits the stripped string instead.
     args = _GetWidgetArgs(widget_ids="[a, b, c]")
     assert args.widget_ids == ["[a", "b", "c]"]
 
 
 def test_coerce_widget_ids_comma_splits_plain_string() -> None:
-    """A plain comma-separated string is split into trimmed ids."""
+    """Split a plain comma-separated string into trimmed ids."""
     from openbb_agent_server.plugins.tools.widget_data import _GetWidgetArgs
 
     args = _GetWidgetArgs(widget_ids=" w-1 , w-2 ")
@@ -280,22 +273,18 @@ def test_coerce_widget_ids_comma_splits_plain_string() -> None:
 
 
 def test_coerce_widget_ids_passes_through_non_string_non_sequence() -> None:
-    """A non-str/list/tuple value falls through to pydantic validation."""
+    """Fall through to pydantic validation for a non-str/list/tuple value."""
     from openbb_agent_server.plugins.tools.widget_data import _GetWidgetArgs
 
-    # An int is neither a string nor a list/tuple — the validator
-    # returns it untouched and pydantic then rejects it.
     with pytest.raises(Exception):
         _GetWidgetArgs(widget_ids=123)
 
 
 def test_stable_json_falls_back_to_str_on_circular_reference() -> None:
-    """``_stable_json`` returns ``str(value)`` when JSON encoding raises."""
+    """Return str(value) when JSON encoding raises."""
     from openbb_agent_server.plugins.tools.widget_data import _stable_json
 
     circular: dict[str, Any] = {}
     circular["self"] = circular
-    # ``json.dumps`` raises ``ValueError`` on a circular structure even
-    # with ``default=str`` — the helper swallows it and stringifies.
     out = _stable_json(circular)
     assert isinstance(out, str)

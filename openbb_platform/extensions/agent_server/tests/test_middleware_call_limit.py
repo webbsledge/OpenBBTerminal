@@ -1,4 +1,4 @@
-"""call_limit + tool_call_limit middleware factories — full coverage."""
+"""call_limit + tool_call_limit middleware factory tests."""
 
 from __future__ import annotations
 

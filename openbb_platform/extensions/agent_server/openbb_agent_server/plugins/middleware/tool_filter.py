@@ -1,4 +1,4 @@
-"""``tool_filter`` middleware — strip unwanted tools from the model request."""
+"""Tool filter middleware."""
 
 from __future__ import annotations
 
@@ -16,8 +16,6 @@ logger = logging.getLogger("openbb_agent_server.middleware.tool_filter")
 
 _DEFAULT_EXCLUDED = frozenset(
     {
-        # DeepAgents filesystem suite — we route file access through
-        # the OpenBB ``pdf_extract`` / ``widget_data`` tools instead.
         "ls",
         "execute",
         "read_file",
@@ -38,7 +36,7 @@ def _tool_name(tool: Any) -> str | None:
 
 
 class _ToolFilterMiddleware(AgentMiddleware):
-    """Drop named tools from every ``request.tools`` payload."""
+    """Drop named tools from every request tools payload."""
 
     def __init__(self, excluded: frozenset[str]) -> None:
         self._excluded = excluded
@@ -82,7 +80,7 @@ class ToolFilterMiddlewareFactory(Middleware):
     name = "tool_filter"
 
     def build(self, ctx: RunContext, config: dict[str, Any]) -> AgentMiddleware:
-        """Build a tool-filter middleware bound to ``config['excluded']``."""
+        """Build a tool-filter middleware from per-run config."""
         raw = config.get("excluded")
         if raw is None:
             excluded = _DEFAULT_EXCLUDED

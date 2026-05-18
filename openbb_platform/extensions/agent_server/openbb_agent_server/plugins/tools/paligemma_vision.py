@@ -1,4 +1,4 @@
-"""``paligemma_vision`` tool source — image captioning / OCR / VQA via PaliGemma."""
+"""``paligemma_vision`` tool source."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _is_image(f: FileRef) -> bool:
 async def _resolve_data_url(
     fileref: FileRef, *, max_bytes: int, timeout_s: float
 ) -> str:
-    """Return a ``data:<mime>;base64,<…>`` URL for one uploaded image."""
+    """Return a data URL for one uploaded image."""
     mime = fileref.mime
     if not mime:
         guessed, _ = mimetypes.guess_type(fileref.name or "")
@@ -106,7 +106,7 @@ class _ListArgs(BaseModel):
 
 
 class PaliGemmaVisionToolSource(ToolSource):
-    """``caption_image`` + ``read_image_text`` + ``ask_about_image`` over PaliGemma."""
+    """Expose PaliGemma caption / OCR / VQA tools."""
 
     name = "paligemma_vision"
 

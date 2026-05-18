@@ -38,7 +38,6 @@ def test_extract_config_file_from_argv_missing_returns_none() -> None:
 
 
 def test_extract_config_file_from_argv_followed_by_flag_is_ignored() -> None:
-    # ``--config-file --reload`` should not consume ``--reload`` as the path.
     out = extract_config_file_from_argv(["--config-file", "--reload"])
     assert out is None
 
@@ -56,10 +55,9 @@ def test_explicit_config_path_falls_through_env_priority(
 ) -> None:
     for v in EXPLICIT_CONFIG_ENVS:
         monkeypatch.delenv(v, raising=False)
-    monkeypatch.setenv("OPENBB_CONFIG", "/c.toml")  # last-priority slot
+    monkeypatch.setenv("OPENBB_CONFIG", "/c.toml")
     assert explicit_config_path([]) == "/c.toml"
 
-    # Higher-priority var wins.
     monkeypatch.setenv("OPENBB_AGENT_CONFIG", "/agent.toml")
     assert explicit_config_path([]) == "/agent.toml"
 
@@ -155,7 +153,7 @@ def test_apply_launcher_env_skips_missing_refs(
 
 
 def test_apply_user_settings_credentials_seeds_env(tmp_path: Path) -> None:
-    """``credentials`` from ``user_settings.json`` map to upper-cased env vars."""
+    """Map user_settings.json credentials to upper-cased env vars."""
     from openbb_agent_server.app import config as cfg_mod
 
     settings = tmp_path / "user_settings.json"
@@ -165,9 +163,9 @@ def test_apply_user_settings_credentials_seeds_env(tmp_path: Path) -> None:
                 "credentials": {
                     "groq_api_key": "gsk-from-file",
                     "nvidia_api_key": "nvapi-from-file",
-                    "google_api_key": None,  # null → skipped
-                    "anthropic_api_key": "",  # empty → skipped
-                    "openai_api_key": 12345,  # non-string → skipped
+                    "google_api_key": None,
+                    "anthropic_api_key": "",
+                    "openai_api_key": 12345,
                 },
                 "preferences": {},
             }
@@ -293,7 +291,6 @@ def test_bootstrap_loads_toml_and_pushes_env(
         OPENBB_TEST_BOOTSTRAP = "value-from-toml"
         """,
     )
-    # Make sure no shell value clobbers the test.
     monkeypatch.delenv("OPENBB_TEST_BOOTSTRAP", raising=False)
     cfg = bootstrap_launcher_config(explicit_path=str(cfg_path))
     assert cfg.get("agent", {}).get("host") == "0.0.0.0"
@@ -447,10 +444,7 @@ def test_from_toml_features_merges_over_defaults() -> None:
             }
         }
     )
-    # The operator-supplied feature is present…
     assert s.features["deep-research"]["default"] is True
-    # …and the built-in toggles survive the merge rather than being
-    # dropped by an operator ``[agent.features]`` block.
     assert "search-web" in s.features
     assert "fetch-url" in s.features
     assert s.features["streaming"] is True
@@ -466,7 +460,6 @@ def test_from_toml_env_var_still_wins_over_toml(
 ) -> None:
     monkeypatch.setenv("OPENBB_AGENT_HOST", "from-env-host")
     s = AgentServerSettings.from_toml({"host": "from-toml-host"})
-    # ``BaseSettings`` re-reads env vars at class instantiation, so env wins.
     assert s.host == "from-env-host"
 
 
@@ -474,7 +467,7 @@ def test_container_style_env_mapping(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """End-to-end: container sets HOST_GITHUB_TOKEN, TOML maps it to GITHUB_TOKEN."""
+    """Map a host env var to a container env var via the TOML env table."""
     import os
 
     monkeypatch.setenv("HOST_GITHUB_TOKEN", "ghp_secret_value")
@@ -497,7 +490,6 @@ def test_container_style_env_mapping(
 
 
 def test_module_constants_are_immutable() -> None:
-    # CI-friendly invariant — protects the public surface from drift.
     assert "OPENBB_AGENT_CONFIG" in cfg_mod.EXPLICIT_CONFIG_ENVS
     assert "OPENBB_API_CONFIG" in cfg_mod.EXPLICIT_CONFIG_ENVS
     assert "OPENBB_CONFIG" in cfg_mod.EXPLICIT_CONFIG_ENVS
@@ -529,7 +521,7 @@ def test_from_toml_loads_profiles_from_subtables() -> None:
 
 
 def test_resolve_profile_rejects_inline_system_prompt() -> None:
-    """Inline ``system_prompt = "..."`` must raise — system prompts are files."""
+    """Reject an inline system_prompt."""
     s = AgentServerSettings(profiles={"alt": {"system_prompt": "you are an analyst"}})
     with pytest.raises(ValueError, match="system_prompt_file"):
         s.resolve_profile("alt")
@@ -549,7 +541,6 @@ def test_resolve_profile_falls_back_to_base_settings_for_unset_fields() -> None:
         profiles={"only-name": {"metadata": {"name": "Just A Name"}}},
     )
     p = s.resolve_profile("only-name")
-    # Inherits the global tool_sources because the profile didn't override.
     assert p.tool_sources == ("artifacts", "web_search")
     assert p.metadata.name == "Just A Name"
 
@@ -560,7 +551,7 @@ def test_resolve_profile_default_returns_global_settings() -> None:
         model_name="llama3",
         tool_sources=("artifacts",),
     )
-    p = s.resolve_profile()  # implicit default
+    p = s.resolve_profile()
     assert p.name == "default"
     assert p.model_provider == "fake"
     assert p.model_name == "llama3"
@@ -621,9 +612,7 @@ def test_resolve_profile_overlay_merges_per_tool_source() -> None:
         },
     )
     p = s.resolve_profile("equity")
-    # Profile overlay wins on overlap…
     assert p.tool_source_config["mcp_local"]["config_file"] == "/equity.toml"
-    # …but inherits the keys it didn't override.
     assert p.tool_source_config["mcp_local"]["command"] == "openbb-mcp"
 
 
@@ -634,12 +623,12 @@ def test_default_profile_resolves_with_empty_tool_source_config() -> None:
 
 
 def test_load_preset_default_returns_a_dict() -> None:
-    """``load_preset('default')`` parses the bundled ``openbb.toml.example``."""
+    """Parse the bundled default preset."""
     from openbb_agent_server.app.config import load_preset
 
     out = load_preset("default")
     assert isinstance(out, dict)
-    assert out  # bundled preset is non-empty
+    assert out
 
 
 def test_load_preset_unknown_name_raises() -> None:

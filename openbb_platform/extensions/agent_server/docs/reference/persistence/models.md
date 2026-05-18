@@ -186,7 +186,7 @@ One row per ingested `get_widget_data` response.
 
 | Field | Type | Purpose |
 | --- | --- | --- |
-| `id` | `Integer` (PK, auto) | Row id (joined to `widget_rows_vec.parent_id`). |
+| `id` | `Integer` (PK, auto) | Row id. |
 | `user_id` | FK → `users.user_id` | Owner. |
 | `conversation_id` | `String` | Thread. |
 | `widget_uuid` | `String` | Per-instance Workspace UUID. |

@@ -1,4 +1,4 @@
-"""Middleware unit tests — UsageRecorder, ToolCallLedger, post-run memory writer."""
+"""Middleware unit tests."""
 
 from __future__ import annotations
 
@@ -85,7 +85,6 @@ async def test_usage_recorder_persists_token_metadata(
     with run_context.bind(_ctx()):
         await mw.aafter_model(state, runtime=None)
 
-    # Verify a usage row was written.
     async with history._sessionmaker() as session:  # type: ignore[attr-defined]
         from sqlalchemy import select
 
@@ -112,7 +111,6 @@ async def test_usage_recorder_no_op_outside_run_context(
         content="hi",
         usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
     )
-    # No bind() — should silently skip.
     await mw.aafter_model({"messages": [ai]}, runtime=None)
 
 
@@ -228,7 +226,7 @@ async def test_tool_call_ledger_records_error_path(
 async def test_tool_call_ledger_passes_through_graph_bubble_up(
     store_pair: tuple[SqliteHistoryStore, SqliteMemoryStore],
 ) -> None:
-    """``GraphBubbleUp`` is a LangGraph control-flow signal, not a tool failure."""
+    """Pass GraphBubbleUp through as a control-flow signal."""
     from langgraph.errors import GraphBubbleUp
 
     history, _ = store_pair
@@ -248,8 +246,6 @@ async def test_tool_call_ledger_passes_through_graph_bubble_up(
             _FakeRequest(tool_name="paused", args={}),
             handler,
         )
-    # GraphBubbleUp does NOT write an error ledger row — it's a control-flow
-    # signal, not a tool failure.
     async with history._sessionmaker() as session:  # type: ignore[attr-defined]
         from sqlalchemy import select
 
@@ -361,7 +357,7 @@ async def test_memory_writer_handles_none_extractor_output(
 async def test_memory_writer_swallows_extractor_failure(
     store_pair: tuple[SqliteHistoryStore, SqliteMemoryStore],
 ) -> None:
-    """A flaky extractor must never abort the request — it's a"""
+    """Swallow extractor failures rather than aborting the request."""
 
     class _Boom:
         async def ainvoke(self, *_a: Any, **_k: Any) -> AIMessage:
@@ -382,7 +378,7 @@ async def test_memory_writer_swallows_extractor_failure(
 
 @pytest.mark.asyncio
 async def test_schedule_returns_none_when_store_or_extractor_absent() -> None:
-    """``schedule()`` must short-circuit if the operator hasn't"""
+    """Short-circuit schedule() when store or extractor is absent."""
     from openbb_agent_server.memory.writer import schedule
 
     ctx = _ctx(scopes=("memory:read", "memory:write"))

@@ -21,8 +21,6 @@ def captured_writes(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 def test_no_writer_falls_back_to_noop() -> None:
-    # When _writer() returns None (no LangGraph context), helpers must
-    # silently no-op rather than raise.
     emit.reasoning_step("nope")
     emit.html_artifact(content="<div/>")
     emit.markdown_artifact(content="hi")
@@ -87,7 +85,7 @@ def test_chart_artifact_payload_shape(captured_writes: list[dict[str, Any]]) -> 
 def test_image_artifact_renders_inline_via_html(
     captured_writes: list[dict[str, Any]],
 ) -> None:
-    """Workspace's wire spec has no ``image`` artifact; we wrap as"""
+    """Wrap an image artifact as inline HTML."""
     emit.image_artifact(data_base64="xx", mime="image/png", name="logo")
     inner = captured_writes[0]["artifact"]
     assert inner["type"] == "html"
@@ -110,7 +108,7 @@ def test_image_artifact_requires_either_data_or_url() -> None:
 def test_file_artifact_renders_download_link_via_html(
     captured_writes: list[dict[str, Any]],
 ) -> None:
-    """Workspace has no ``file`` artifact; surface as an HTML download link."""
+    """Surface a file artifact as an HTML download link."""
     emit.file_artifact(url="http://example.com/x.csv", mime="text/csv", name="x.csv")
     inner = captured_writes[0]["artifact"]
     assert inner["type"] == "html"
@@ -132,7 +130,7 @@ def test_file_artifact_requires_either_data_or_url() -> None:
 
 
 def test_cite_payload_shape(captured_writes: list[dict[str, Any]]) -> None:
-    """``cite()`` must build the openbb-ai ``Citation`` shape:"""
+    """Build the openbb-ai Citation shape."""
     emit.cite(text="quote", source="Reuters", source_url="http://x")
     [payload] = captured_writes
     assert payload["type"] == "citations"
@@ -141,8 +139,6 @@ def test_cite_payload_shape(captured_writes: list[dict[str, Any]]) -> None:
     assert citation["source_info"]["type"] == "web"
     assert citation["source_info"]["name"] == "Reuters"
     assert citation["source_info"]["origin"] == "http://x"
-    # Popover ``details`` is enriched with ``url`` and ``title`` so the
-    # user can copy / inspect the source without leaving the chip.
     assert citation["details"] == [
         {"text": "quote", "url": "http://x", "title": "Reuters"}
     ]
@@ -164,7 +160,7 @@ def test_markdown_artifact_payload_shape(captured_writes: list[dict[str, Any]]) 
 
 
 def test_bind_writer_overrides_resolution() -> None:
-    """``bind_writer`` makes ``_writer()`` return the bound sink."""
+    """Make _writer() return the bound sink."""
     captured: list[dict[str, Any]] = []
     with emit.bind_writer(captured.append):
         emit.reasoning_step("hello")
@@ -177,13 +173,12 @@ def test_bind_writer_reset_after_with_block() -> None:
     captured: list[dict[str, Any]] = []
     with emit.bind_writer(captured.append):
         pass
-    # Once out of the ``with`` block, the override is cleared.
     emit.reasoning_step("not-captured")
     assert captured == []
 
 
 def test_cite_no_writer_emits_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """When no stream writer is bound, ``cite`` warns instead of emitting."""
+    """Warn instead of emitting when no stream writer is bound."""
     import logging as _logging
 
     with caplog.at_level(_logging.WARNING):
@@ -194,15 +189,12 @@ def test_cite_no_writer_emits_warning(caplog: pytest.LogCaptureFixture) -> None:
 def test_cite_widget_source_info_shape(
     captured_writes: list[dict[str, Any]],
 ) -> None:
-    """Citing a widget produces a widget-shaped ``source_info``."""
+    """Produce a widget-shaped source_info when citing a widget."""
     emit.cite(text="from-widget", widget="balance-sheet", source="Balance Sheet")
     [payload] = captured_writes
     [citation] = payload["citations"]
     src = citation["source_info"]
     assert src["type"] == "widget"
-    # ``widget`` is the per-instance UUID — it lands on ``uuid`` and is
-    # mirrored into ``metadata.widget_uuid`` (the key Workspace's chip
-    # resolver reads). ``widget_id`` is a separate optional slug.
     assert src["uuid"] == "balance-sheet"
     assert src["metadata"]["widget_uuid"] == "balance-sheet"
     assert src["name"] == "Balance Sheet"
@@ -211,7 +203,7 @@ def test_cite_widget_source_info_shape(
 def test_cite_attaches_metadata_from_input_arguments_and_extras(
     captured_writes: list[dict[str, Any]],
 ) -> None:
-    """``input_arguments`` and ``extra_details`` ride in ``source_info.metadata``."""
+    """Attach input_arguments and extra_details to a citation."""
     emit.cite(
         text="t",
         source="Reuters",
@@ -221,9 +213,6 @@ def test_cite_attaches_metadata_from_input_arguments_and_extras(
     [payload] = captured_writes
     [citation] = payload["citations"]
     meta = citation["source_info"]["metadata"]
-    # ``input_arguments`` rides in ``metadata.input_args``; the
-    # ``extra_details`` dict rides as a row in the citation
-    # ``details`` list, not in metadata.
     assert meta["input_args"] == {"sym": "AAPL"}
     assert {"published_at": "2026-05-01"} in citation["details"]
 
@@ -231,7 +220,7 @@ def test_cite_attaches_metadata_from_input_arguments_and_extras(
 def test_cite_includes_quote_bounding_boxes_when_provided(
     captured_writes: list[dict[str, Any]],
 ) -> None:
-    """``quote_bounding_boxes`` rides on the citation for PDF highlights."""
+    """Include quote_bounding_boxes on the citation."""
     boxes = [[{"page": 1, "x0": 0.1, "y0": 0.2, "x1": 0.3, "y1": 0.4}]]
     emit.cite(text="quote", widget="doc-uuid", quote_bounding_boxes=boxes)
     [payload] = captured_writes

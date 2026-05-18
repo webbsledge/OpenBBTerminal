@@ -35,4 +35,4 @@ def test_has_scope_exact_match() -> None:
     assert p.has_scope("memory:read")
     assert p.has_scope("agent:query")
     assert not p.has_scope("memory:write")
-    assert not p.has_scope("memory")  # No prefix matching.
+    assert not p.has_scope("memory")

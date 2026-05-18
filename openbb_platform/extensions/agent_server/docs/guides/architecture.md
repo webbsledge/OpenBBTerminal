@@ -88,7 +88,7 @@ A client disconnect mid-stream triggers the FastAPI handler's `asyncio.Cancelled
 
 1. **Auth.** The router resolves a `UserPrincipal` via the configured `AuthBackend`. An anonymous request hits `none` or `bearer_static` (dev) or `oidc_jwt` / `api_key_table` (prod). Scopes (`agent:query`, `memory:read`, `memory:write`, …) drive endpoint authorization.
 2. **Profile resolution.** The agent name (`/v1/query` → `default_profile`, `/agents/{name}/v1/query` → that name) is resolved to an `AgentProfile` — a frozen Pydantic model describing model + tools + middleware + sub-agents + features.
-3. **Widget ingestion.** When a tool message carries `get_widget_data` results, `parse_widget_data_messages` extracts them and `WidgetDataStore.record` persists each row set (SQL table) and indexes the rows in `SQLiteVec` for ANN search.
+3. **Widget ingestion.** When a tool message carries `get_widget_data` results, `parse_widget_data_messages` extracts them and `WidgetDataStore.record` persists each row set; the rows are queried later with SQL via `query_widget_data`.
 4. **Context ingestion.** `ingest_request_context` chunks any long uploaded file or human message (via `RecursiveCharacterTextSplitter`, language-aware for code) and writes the chunks to `MemoryStore` if the user has `memory:write` scope.
 5. **Build the agent.** `runtime/builder.py::run_agent` calls `langchain.deepagents.create_deep_agent(model, tools, system_prompt, subagents, middleware)`. Every plugin is resolved from `runtime/registry.py` against the entry-point groups documented in [`docs/README.md`](../README.md).
 6. **Stream.** `agent.astream(stream_mode=["updates","messages","custom"], subgraphs=True)` yields raw events. `protocol/adapter.py::DeepAgentEventAdapter` translates each into an OpenBB SSE event and the router writes it onto the wire.
@@ -117,7 +117,7 @@ See [the docs index plugin table](../README.md#plugin-slots) for the full list. 
 | Surface | Default | Postgres |
 | --- | --- | --- |
 | Chat history / traces / usage / artifacts / citations / pending runs | SQLite at `~/.openbb_platform/agent/history.db` | `OPENBB_AGENT_DB_URL=postgresql+psycopg://…` |
-| Vector memory + widget row ANN index | `SQLiteVec` tables in the same SQLite file | — (SQLiteVec is SQLite-only) |
+| Vector memory + PDF page ANN index | `SQLiteVec` tables in the same SQLite file | — (SQLiteVec is SQLite-only) |
 | Widget data rows | `widget_data` SQLAlchemy table | same |
 | Background-job state | in-process `JobRegistry` | not persisted |
 | Resume state after a client-side tool call | `pending_runs` SQLAlchemy table | same |

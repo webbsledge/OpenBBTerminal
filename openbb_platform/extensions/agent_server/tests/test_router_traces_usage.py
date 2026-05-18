@@ -41,8 +41,6 @@ def test_trace_endpoint_returns_full_bundle(client: TestClient) -> None:
         },
     )
     assert resp.status_code == 200
-    # Server-generated per-request trace id surfaced via the
-    # X-Server-Trace-ID response header. (X-Trace-ID is conversation_id.)
     server_trace_id = resp.headers["X-Server-Trace-ID"]
 
     bundle = client.get(f"/v1/traces/{server_trace_id}").json()
@@ -89,7 +87,6 @@ def test_trace_endpoint_404_for_other_users_trace(
         )
         alice_trace_id = alice_resp.headers["X-Server-Trace-ID"]
 
-        # New principal (Bob) on the same DB looking for Alice's trace.
         monkeypatch.setenv(
             "OPENBB_AGENT_AUTH_CONFIG",
             '{"token": "bob", "user_id": "bob", "scopes": ["agent:query"]}',
@@ -103,8 +100,6 @@ def test_trace_endpoint_404_for_other_users_trace(
 
 
 def test_usage_endpoint_returns_aggregates(client: TestClient) -> None:
-    # The fake model doesn't emit usage_metadata, so we expect an empty
-    # by_model array — this still exercises the endpoint code path.
     client.post(
         "/v1/query",
         json={"messages": [{"role": "human", "content": "hi"}]},

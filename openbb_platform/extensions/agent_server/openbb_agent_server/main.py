@@ -72,7 +72,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command")
 
-    # ----- serve (default if no subcommand given) ----------------------
     serve = sub.add_parser("serve", help="Run the agent server (default).")
     serve.add_argument("--host", default=None, help="Bind host.")
     serve.add_argument("--port", type=int, default=None, help="Bind port.")
@@ -82,7 +81,6 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--reload", action="store_true", help="Hot-reload (dev).")
     serve.add_argument("--log-level", default="info")
 
-    # ----- keys (provision / inspect / revoke) -------------------------
     keys = sub.add_parser("keys", help="Manage api_key_table API keys.")
     keys_sub = keys.add_subparsers(dest="keys_command", required=True)
 
@@ -109,6 +107,31 @@ def _build_parser() -> argparse.ArgumentParser:
     listc = keys_sub.add_parser("list", help="List API keys (does NOT print secrets).")
     listc.add_argument("--user-id", default=None, help="Filter to one user.")
     listc.add_argument("--json", action="store_true")
+
+    prune = sub.add_parser("prune", help="Delete stale checkpoints + history rows.")
+    prune.add_argument(
+        "--keep-last",
+        type=int,
+        default=None,
+        help="Checkpoints to keep per conversation thread. Default: config.",
+    )
+    prune.add_argument(
+        "--checkpoint-days",
+        type=int,
+        default=None,
+        help="Drop checkpoint threads idle longer than this. Default: config.",
+    )
+    prune.add_argument(
+        "--history-days",
+        type=int,
+        default=None,
+        help="Drop history older than this many days. Default: config.",
+    )
+    prune.add_argument(
+        "--no-vacuum",
+        action="store_true",
+        help="Skip the post-delete VACUUM (faster, file does not shrink).",
+    )
 
     p.add_argument("--host", default=None)
     p.add_argument("--port", type=int, default=None)
@@ -166,6 +189,8 @@ def main(argv: list[str] | None = None) -> None:
         _serve(args=args, agent_cfg=agent_cfg, explicit_path=explicit_path)
     elif command == "keys":
         _keys(args=args, agent_cfg=agent_cfg)
+    elif command == "prune":
+        _prune(args=args, agent_cfg=agent_cfg)
     else:  # pragma: no cover — argparse rejects unknown
         raise SystemExit(f"unknown command: {command}")
 
@@ -199,8 +224,6 @@ def _serve(
         install_trace_logging,
     )
 
-    # Channel the chosen level to ``create_app`` and the ``--reload``
-    # worker so it survives, then install the structured root logger.
     os.environ[LOG_LEVEL_ENV] = args.log_level
     install_trace_logging()
 
@@ -309,6 +332,48 @@ def _keys(*, args: argparse.Namespace, agent_cfg: dict[str, Any]) -> None:
                 )
 
         asyncio.run(_do())
+
+
+def _prune(*, args: argparse.Namespace, agent_cfg: dict[str, Any]) -> None:
+    """Run a one-shot retention prune of the checkpoint + history databases."""
+    from openbb_agent_server.app.settings import AgentServerSettings
+    from openbb_agent_server.persistence.prune import run_prune
+    from openbb_agent_server.persistence.sqlite_store import SqliteHistoryStore
+
+    settings = AgentServerSettings.from_toml(agent_cfg)
+    keep_last = (
+        args.keep_last if args.keep_last is not None else settings.checkpoint_keep_last
+    )
+    checkpoint_days = (
+        args.checkpoint_days
+        if args.checkpoint_days is not None
+        else settings.checkpoint_retention_days
+    )
+    history_days = (
+        args.history_days
+        if args.history_days is not None
+        else settings.history_retention_days
+    )
+
+    async def _do() -> None:
+        history = SqliteHistoryStore(settings.resolved_db_url())
+        await history.init_schema()
+        try:
+            stats = await run_prune(
+                history=history,
+                checkpoint_path=settings.resolved_checkpoint_path(),
+                history_retention_days=history_days,
+                checkpoint_retention_days=checkpoint_days,
+                checkpoint_keep_last=keep_last,
+                vacuum=not args.no_vacuum,
+            )
+        finally:
+            await history.aclose()
+        for table, count in sorted({**stats.history, **stats.checkpoints}.items()):
+            print(f"  {table:<16} {count:>12,} deleted")  # noqa: T201
+        print(f"prune complete — {stats.total():,} row(s) removed")  # noqa: T201
+
+    asyncio.run(_do())
 
 
 if __name__ == "__main__":  # pragma: no cover — script entry

@@ -55,7 +55,7 @@ def _resolve_config_file(explicit: str | None) -> str | None:
 
 
 def _read_mcp_table(config_path: str | None) -> dict[str, Any]:
-    """Re-walk the cascade and return the ``[mcp]`` table."""
+    """Re-walk the cascade and return the mcp table."""
     from openbb_agent_server.app.config import bootstrap_launcher_config
 
     try:
@@ -106,7 +106,6 @@ class HttpMcpToolSource(ToolSource):
         )
         mcp_section = _read_mcp_table(config_file)
 
-        # Transport: per-call > constructor > [mcp].transport > default.
         raw_transport = (
             config.get("transport")
             or self._transport
@@ -115,7 +114,6 @@ class HttpMcpToolSource(ToolSource):
         )
         transport = _normalise_transport(str(raw_transport))
 
-        # URL: per-call > constructor > [mcp].host/port composition.
         url = config.get("url") or self._url
         if not url:
             host = mcp_section.get("host")

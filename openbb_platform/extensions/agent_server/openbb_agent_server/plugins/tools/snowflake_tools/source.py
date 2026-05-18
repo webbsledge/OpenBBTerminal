@@ -1,4 +1,4 @@
-"""``snowflake`` tool source — wraps :class:`SnowflakeClient` and Cortex."""
+"""``snowflake`` tool source."""
 
 from __future__ import annotations
 
@@ -153,7 +153,7 @@ class _CortexAnalystArgs(BaseModel):
 
 
 def _result_to_payload(result: QueryResult) -> dict[str, Any]:
-    """Render a :class:`QueryResult` as a tool-output dict + table artifact."""
+    """Render a QueryResult as a tool-output dict and table artifact."""
     if result.rows and result.columns:
         emit.table_artifact(
             columns=list(result.columns),
@@ -259,7 +259,6 @@ class SnowflakeToolSource(ToolSource):
 
         return _build_tools(client, creds, max_rows=client.max_rows)
 
-    # Exposed so tests / plugins that compose can build tools directly.
     @staticmethod
     def build_tools(
         client: SnowflakeClient,
@@ -276,8 +275,6 @@ def _build_tools(
     *,
     max_rows: int,
 ) -> list[Any]:
-    # ----- Query / catalog ------------------------------------------------
-
     def snowflake_query(sql: str, max_rows: int = max_rows) -> dict[str, Any]:
         emit.reasoning_step("snowflake_query", sql=sql[:160], max_rows=max_rows)
         return _result_to_payload(client.execute(sql, max_rows=max_rows))
@@ -299,7 +296,7 @@ def _build_tools(
         return _result_to_payload(client.execute(f"DESCRIBE {object_path}"))
 
     def snowflake_get_table_info(table: str) -> dict[str, Any]:
-        """Richer column metadata than DESCRIBE — pulls from"""
+        """Return rich column metadata for a table."""
         parts = [p.strip('"') for p in table.split(".")]
         if len(parts) != 3:
             raise ValueError(
@@ -321,15 +318,13 @@ def _build_tools(
 
     def snowflake_get_table_sample_data(table: str, limit: int = 5) -> dict[str, Any]:
         """Read the first ``limit`` rows of ``table`` and emit as a table artifact."""
-        # ``table`` is a Snowflake identifier validated upstream by the
-        # tool's args schema; no agent-supplied raw text reaches here.
         sample_sql = f"SELECT * FROM {table}"  # noqa: S608
         return _result_to_payload(client.execute(sample_sql, max_rows=limit))
 
     def snowflake_get_multiple_table_definitions(
         tables: list[str],
     ) -> dict[str, Any]:
-        """Fan out :func:`snowflake_get_table_info` over a list of tables."""
+        """Fan out column-info lookups over a list of tables."""
         out: dict[str, Any] = {}
         for fq in tables:
             try:
@@ -360,8 +355,6 @@ def _build_tools(
             "ORDER BY start_time DESC "
         )
         return _result_to_payload(client.execute(sql, max_rows=limit))
-
-    # ----- Cortex SQL -----------------------------------------------------
 
     def snowflake_cortex_complete(
         prompt: str,
@@ -404,8 +397,6 @@ def _build_tools(
         dim: int = 1024,
     ) -> list[float]:
         return cortex_lib.cortex_embed(client, text=text, model=model, dim=dim)
-
-    # ----- Cortex REST ----------------------------------------------------
 
     def snowflake_cortex_search(
         database: str,

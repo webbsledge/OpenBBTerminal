@@ -19,20 +19,20 @@ class MediaError(RuntimeError):
 
 
 class MediaTooLargeError(MediaError):
-    """Remote payload exceeded the caller's ``max_bytes`` budget."""
+    """Raise when a payload exceeds the caller's byte budget."""
 
 
 class MediaFetchError(MediaError):
-    """HTTP fetch failed."""
+    """Raise when an HTTP fetch fails."""
 
 
 class FFmpegUnavailableError(MediaError):
-    """``ffmpeg`` / ``ffprobe`` not on ``$PATH`` but needed."""
+    """Raise when ffmpeg or ffprobe is not on PATH."""
 
 
 @dataclass(frozen=True)
 class FetchedMedia:
-    """Raw bytes + content-type for a resolved clip."""
+    """Hold raw bytes and content-type for a resolved clip."""
 
     data: bytes
     mime: str
@@ -66,7 +66,7 @@ async def fetch_url(
                 )
                 buf = bytearray()
                 async for chunk in response.aiter_bytes():
-                    if not chunk:  # pragma: no cover - httpx rarely emits empty
+                    if not chunk:  # pragma: no cover
                         continue
                     if len(buf) + len(chunk) > max_bytes:
                         raise MediaTooLargeError(
@@ -162,7 +162,7 @@ async def probe_audio_duration(raw: bytes) -> float:
 
 @dataclass(frozen=True)
 class AudioSegment:
-    """One slice of a clip after :func:`split_audio_bytes`."""
+    """Hold one slice of a clip produced by split_audio_bytes."""
 
     index: int
     total: int

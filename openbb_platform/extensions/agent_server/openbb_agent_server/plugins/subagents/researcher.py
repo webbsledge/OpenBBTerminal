@@ -1,4 +1,4 @@
-"""``researcher`` subagent — web/news/filings retrieval + citations."""
+"""Researcher subagent."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def factory(**_config: Any) -> dict[str, Any]:
 
 
 class ResearcherSubAgent:
-    """Researcher subagent declaration. Returned shape is a deepagents ``SubAgent``."""
+    """Researcher subagent declaration."""
 
     name = "researcher"
     description = (

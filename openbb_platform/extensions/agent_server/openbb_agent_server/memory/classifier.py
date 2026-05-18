@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import re
 
-# Extensions that are unambiguous source code / structured data.
 _CODE_EXTENSIONS: frozenset[str] = frozenset(
     {
-        # General-purpose languages
         ".py",
         ".pyi",
         ".ipynb",
@@ -61,8 +59,6 @@ _CODE_EXTENSIONS: frozenset[str] = frozenset(
         ".sql",
         ".graphql",
         ".gql",
-        # Structured data / config (code-like enough that the code
-        # embedder beats the prose embedder on retrieval quality)
         ".json",
         ".yaml",
         ".yml",
@@ -88,7 +84,6 @@ _CODE_EXTENSIONS: frozenset[str] = frozenset(
         ".parquet",
         ".feather",
         ".arrow",
-        # Build / infra
         ".dockerfile",
         ".tf",
         ".tfvars",
@@ -101,7 +96,6 @@ _CODE_EXTENSIONS: frozenset[str] = frozenset(
     }
 )
 
-# MIMEs that imply code or code-like structured data.
 _CODE_MIMES: frozenset[str] = frozenset(
     {
         "application/json",
@@ -128,7 +122,6 @@ _CODE_MIMES: frozenset[str] = frozenset(
         "text/css",
         "text/html",
         "text/x-sql",
-        # Spreadsheets / tabular data
         "text/csv",
         "text/tab-separated-values",
         "application/vnd.ms-excel",
@@ -143,7 +136,6 @@ _CODE_MIMES: frozenset[str] = frozenset(
     }
 )
 
-# Heuristic shape signal: high density of these tokens is code-like.
 _CODE_TOKENS = re.compile(
     r"\b(def|class|function|fn|func|return|if|else|elif|for|while|"
     r"import|from|export|const|let|var|public|private|static|"
@@ -164,7 +156,6 @@ def looks_like_code(
         for ext in _CODE_EXTENSIONS:
             if lower.endswith(ext):
                 return True
-        # Special-cased basenames with no extension
         base = lower.rsplit("/", 1)[-1]
         if base in {"dockerfile", "makefile", "rakefile", "vagrantfile"}:
             return True
@@ -175,8 +166,7 @@ def looks_like_code(
     if not text:
         return False
 
-    # Density signal — count distinct code-token matches per char.
-    sample = text[:4000]  # only the head; cheap enough for long docs
+    sample = text[:4000]
     if not sample.strip():
         return False
     n_tokens = sum(1 for _ in _CODE_TOKENS.finditer(sample))

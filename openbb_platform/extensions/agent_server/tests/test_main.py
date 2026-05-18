@@ -69,7 +69,6 @@ def _setup_keys_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         f'{{"db_url": "sqlite+aiosqlite:///{tmp_path / "auth.db"}"}}',
     )
     monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
-    # Init schema by spinning a history store once.
     import asyncio
 
     from openbb_agent_server.persistence.sqlite_store import SqliteHistoryStore
@@ -92,7 +91,7 @@ def test_keys_issue_prints_human_format(
     out = capsys.readouterr().out
     assert "key_id :" in out
     assert "alice" in out
-    assert "oba_" in out  # the plaintext is shown once
+    assert "oba_" in out
     assert "laptop" in out
 
 
@@ -126,7 +125,6 @@ def test_keys_issue_then_list(
     listed = capsys.readouterr().out
     assert "alice" in listed
     assert "bob" in listed
-    # Plaintext keys / hashes are NOT printed by `list`.
     assert "oba_" not in listed
 
 
@@ -145,7 +143,6 @@ def test_keys_revoke(
     out = capsys.readouterr().out
     assert "revoked" in out
 
-    # `list` reflects the revoke.
     main(["keys", "list", "--json"])
     rows = json.loads(capsys.readouterr().out.strip())
     [row] = [r for r in rows if r["key_id"] == issued["key_id"]]
@@ -189,7 +186,7 @@ def test_generate_config_prints_template_to_stdout(
 
 
 def test_read_config_template_unknown_preset_raises() -> None:
-    """Asking for a preset that doesn't exist bails with a helpful message."""
+    """Bail with a helpful message for an unknown preset."""
     from openbb_agent_server.main import _read_config_template
 
     with pytest.raises(SystemExit, match="unknown preset"):
@@ -211,3 +208,33 @@ def test_generate_config_refuses_to_overwrite(tmp_path) -> None:
         main(["--generate-config", str(target)])
     assert "refusing to overwrite" in str(exc.value)
     assert target.read_text(encoding="utf-8") == "# existing"
+
+
+def test_prune_command_with_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    main(
+        ["prune", "--keep-last", "2", "--checkpoint-days", "7", "--history-days", "30"]
+    )
+    out = capsys.readouterr().out
+    assert "prune complete" in out
+
+
+def test_prune_command_uses_config_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(
+        "OPENBB_AGENT_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'h.db'}"
+    )
+    monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
+    main(["prune", "--no-vacuum"])
+    out = capsys.readouterr().out
+    assert "prune complete" in out

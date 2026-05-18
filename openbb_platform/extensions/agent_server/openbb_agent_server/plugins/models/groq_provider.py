@@ -1,4 +1,4 @@
-"""Groq Cloud model provider (optional install: ``[groq]``)."""
+"""Groq Cloud model provider."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ _SERVICE_TIERS: tuple[str, ...] = ("on_demand", "flex", "auto")
 
 
 class GroqProvider(ModelProvider):
-    """Wraps :class:`langchain_groq.ChatGroq`."""
+    """Wrap ChatGroq."""
 
     name = "groq"
 

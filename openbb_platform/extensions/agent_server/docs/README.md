@@ -37,7 +37,7 @@ The runtime resolves six plugin groups from Python entry points:
 | Surface | Default | Postgres |
 | --- | --- | --- |
 | Chat history, traces, usage, artifacts, citations, pending runs, widget data, PDF ingest, users, api keys | SQLite at `~/.openbb_platform/agent/history.db` | `OPENBB_AGENT_DB_URL=postgresql+psycopg://...` |
-| Vector memory (`memories_text` / `memories_code`) + per-row widget ANN (`widget_rows_vec`) | `SQLiteVec` tables in the same SQLite file | SQLite-only (SQLiteVec is not available on Postgres) |
+| Vector memory (`memories_text` / `memories_code`) + PDF page ANN (`pdf_pages_vec`) | `SQLiteVec` tables in the same SQLite file | SQLite-only (SQLiteVec is not available on Postgres) |
 | Resume state after a client-side tool call | `pending_runs` SQLAlchemy table | same |
 | Background-job state | in-process `JobRegistry` (run-scoped) | not persisted |
 

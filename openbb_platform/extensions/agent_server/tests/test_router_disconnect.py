@@ -38,14 +38,13 @@ def test_run_drains_to_natural_end_when_client_disconnects(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Patch ``is_disconnected`` to flip True after the first event."""
+    """The run drains to natural end after the client disconnects."""
     from starlette.requests import Request
 
     flipped = {"value": False}
     original = Request.is_disconnected
 
     async def patched_is_disconnected(self):  # type: ignore[no-untyped-def]
-        # Stay connected for the trace-started step, then drop.
         if not flipped["value"]:
             flipped["value"] = True
             return False
@@ -62,8 +61,6 @@ def test_run_drains_to_natural_end_when_client_disconnects(
     )
     assert resp.status_code == 200
 
-    # Even though the client "disconnected", the agent ran to natural
-    # completion and persisted the AI turn. This is the proof:
     msgs = client.get("/v1/conversations/conv-disconnect-1/messages").json()["messages"]
     ai_turns = [m for m in msgs if m["role"] == "ai"]
     assert ai_turns
@@ -74,7 +71,7 @@ def test_run_drains_does_not_record_cancelled_status(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A disconnect must NOT leave the trace marked ``cancelled``."""
+    """A disconnect does not leave the trace marked cancelled."""
     from starlette.requests import Request
 
     async def always_disconnected(self):  # type: ignore[no-untyped-def]
@@ -90,20 +87,15 @@ def test_run_drains_does_not_record_cancelled_status(
         },
     )
     assert resp.status_code == 200
-    # Server-generated per-request trace_id surfaced via the
-    # X-Server-Trace-ID response header. (X-Trace-ID is the conversation id.)
     server_trace_id = resp.headers["X-Server-Trace-ID"]
     bundle = client.get(f"/v1/traces/{server_trace_id}").json()
-    # The run completed naturally — disconnects don't mark cancelled.
     assert bundle["trace"]["status"] == "completed"
 
 
 def test_explicit_cancel_endpoint_still_marks_cancelled(
     client: TestClient,
 ) -> None:
-    """The opt-in cancel POST is still honoured (we only changed disconnect handling)."""
-    # No active run when we call cancel — the path returns 202 with an
-    # empty cancelled list. The endpoint behaviour is unchanged.
+    """The opt-in cancel POST is still honoured."""
     resp = client.post("/v1/conversations/whatever/cancel")
     assert resp.status_code == 202
     assert "cancelled_runs" in resp.json()

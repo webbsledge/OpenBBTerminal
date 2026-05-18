@@ -228,20 +228,7 @@ def cite(
     input_arguments: dict[str, Any] | None = None,
     extra_details: dict[str, Any] | None = None,
 ) -> None:
-    """Emit one citation. The router buffers and emits as a single batch.
-
-    ``widget`` is the per-instance dashboard UUID — Workspace matches
-    this against the user's pinned widgets to render a live chip
-    that jumps back to the source. PDF / document citations also
-    use ``widget`` (the source document widget's UUID) plus
-    ``quote_bounding_boxes`` (a list of quote groups, each a list
-    of per-line bboxes) to highlight a specific quote in
-    Workspace's PDF viewer (see
-    docs.openbb.co/workspace/developers/ai-features/citations-for-documents).
-
-    ``widget_id`` is the internal source-widget slug. Optional
-    secondary label.
-    """
+    """Emit one citation. The router buffers and emits as a single batch."""
     w = _writer()
     if w is None:
         logger.warning("cite: no stream writer; would emit %s", source or source_url)
@@ -262,11 +249,6 @@ def cite(
             "name": source,
             "origin": source_url,
         }
-    # Workspace's chip resolver reads ``metadata.widget_uuid`` (NOT
-    # ``source_info.uuid``) to match this citation to a pinned
-    # dashboard widget instance. ``input_args`` (NOT
-    # ``input_arguments``) documents what the widget was called
-    # with — both keys are required for the chip to render properly.
     if widget or input_arguments:
         metadata: dict[str, Any] = {}
         if widget:
@@ -275,24 +257,10 @@ def cite(
             metadata["input_args"] = input_arguments
         source_info["metadata"] = metadata
 
-    # Build the ``Citation.details`` list. Workspace's UI surfaces
-    # each dict in this list as a tooltip row (the "Page: N" /
-    # "Reference: ..." labels). Per the SDK example we pass
-    # ``extra_details`` straight through here.
     details: list[dict[str, Any]] | None
     details_entries: list[dict[str, Any]] = []
     if extra_details:
         details_entries.append(dict(extra_details))
-    # For widget citations the source name + origin are already on
-    # ``source_info.name`` / ``source_info.origin``; the reference
-    # PDF-citation example
-    # (agents-for-openbb/36-vanilla-agent-pdf-citations) uses ONLY
-    # ``extra_details``. The extra ``{"url": ..., "title": ...}``
-    # row we used to append duplicates source_info and appears to
-    # break Workspace's PDF-chip navigation. Only add a
-    # ``{text, url, title}`` row for non-widget citations (web /
-    # direct retrieval) where this entry IS the citation's primary
-    # surface in the chip.
     if not widget:
         details_entry: dict[str, Any] = {}
         if text:

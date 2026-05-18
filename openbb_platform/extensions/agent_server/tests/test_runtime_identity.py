@@ -1,4 +1,4 @@
-"""Tests for :mod:`openbb_agent_server.runtime.identity`."""
+"""Tests for the runtime identity module."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def test_hash_user_id_returns_opaque_prefix() -> None:
     assert h.startswith("u-")
     assert "@" not in h
     assert "alice" not in h
-    assert len(h) == 2 + 24  # prefix + 12 bytes hex
+    assert len(h) == 2 + 24
 
 
 def test_hash_user_id_is_stable() -> None:

@@ -30,7 +30,7 @@ class _Tool:
 
 
 class _Request:
-    """Mimics langchain's model-call request: ``tools`` + ``override()``."""
+    """Mimics langchain's model-call request with tools and override."""
 
     def __init__(self, tools: list[Any]) -> None:
         self.tools = tools

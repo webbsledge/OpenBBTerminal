@@ -41,7 +41,6 @@ def test_anthropic_provider_prefers_runtime_api_key_from_ctx() -> None:
     )
 
     provider = AnthropicProvider(api_key="default-key")
-    # ctx-level keys win over the constructor default.
     model = provider.build(_ctx(api_keys={"ANTHROPIC_API_KEY": "ctx-key"}), {})
     assert _extract_api_key(model) == "ctx-key"
 
@@ -83,7 +82,7 @@ def test_nvidia_provider_constructs_when_package_available() -> None:
 
 
 def test_nvidia_provider_propagates_extra_body_and_model_kwargs() -> None:
-    """``extra_body`` keys merge into ``model_kwargs`` cleanly — ChatNVIDIA spreads ``model_kwargs`` into the chat-completion payload, so the user's API knobs reach the wire without triggering the noisy ``extra_body is not a default parameter`` warning langchain raises when it has to auto-transfer the field."""
+    """extra_body keys merge into model_kwargs cleanly."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
 
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
@@ -95,7 +94,6 @@ def test_nvidia_provider_propagates_extra_body_and_model_kwargs() -> None:
     )
     model = provider.build(_ctx(), {})
     mk = getattr(model, "model_kwargs", {}) or {}
-    # Both end up flat in ``model_kwargs``, no nested ``extra_body`` key.
     assert mk.get("reasoning_effort") == "high"
     assert mk.get("frequency_penalty") == 0.1
     assert "extra_body" not in mk
@@ -107,8 +105,6 @@ def test_bedrock_provider_constructs_when_package_available(
     pytest.importorskip("langchain_aws")
     from openbb_agent_server.plugins.models.bedrock_provider import BedrockProvider
 
-    # boto3 lazily auths on the first model call, but construction in
-    # some environments still requires a region. Provide a fake one.
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
@@ -386,8 +382,6 @@ def test_openai_provider_forwards_sampling_block() -> None:
     pytest.importorskip("langchain_openai")
     from openbb_agent_server.plugins.models.openai_provider import OpenAIProvider
 
-    # OpenAI rejects ``n > 1`` together with ``streaming=True`` so we
-    # exercise the full block with ``streaming=False``.
     provider = OpenAIProvider(
         api_key="kx",
         base_url="https://api.openai.example/v1",
@@ -444,10 +438,7 @@ def test_nvidia_provider_forwards_sampling_block() -> None:
 
 
 def test_nvidia_provider_forwards_reasoning_fields() -> None:
-    """``reasoning_effort`` / ``reasoning_budget`` / ``chat_template_kwargs``
-    are not native ChatNVIDIA fields — they piggy-back on ``model_kwargs``
-    so the NIM server picks them up as top-level request body fields.
-    """
+    """Reasoning fields piggy-back on model_kwargs for the NIM server."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
 
@@ -465,7 +456,7 @@ def test_nvidia_provider_forwards_reasoning_fields() -> None:
 
 
 def test_nvidia_provider_reasoning_budget_disabled_sentinel() -> None:
-    """``reasoning_budget=-1`` is the NIM sentinel for ``no enforcement``."""
+    """reasoning_budget=-1 is the NIM no-enforcement sentinel."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
 
@@ -476,9 +467,7 @@ def test_nvidia_provider_reasoning_budget_disabled_sentinel() -> None:
 
 
 def test_nvidia_provider_streaming_toggle_maps_to_disable_streaming() -> None:
-    """``streaming=False`` translates to ChatNVIDIA's inverted
-    ``disable_streaming=True`` field.
-    """
+    """streaming=False translates to ChatNVIDIA's disable_streaming=True."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
 
@@ -489,9 +478,7 @@ def test_nvidia_provider_streaming_toggle_maps_to_disable_streaming() -> None:
 
 
 def test_nvidia_provider_max_tokens_alias_to_max_completion_tokens() -> None:
-    """``max_tokens`` and ``max_completion_tokens`` are interchangeable;
-    ``max_tokens`` wins when both are set (matches the UI label).
-    """
+    """max_tokens wins over max_completion_tokens when both are set."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
 
@@ -520,9 +507,7 @@ def test_nvidia_provider_rejects_invalid_reasoning_budget() -> None:
 
 
 def test_nvidia_provider_forwards_penalty_fields() -> None:
-    """``frequency_penalty`` / ``presence_penalty`` ride along in
-    ``model_kwargs`` because ChatNVIDIA has no native fields for them.
-    """
+    """Penalty fields ride along in model_kwargs."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from openbb_agent_server.plugins.models.nvidia_provider import NvidiaProvider
 
@@ -554,11 +539,7 @@ def test_nvidia_provider_rejects_out_of_range_penalty(
 
 
 def test_openai_compat_provider_forwards_reasoning_fields() -> None:
-    """``openai_compat`` forwards ``reasoning_effort`` directly and
-    spreads ``reasoning_budget`` / ``chat_template_kwargs`` via
-    ``model_kwargs`` so vLLM / NIM / TGI servers behind the
-    OpenAI-compat shim still receive them.
-    """
+    """openai_compat forwards reasoning fields to compat servers."""
     pytest.importorskip("langchain_openai")
     from openbb_agent_server.plugins.models.openai_compat_provider import (
         OpenAICompatProvider,
@@ -576,8 +557,6 @@ def test_openai_compat_provider_forwards_reasoning_fields() -> None:
     mk = dict(getattr(model, "model_kwargs", {}) or {})
     assert mk.get("reasoning_budget") == 16384
     assert mk.get("chat_template_kwargs") == {"reasoning_budget": 16384}
-    # ``reasoning_effort`` is native on recent ChatOpenAI; pydantic exposes
-    # it directly on the model.
     assert getattr(model, "reasoning_effort", None) == "high"
 
 
@@ -603,17 +582,7 @@ def test_openai_compat_provider_rejects_invalid_reasoning_fields() -> None:
 def test_nvidia_provider_suppresses_not_known_to_support_tools_warning(
     recwarn: pytest.WarningsRecorder,
 ) -> None:
-    """langchain-nvidia-ai-endpoints emits a misleading UserWarning
-    when a model isn't in its hardcoded "known to support tools"
-    allow-list — but the model often does support tools via a
-    different format. Confirm the provider's module-level
-    ``filterwarnings`` silences that one warning so logs stay clean.
-
-    Uses pytest's ``recwarn`` (which leaves the user-installed filters
-    in place) instead of ``warnings.catch_warnings(simplefilter="always")``
-    so the module filter is honoured the same way it would be in
-    production.
-    """
+    """The provider silences the misleading not-known-to-support-tools warning."""
     pytest.importorskip("langchain_nvidia_ai_endpoints")
     from langchain_core.tools import tool
 
@@ -628,8 +597,6 @@ def test_nvidia_provider_suppresses_not_known_to_support_tools_warning(
         api_key="k", model_name="mistralai/mistral-large-3-675b-instruct-2512"
     )
     model = provider.build(_ctx(), {})
-    # ``bind_tools`` is where the warning fires inside
-    # langchain-nvidia-ai-endpoints.
     model.bind_tools([echo])
     messages = [str(w.message) for w in recwarn.list]
     assert not any("is not known to support tools" in m for m in messages), (
@@ -638,9 +605,7 @@ def test_nvidia_provider_suppresses_not_known_to_support_tools_warning(
 
 
 def test_nvidia_silence_unknown_tools_warning_swallows_attribute_errors() -> None:
-    """``_silence_unknown_tools_warning`` is best-effort — internal shape
-    changes that make attribute access raise are caught silently.
-    """
+    """_silence_unknown_tools_warning is best-effort and swallows errors."""
     from openbb_agent_server.plugins.models.nvidia_provider import (
         _silence_unknown_tools_warning,
     )
@@ -653,16 +618,11 @@ def test_nvidia_silence_unknown_tools_warning_swallows_attribute_errors() -> Non
     class _Model:
         _client = _ExplodingClient()
 
-    # Must not raise — the broad ``except`` swallows the failure.
     _silence_unknown_tools_warning(_Model())
 
 
 def test_openai_compat_provider_merges_extra_body_and_model_kwargs() -> None:
-    """``extra_body`` and ``model_kwargs`` both fold into ``model_kwargs``.
-
-    ``model_kwargs`` wins on key collisions; non-colliding keys from
-    both escape hatches survive into the final ChatOpenAI config.
-    """
+    """extra_body and model_kwargs both fold into model_kwargs."""
     pytest.importorskip("langchain_openai")
     from openbb_agent_server.plugins.models.openai_compat_provider import (
         OpenAICompatProvider,
@@ -678,7 +638,6 @@ def test_openai_compat_provider_merges_extra_body_and_model_kwargs() -> None:
     mk = dict(getattr(model, "model_kwargs", {}) or {})
     assert mk["guided_json"] == {"type": "object"}
     assert mk["guided_regex"] == "[0-9]+"
-    # ``model_kwargs`` is applied last, so it wins the collision.
     assert mk["shared"] == "from_model_kwargs"
 
 
@@ -722,7 +681,7 @@ def test_bedrock_provider_routes_top_p_top_k_through_model_kwargs(
 def test_bedrock_provider_credentials_profile_passes_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``credentials_profile_name`` lands in kwargs without requiring AWS auth."""
+    """credentials_profile_name lands in kwargs without requiring AWS auth."""
     pytest.importorskip("langchain_aws")
     captured: dict[str, Any] = {}
 
@@ -732,7 +691,7 @@ def test_bedrock_provider_credentials_profile_passes_through(
 
     monkeypatch.setattr(
         "openbb_agent_server.plugins.models.bedrock_provider.__import__",
-        __import__,  # touch attribute; not strictly needed but keeps lint happy
+        __import__,
         raising=False,
     )
     monkeypatch.setattr("langchain_aws.ChatBedrock", _Recorder, raising=False)
@@ -1164,7 +1123,7 @@ _SF_DEFAULTS = {
 
 
 def _local_snowpark_session() -> Any:
-    """Build a real local-testing Snowpark Session (no network)."""
+    """Build a real local-testing Snowpark Session."""
     pytest.importorskip("snowflake.snowpark")
     from snowflake.snowpark import Session
 
@@ -1220,8 +1179,6 @@ def test_snowflake_provider_overrides_credentials_via_ctx_api_keys() -> None:
         SnowflakeProvider,
     )
 
-    # Verifies kwarg layering without forcing ChatSnowflakeCortex's
-    # eager session opening — uses the introspection path.
     provider = SnowflakeProvider(account="default-acc", user="default-u")
     kwargs = provider.build_kwargs(
         _ctx(
@@ -1309,15 +1266,13 @@ def test_snowflake_provider_config_overrides_model_name() -> None:
 def test_fake_provider_ignores_unknown_model_name_kwarg() -> None:
     from openbb_agent_server.plugins.models.fake_provider import FakeProvider
 
-    # If the constructor were strict, registry.load(...) would crash on the
-    # default settings.model_name. Confirm it accepts and ignores.
     provider = FakeProvider(model_name="anything", responses=["x"])
     out = provider.build(_ctx(), {})
     assert out is not None
 
 
 def _extract_api_key(model: Any) -> str | None:
-    """ChatAnthropic stores the key in different places per pydantic version."""
+    """Extract the API key from a ChatAnthropic model."""
     raw = getattr(model, "anthropic_api_key", None) or getattr(model, "api_key", None)
     if raw is None:
         return None

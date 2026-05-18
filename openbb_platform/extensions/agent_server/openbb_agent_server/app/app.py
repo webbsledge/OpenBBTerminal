@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI
@@ -60,8 +61,6 @@ def create_app(settings: AgentServerSettings | None = None) -> FastAPI:
         settings = AgentServerSettings.from_toml(agent_section(cfg))
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     install_trace_logging()
-    # One deterministic boot-time config check — keeps the missing-pepper
-    # notice out of per-request logs.
     warn_if_pepper_unset()
 
     auth = _load_auth(settings)
@@ -105,12 +104,36 @@ def create_app(settings: AgentServerSettings | None = None) -> FastAPI:
         if settings.translation_provider
         else None
     )
-    widget_store = WidgetDataStore(db_url, embeddings=embeddings)
+    widget_store = WidgetDataStore(db_url)
     pdf_store = PdfStore(db_url, embeddings=embeddings)
     services.set_services(widget_store=widget_store, pdf_store=pdf_store)
     checkpointer: Any = None
 
     services.set_services(history=history, memory=memory)
+
+    async def _prune_sweep() -> None:
+        from openbb_agent_server.persistence.prune import run_prune
+
+        interval = max(1, settings.prune_interval_hours) * 3600
+        while True:
+            try:
+                await run_prune(
+                    history=history,
+                    checkpoint_path=settings.resolved_checkpoint_path(),
+                    history_retention_days=settings.history_retention_days,
+                    checkpoint_retention_days=settings.checkpoint_retention_days,
+                    checkpoint_keep_last=settings.checkpoint_keep_last,
+                )
+            except Exception:  # noqa: BLE001 — a sweep failure must not kill the loop
+                logger.warning(
+                    "prune sweep failed; retrying next interval", exc_info=True
+                )
+            await asyncio.sleep(interval)
+
+    retention_enabled = settings.prune_interval_hours > 0 and (
+        settings.history_retention_days is not None
+        or settings.checkpoint_retention_days is not None
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -119,9 +142,16 @@ def create_app(settings: AgentServerSettings | None = None) -> FastAPI:
         checkpointer = await checkpointer_provider.open(settings)
         services.set_services(checkpointer=checkpointer)
         _app.state.checkpointer = checkpointer
+        sweep: asyncio.Task[None] | None = (
+            asyncio.create_task(_prune_sweep()) if retention_enabled else None
+        )
         try:
             yield
         finally:
+            if sweep is not None:
+                sweep.cancel()
+                with suppress(asyncio.CancelledError):
+                    await sweep
             try:
                 await checkpointer_provider.close(checkpointer)
             finally:

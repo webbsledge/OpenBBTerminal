@@ -27,8 +27,6 @@ class NvidiaReranker:
         self._api_key = api_key or os.environ.get("NVIDIA_API_KEY")
         self._base_url = base_url
         self._truncate = truncate
-        # NVIDIARerank's internal default ``top_n``; ``rerank`` callers
-        # can still override per call.
         self._top_n = top_n
         self._client: Any | None = None
 
@@ -70,8 +68,6 @@ class NvidiaReranker:
         if not candidates:
             return []
         if not query or not query.strip():
-            # No discriminative signal — return the input order with
-            # zero scores so the caller can detect the no-op.
             return [(cid, 0.0) for cid, _ in candidates[: top_k or len(candidates)]]
 
         if self._client is None:
@@ -79,8 +75,6 @@ class NvidiaReranker:
 
         from langchain_core.documents import Document
 
-        # Stash the original id on the Document so we can recover it
-        # post-rerank (the reranker preserves metadata).
         docs = [
             Document(page_content=text, metadata={"_rerank_id": cid})
             for cid, text in candidates
@@ -104,8 +98,6 @@ class NvidiaReranker:
                 continue
             score = md.get("relevance_score")
             if score is None:
-                # Some response shapes put the score one level up; be
-                # defensive so a schema change doesn't drop ranks.
                 score = md.get("score", 0.0)
             try:
                 out.append((str(cid), float(score)))

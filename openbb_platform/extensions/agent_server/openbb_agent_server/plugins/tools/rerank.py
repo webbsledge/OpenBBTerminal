@@ -1,4 +1,4 @@
-"""``rerank`` tool source — agent-callable retrieval reranker."""
+"""``rerank`` tool source."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class _RerankArgs(BaseModel):
 
 
 class NvidiaRerankToolSource(ToolSource):
-    """Bind one :class:`NvidiaReranker` per agent run."""
+    """Bind one NvidiaReranker per agent run."""
 
     name = "rerank"
 
@@ -87,8 +87,6 @@ class NvidiaRerankToolSource(ToolSource):
                 ranked = await reranker.rerank(query, tagged, top_k=top_k)
             except Exception as exc:
                 logger.warning("rerank tool failed: %s", exc)
-                # Caller sees a structured fallback (input order
-                # preserved) so the agent can still proceed.
                 return [
                     {"index": i, "score": 0.0, "text": str(c)}
                     for i, c in enumerate(candidates[:top_k])

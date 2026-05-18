@@ -31,7 +31,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 class _Request:
-    """Old-shape request (object-style ``tool_call``)."""
+    """Old-shape request with an object-style tool_call."""
 
     def __init__(self, *, tool_name: str, args: Any) -> None:
         self.tool_name = tool_name
@@ -39,7 +39,7 @@ class _Request:
 
 
 class _LcStyleRequest:
-    """LangChain v1 shape: ``tool_call`` is a dict."""
+    """LangChain v1 shape where tool_call is a dict."""
 
     def __init__(self, *, name: str, args: dict[str, Any]) -> None:
         self.tool_call = {"name": name, "args": args, "id": "abc"}
@@ -64,7 +64,6 @@ async def test_announces_tool_name_only_no_args(
     assert step["event_type"] == "INFO"
     assert step["message"] == "Calling tool: snowflake_query"
     assert step["details"] == {"tool_name": "snowflake_query"}
-    # Crucial: arg values are NOT in the announce step.
     assert "sql" not in str(step)
     assert "SELECT 1" not in str(step)
 
@@ -73,7 +72,7 @@ async def test_announces_tool_name_only_no_args(
 async def test_announces_when_args_are_huge(
     captured: list[dict[str, Any]],
 ) -> None:
-    """A 5KB arg should NOT inflate the announce step."""
+    """A large arg does not inflate the announce step."""
     mw = ToolCallAnnouncerMiddlewareFactory().build(_ctx(), {})
 
     async def handler(_req: Any) -> str:
@@ -86,7 +85,6 @@ async def test_announces_when_args_are_huge(
     [step] = captured
     assert step["message"] == "Calling tool: cortex_complete"
     assert step["details"] == {"tool_name": "cortex_complete"}
-    # Announce step stays compact regardless of arg size.
     assert len(step["message"]) < 60
 
 
@@ -94,7 +92,7 @@ async def test_announces_when_args_are_huge(
 async def test_announces_on_lc_v1_dict_shape(
     captured: list[dict[str, Any]],
 ) -> None:
-    """LangChain v1 ``ToolCallRequest.tool_call`` is a dict."""
+    """Announce on the LangChain v1 dict-shaped tool_call."""
     mw = ToolCallAnnouncerMiddlewareFactory().build(_ctx(), {})
 
     async def handler(_req: Any) -> str:
@@ -143,7 +141,6 @@ async def test_announce_emits_error_step_on_failure(
     assert kinds == ["INFO", "ERROR"]
     err = captured[-1]
     assert err["message"] == "Tool failing_tool errored: boom"
-    # Error step also doesn't dump args.
     assert (
         "x" not in str(err["details"]) or err["details"]["tool_name"] == "failing_tool"
     )
@@ -205,7 +202,7 @@ def test_stringify_arg_bool_passthrough() -> None:
 
 def test_stringify_arg_long_string_truncates() -> None:
     out = _stringify_arg("x" * 1000)
-    assert len(out) == 401  # 400 chars + ellipsis
+    assert len(out) == 401
     assert out.endswith("…")
 
 
@@ -214,13 +211,12 @@ def test_stringify_arg_json_fallback_for_non_serialisable() -> None:
         def __repr__(self) -> str:
             return "<NS>"
 
-    # default=str handles arbitrary objects — json wraps the repr in quotes.
     out = _stringify_arg(_NotSerialisable())
     assert out == '"<NS>"'
 
 
 def test_stringify_arg_uses_repr_on_json_failure() -> None:
-    """When ``json.dumps`` raises even with ``default=str``, fall back to repr."""
+    """Fall back to repr when json.dumps raises even with default=str."""
 
     import json as _json
 
@@ -228,7 +224,7 @@ def test_stringify_arg_uses_repr_on_json_failure() -> None:
         pass
 
     obj = _DefeatJson()
-    obj.__dict__["self_ref"] = obj  # circular dict-of-dicts blows json
+    obj.__dict__["self_ref"] = obj
 
     real_dumps = _json.dumps
 
@@ -240,7 +236,6 @@ def test_stringify_arg_uses_repr_on_json_failure() -> None:
     mod.json.dumps = broken_dumps  # type: ignore[assignment]
     try:
         out = _stringify_arg({"k": "v"})
-        # Falls through to ``str(value)`` which produces "{'k': 'v'}".
         assert "k" in out
     finally:
         mod.json.dumps = real_dumps  # type: ignore[assignment]
@@ -264,7 +259,7 @@ def test_args_as_detail_stringifies_values() -> None:
 async def test_graph_bubble_up_re_raises_without_error_step(
     captured: list[dict[str, Any]],
 ) -> None:
-    """``GraphBubbleUp`` is a control-flow signal — it must NOT emit an ERROR step."""
+    """GraphBubbleUp is a control-flow signal and emits no ERROR step."""
     from langgraph.errors import GraphBubbleUp
 
     mw = ToolCallAnnouncerMiddlewareFactory().build(_ctx(), {})

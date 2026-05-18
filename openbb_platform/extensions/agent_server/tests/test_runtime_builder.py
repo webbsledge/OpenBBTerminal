@@ -1,4 +1,4 @@
-"""Builder unit tests — stream-event normalisation + plugin resolution."""
+"""Builder stream-event normalisation tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from openbb_agent_server.runtime.builder import _normalise_stream_event
 
 
 def test_normalise_messages_event() -> None:
-    """The normaliser projects the AIMessageChunk into a stable dict the"""
+    """The normaliser projects an AIMessageChunk into a stable dict."""
     msg = AIMessageChunk(content="hi", tool_calls=[])
     out = _normalise_stream_event(((), "messages", (msg, {"meta": "x"})))
     assert out is not None
@@ -19,7 +19,7 @@ def test_normalise_messages_event() -> None:
     assert message["tool_calls"] == []
     assert message["tool_call_chunks"] == []
     assert message["additional_kwargs"] == {}
-    assert "id" in message  # may be empty string or a generated id
+    assert "id" in message
 
 
 def test_normalise_messages_event_with_tool_calls() -> None:
@@ -82,10 +82,8 @@ def test_normalise_subagent_namespace_propagates() -> None:
 
 
 def test_normalise_messages_event_with_none_content_substitutes_empty_string() -> None:
-    """An ``AIMessageChunk`` whose ``content`` is ``None`` normalises to ``""``."""
+    """An AIMessageChunk whose content is None normalises to an empty string."""
     msg = AIMessageChunk(content="")
-    # Force the content slot back to None (pydantic accepts the construction
-    # only via direct assignment on a mutable model).
     object.__setattr__(msg, "content", None)
     out = _normalise_stream_event(((), "messages", (msg, {})))
     assert out is not None

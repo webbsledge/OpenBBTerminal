@@ -17,11 +17,6 @@ from openbb_agent_server.runtime.plugins import ToolSource
 logger = logging.getLogger("openbb_agent_server.tools.artifacts")
 
 
-# Headers that mark an internal scratchpad section the model keeps
-# trying to write into user-facing markdown artifacts. Any heading
-# (``# Foo``, ``## Foo``, ``**Foo**``, or a bare line ending with a
-# colon) whose label matches one of these is stripped along with the
-# section body that follows it, up to the next heading or end of doc.
 _SCRATCHPAD_HEADERS = (
     "session intent",
     "tool activity",
@@ -36,11 +31,6 @@ _SCRATCHPAD_HEADERS = (
     "what we did",
     "process followed",
     "tool activity performed so far",
-    # The model also keeps trying to fake citation chips with inline
-    # prose ("Sources: pages 137-138 of the prospectus"). Workspace
-    # renders real citations as clickable chips on every cite_source /
-    # PDF auto-citation — inline source lists are redundant and lose
-    # the click-to-navigate affordance.
     "sources",
     "citations",
     "references",
@@ -49,16 +39,13 @@ _SCRATCHPAD_HEADERS = (
 
 _HEADING_RE = re.compile(
     r"""^(?:
-        \#{1,6}\s+(?P<atx>.+?)\s*$        # ``## Heading``
-        | \*{1,3}(?P<bold>[^*\n]+?)\*{1,3}\s*:?\s*$   # ``**Heading**`` or ``**Heading**:``
-        | (?P<plain>[A-Z][A-Za-z0-9 /&\-]{2,40}):\s*$ # ``Tool activity:``
+        \#{1,6}\s+(?P<atx>.+?)\s*$
+        | \*{1,3}(?P<bold>[^*\n]+?)\*{1,3}\s*:?\s*$
+        | (?P<plain>[A-Z][A-Za-z0-9 /&\-]{2,40}):\s*$
     )""",
     re.VERBOSE | re.MULTILINE,
 )
 
-# Lines like ``- pdf_extract(name='...', page_range=[..])`` or
-# ``1. \`search_pdf(query=..., k=...)\` — extracted ...`` — the model
-# enumerating its own tool calls inside a list.
 _TOOL_CALL_LINE_RE = re.compile(
     r"^\s*(?:[-*]|\d+\.)\s+`?\\?(?:list_pdfs|get_pdf_outline|pdf_extract|search_pdf|"
     r"read_widget_data|get_widget_data|search_widget_data|describe_widget_data|"
@@ -70,13 +57,7 @@ _TOOL_CALL_LINE_RE = re.compile(
 
 
 def _sanitise_markdown_body(content: str) -> tuple[str, list[str]]:
-    """Strip scratchpad sections from a markdown body.
-
-    Returns ``(cleaned, notes)`` where ``notes`` is a list of human
-    labels describing what was removed — surfaced in the tool result so
-    the model can see WHY its content changed and adjust the next
-    artifact.
-    """
+    """Strip scratchpad sections from a markdown body."""
     notes: list[str] = []
     matches = list(_HEADING_RE.finditer(content))
     if matches:
@@ -105,9 +86,6 @@ def _sanitise_markdown_body(content: str) -> tuple[str, list[str]]:
         notes.append(f"removed {n_lines} inline tool-call line(s)")
         content = cleaned
 
-    # Only collapse blank-line runs when something was actually
-    # stripped — leaving clean content byte-for-byte identical so
-    # callers that didn't trip the sanitiser get their input back.
     if notes:
         content = re.sub(r"\n{3,}", "\n\n", content).strip() + "\n"
     return content, notes
@@ -179,25 +157,13 @@ def _sanitise_warning(notes: list[str]) -> str:
 
 
 class ArtifactsToolSource(ToolSource):
-    """Bundle of artifact + citation + reasoning emission tools."""
+    """Bundle artifact, citation, and reasoning emission tools."""
 
     name = "artifacts"
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[Any]:
         def _success_message(kind_label: str) -> str:
-            """Tool-result text the model sees AFTER a successful emit.
-
-            The artifact's uuid is deliberately NOT included: the model
-            does not need it (Workspace renders the card automatically)
-            and echoing it produces leaked ``(see artifact <id>)`` refs
-            in the chat reply.
-
-            ONE artifact is almost always enough. The user asked a
-            question; the artifact is the deliverable; the next
-            response is the final 1-2 sentence chat reply pointing
-            at it. Only emit additional artifacts when the user
-            explicitly asked for one per dimension / entity / period.
-            """
+            """Build the tool-result text shown after a successful emit."""
             return (
                 f"OK. {kind_label} artifact rendered. "
                 "The user can see it now. Your next response is the "
@@ -244,7 +210,7 @@ class ArtifactsToolSource(ToolSource):
             return _success_message("Chart")
 
         def emit_reasoning_step(message: str, event_type: str = "INFO") -> str:
-            """Emit one ``StatusUpdateSSE`` reasoning step."""
+            """Emit one reasoning step."""
             emit.reasoning_step(message, event_type=event_type)
             return f"OK. Reasoning step '{message}' shown to the user."
 
@@ -253,7 +219,7 @@ class ArtifactsToolSource(ToolSource):
             source: str | None = None,
             source_url: str | None = None,
         ) -> str:
-            """Attach one citation. Buffered + flushed by the adapter."""
+            """Attach one citation to the run."""
             emit.cite(text=text, source=source, source_url=source_url)
             return "OK. Citation queued for the end-of-turn flush."
 

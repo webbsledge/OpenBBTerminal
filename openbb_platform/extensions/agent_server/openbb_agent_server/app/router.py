@@ -58,20 +58,12 @@ _cancellations: dict[tuple[str, str], asyncio.Event] = {}
 
 _RESERVED_BOOLEAN_FEATURES: frozenset[str] = frozenset(
     {
-        # Streamed SSE responses (``copilotMessageChunk`` deltas).
         "streaming",
-        # Show a "select widgets from the active dashboard" picker.
         "widget-dashboard-select",
-        # Allow the agent to search widgets on the active dashboard.
         "widget-dashboard-search",
-        # Allow the agent to search widgets across ALL dashboards.
         "widget-global-search",
-        # Forward the user's enabled MCP tools in ``request.tools``.
         "mcp-tools",
-        # Enable the file-upload affordance in the chat input.
         "file-upload",
-        # Permit the agent to emit generative-UI artifacts (e.g. inline
-        # forms / interactive widgets the user can click).
         "generative-ui",
     }
 )
@@ -87,13 +79,7 @@ async def _safe_end_trace(
     trace_id: str,
     status: str,
 ) -> None:
-    """Best-effort trace closer for fire-and-forget background tasks.
-
-    Used when we must NOT await before returning from the SSE
-    generator (e.g. closing the stream right after a client-side
-    dispatch). Logs and swallows everything — there is no caller to
-    handle errors here.
-    """
+    """Close a trace best-effort for fire-and-forget background tasks."""
     try:
         await history.end_trace(principal=principal, trace_id=trace_id, status=status)
     except Exception:
@@ -101,19 +87,7 @@ async def _safe_end_trace(
 
 
 def _rows_from_inline_widget(data: Any) -> list[dict[str, Any]]:
-    """Normalise inline ``widget.data`` to a list of row dicts.
-
-    Workspace's file-upload surface (CSV / spreadsheet) attaches the
-    parsed rows directly on ``widgets.*[i].data`` rather than asking
-    us to call ``get_widget_data``. The shape varies:
-
-    - ``[{col: val, ...}, ...]`` — already a list of row dicts.
-    - ``[{"items": [{col: val, ...}, ...]}]`` — Workspace's
-      ``parse-widget-data`` envelope (one ``items`` entry per data
-      source).
-    - anything else — return empty so the caller falls back to a
-      remote fetch.
-    """
+    """Normalise inline widget data to a list of row dicts."""
     if not data:
         return []
     if isinstance(data, list) and data and isinstance(data[0], dict):
@@ -168,26 +142,15 @@ _PDF_DATA_FIELDS: tuple[str, ...] = (
     "base64",
     "content_base64",
     "bytes",
-    # OpenBB AI SDK's ``SingleDataContent`` puts base64 PDF bytes on
-    # the ``content`` field — primary wire shape for ``widgets.primary``
-    # PDFs (https://docs.openbb.co/workspace/developers/ai-features/parse-pdf-context).
     "content",
 )
-# Base64 PDFs start with ``%PDF-`` which encodes to ``JVBERi0``.
 _PDF_B64_PREFIX = "JVBERi0"
 _PDF_RAW_PREFIX = "%PDF-"
 _PDF_DATA_URL_PREFIX = "data:application/pdf"
 
 
 def _extract_pdf_b64_from_string(s: str) -> str | None:
-    """Try several PDF-bytes encodings on a single string value.
-
-    Returns the base64 payload (suitable for ``base64.b64decode``)
-    when the string looks like a PDF in any of:
-    - bare base64 PDF (``JVBERi0...``)
-    - ``data:application/pdf;base64,JVBERi0...`` URL
-    - inline raw bytes (``%PDF-...``) — re-encoded to base64
-    """
+    """Extract a base64 PDF payload from a single string value."""
     if not isinstance(s, str) or not s:
         return None
     stripped = s.lstrip()
@@ -200,9 +163,6 @@ def _extract_pdf_b64_from_string(s: str) -> str | None:
         if payload.startswith(_PDF_B64_PREFIX):
             return payload
     if stripped.startswith(_PDF_RAW_PREFIX):
-        # Raw PDF bytes embedded as a string (latin-1 / replacement
-        # encoding from Workspace). Re-encode as base64 so the
-        # downstream path matches the normal "PDF-as-base64" flow.
         try:
             import base64 as _b64
 
@@ -246,12 +206,7 @@ def _scan_for_http_url(blob: Any, *, _depth: int = 0) -> str | None:
 
 
 def _scan_for_pdf_b64(blob: Any, *, _depth: int = 0) -> str | None:
-    """Recursively scan a dict / list / value for a PDF byte payload.
-
-    Recognises bare base64 (``JVBERi0…``), ``data:application/pdf``
-    URLs, and inline raw PDF bytes (``%PDF-…``) — re-encoded to
-    base64 on the way out so callers can treat all three the same.
-    """
+    """Recursively scan a value for a PDF byte payload."""
     if _depth > 6:
         return None
     if isinstance(blob, str):
@@ -291,15 +246,7 @@ def _string_is_pdf_b64(value: Any) -> bool:
 
 
 def _has_pdf_data_format_marker(entry: dict[str, Any]) -> bool:
-    """Return True iff the entry carries an OpenBB SDK ``PdfDataFormat`` marker.
-
-    The wire schema (per docs.openbb.co
-    /workspace/developers/ai-features/parse-pdf-context) wraps PDFs
-    in items shaped like ``{data_format: PdfDataFormat, content: ...}``
-    or ``{data_format: PdfDataFormat, url: ...}`` — when the marker is
-    explicit we should trust it regardless of content/url presence
-    (the bytes may live on a parent / sibling entry).
-    """
+    """Return True when the entry carries an SDK PdfDataFormat marker."""
     fmt = entry.get("data_format")
     if isinstance(fmt, str) and "pdf" in fmt.lower():
         return True
@@ -309,20 +256,7 @@ def _has_pdf_data_format_marker(entry: dict[str, Any]) -> bool:
 
 
 def _looks_like_pdf_ref(entry: dict[str, Any]) -> bool:
-    """Return True iff a row dict references a PDF.
-
-    Matches on (in order):
-    - Explicit ``data_format`` marker (``PdfDataFormat`` from the SDK).
-    - Canonical URL field ending in ``.pdf`` / ``data:application/pdf``.
-    - Canonical mime / type field containing ``"pdf"``.
-    - Canonical data field with base64 PDF magic.
-    - Filename / name field ending in ``.pdf``.
-    - **Value-based fallback** — any string value anywhere in the
-      entry that looks like a PDF (base64 magic ``JVBERi0``, raw
-      ``%PDF-`` bytes, or ``data:application/pdf`` URL). Covers wire
-      shapes whose key names aren't on any allow-list but whose
-      values are unmistakably PDF.
-    """
+    """Return True when a row dict references a PDF."""
     if _has_pdf_data_format_marker(entry):
         return True
     for k in _PDF_URL_FIELDS:
@@ -338,7 +272,6 @@ def _looks_like_pdf_ref(entry: dict[str, Any]) -> bool:
         v = entry.get(k)
         if isinstance(v, str) and v.lower().strip().endswith(".pdf"):
             return True
-    # Value-based fallback: scan every value for PDF magic.
     for v in entry.values():
         if isinstance(v, str) and _extract_pdf_b64_from_string(v):
             return True
@@ -350,15 +283,7 @@ def _looks_like_pdf_ref(entry: dict[str, Any]) -> bool:
 
 
 def _pdf_ref_from_dict(entry: dict[str, Any]) -> dict[str, Any] | None:
-    """Coerce a PDF-shaped row dict into a ``FileRef``-compatible dict.
-
-    Requires at least one of ``url`` / ``data_base64`` to resolve into
-    a fetchable file. Looks at the canonical field names FIRST, then
-    falls back to a recursive scan over the whole entry — Workspace
-    deployments use varying field names (``download_url``, ``file_uri``,
-    ``download_link``, raw inline ``content`` containing base64, etc.)
-    and a strict allow-list misses them.
-    """
+    """Coerce a PDF-shaped row dict into a FileRef-compatible dict."""
     if not isinstance(entry, dict) or not _looks_like_pdf_ref(entry):
         return None
     url: str | None = None
@@ -394,9 +319,6 @@ def _pdf_ref_from_dict(entry: dict[str, Any]) -> dict[str, Any] | None:
         tail = url.rsplit("/", 1)[-1]
         name = tail.split("?", 1)[0] or url
     if not name:
-        # Any short non-URL, non-base64 string value is a plausible
-        # identifier. Document-widget responses often carry a
-        # ``doc_id`` / ``key`` / ``ref`` field under an unusual name.
         for v in entry.values():
             if not isinstance(v, str):
                 continue
@@ -411,9 +333,6 @@ def _pdf_ref_from_dict(entry: dict[str, Any]) -> dict[str, Any] | None:
             name = s
             break
     if not name and data_base64:
-        # Last-resort: hash the bytes so we get a stable identifier.
-        # SHA-256 — this is a filename derivation, not a security
-        # primitive, but ruff's S324 rightly bans SHA-1 regardless.
         import hashlib as _h
 
         digest = _h.sha256(data_base64[:512].encode("utf-8")).hexdigest()[:12]
@@ -439,13 +358,7 @@ def _pdf_ref_from_dict(entry: dict[str, Any]) -> dict[str, Any] | None:
 async def _collect_uploaded_files_with_ingest(
     body: Any, *, principal: UserPrincipal
 ) -> tuple[FileRef, ...]:
-    """``_collect_uploaded_files`` plus background PDF ingestion.
-
-    Every PDF resolved into the run's ``uploaded_files`` list is also
-    handed to the :class:`PdfStore` for background parse + vector
-    indexing. The request returns as soon as the task is scheduled —
-    parsing happens off the event loop in a worker thread.
-    """
+    """Collect uploaded files and dispatch background PDF ingestion."""
     refs = _collect_uploaded_files(body)
     pdf_store = services.get_pdf_store()
     if pdf_store is None:
@@ -477,22 +390,7 @@ def _is_pdf_ref(ref: FileRef) -> bool:
 
 
 def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
-    """Build the run's ``uploaded_files`` tuple.
-
-    PDF discovery hits three sources in priority order:
-
-    1. ``body.uploaded_files`` — explicit uploads from the user.
-    2. ``widget.data`` on every primary / secondary widget — inline
-       data that some widget surfaces (PDF-document widgets,
-       file-pickers) attach without a round-trip.
-    3. Tool messages in ``body.messages`` — when the agent called
-       ``get_widget_data`` on a document widget last turn, the PDFs
-       arrive THIS turn as a ``role:"tool"`` message. Walk those
-       payloads too so the file pipeline picks them up.
-
-    Dedupe by URL / name so a PDF appearing in more than one source
-    only shows up once.
-    """
+    """Build the run's uploaded_files tuple."""
     out: list[FileRef] = []
     seen: set[str] = set()
     found_in_widgets = 0
@@ -506,10 +404,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
         name = str(pdf.get("name") or "")
         if not name:  # pragma: no cover - unreachable: ``_walk_pdf_refs`` only yields dicts from ``_pdf_ref_from_dict``, which never returns a blank ``name``.
             return False
-        # Forward source-widget extras (and any other custom keys) as
-        # ``FileRef`` extras — ``model_config = ConfigDict(extra="allow")``
-        # — so downstream code (PDF citation builder, etc.) can read
-        # them off ``FileRef.model_extra``.
         canonical = {"name", "mime", "data_base64", "url"}
         extras = {k: v for k, v in pdf.items() if k not in canonical and v is not None}
         ref = FileRef(
@@ -531,13 +425,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
         return True
 
     for f in body.uploaded_files or []:
-        # Recover ``url`` / ``data_base64`` from anywhere on the wire
-        # entry — Pydantic ``extra="allow"`` puts non-canonical
-        # fields on ``model_extra``, and Workspace deployments differ
-        # in field naming (``download_url``, ``file_uri``, ``bytes``,
-        # raw inline ``content`` containing base64, etc.). A
-        # recursive scan for any HTTP URL / PDF-magic base64 catches
-        # them without us guessing the right key name.
         extras = getattr(f, "model_extra", None) or {}
         resolved_url = f.url
         if not resolved_url:
@@ -546,8 +433,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
         if not resolved_b64:
             resolved_b64 = _scan_for_pdf_b64(extras)
         if not resolved_url and not resolved_b64:
-            # Dump every extra key + a value-shape sketch so the next
-            # debugging round surfaces the actual wire shape.
             sketch: dict[str, Any] = {}
             for k, v in extras.items():
                 if isinstance(v, str):
@@ -606,21 +491,12 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
             src_uuid = getattr(w, "uuid", None) or None
             src_widget_id = (getattr(w, "widget_id", "") or "").strip() or None
             for pdf in _walk_pdf_refs(getattr(w, "data", None)):
-                # Record the source widget so PDF citations can be
-                # rendered as ``type="widget"`` chips that jump back
-                # to the originating dashboard widget in Workspace.
                 if src_uuid:
                     pdf.setdefault("source_widget_uuid", src_uuid)
                 if src_widget_id:
                     pdf.setdefault("source_widget_id", src_widget_id)
                 _push(pdf, "widget")
 
-    # Document-widget round-trips: pair each tool message with its
-    # preceding AI envelope so we can derive a meaningful filename
-    # AND stamp the source widget on the FileRef extras. Without the
-    # widget stamp, PDF citations can't render as proper bbox-anchored
-    # widget chips — they fall back to plain web cites with no
-    # "Go to reference" affordance.
     last_widget_hint: str | None = None
     last_widget_input_args: dict[str, Any] = {}
     last_widget_uuid: str | None = None
@@ -669,10 +545,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
                     pdf.setdefault("source_widget_id", hint)
                 _push(pdf, "tool_msg")
 
-    # Additional Workspace channels that can carry PDF references:
-    # ``body.context``, ``body.workspace_state``, and any unknown
-    # top-level field on the request (pydantic ``extra="allow"``
-    # surfaces those on ``model_extra``).
     extra_channels: list[tuple[str, Any]] = [
         ("context", getattr(body, "context", None)),
         ("workspace_state", getattr(body, "workspace_state", None)),
@@ -707,10 +579,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
             found_in_tool_msgs,
             len(out),
         )
-    # When we end up with zero PDFs but the body looks like it should
-    # contain one (35MB+ payload, document widgets present), surface a
-    # diagnostic line so the wire shape is visible without trawling
-    # ``/tmp/agent-query-*.json``.
     if not any(_is_pdf_ref(r) for r in out):
         doc_widget_uuids = [
             getattr(w, "uuid", None)
@@ -725,10 +593,6 @@ def _collect_uploaded_files(body: Any) -> tuple[FileRef, ...]:
             )
         ]
         if doc_widget_uuids:
-            # Diagnostic, not an operational alarm — a pinned document
-            # widget the user hasn't selected is the normal case
-            # (Workspace only serialises PDF bytes on selection). TRACE,
-            # alongside the ``request body dumped`` dump it points at.
             trace(
                 logger,
                 "uploaded_files: zero PDF refs resolved despite "
@@ -763,8 +627,6 @@ def _slugify_filename_segment(value: Any) -> str:
     import re as _re
 
     if isinstance(value, (list, tuple)):
-        # Multi-select param (``doc_name: ["US|IEFA|prospectus"]``)
-        # — use the first non-empty entry.
         for item in value:
             slug = _slugify_filename_segment(item)
             if slug:
@@ -775,20 +637,13 @@ def _slugify_filename_segment(value: Any) -> str:
     text = str(value).strip()
     if not text:
         return ""
-    # Replace path-hostile chars and collapse repeats.
     slug = _re.sub(r"[^a-zA-Z0-9_-]+", "_", text)
     slug = slug.strip("_")
     return slug[:64]
 
 
 def _build_pdf_filename(widget_hint: str, params: dict[str, Any] | None) -> str:
-    """Compose a filename like ``blk_drill_fund_documents-IEFA-US_IEFA_prospectus.pdf``.
-
-    Falls back to ``<widget_hint>.pdf`` when no meaningful params are
-    present. Including the params makes each PDF uniquely identified
-    in ``list_pdfs`` so multiple fund prospectuses don't shadow one
-    another under a single filename.
-    """
+    """Compose a PDF filename from the widget hint and params."""
     parts: list[str] = []
     base = _slugify_filename_segment(widget_hint)
     if base:
@@ -807,11 +662,7 @@ def _build_pdf_filename(widget_hint: str, params: dict[str, Any] | None) -> str:
 
 
 def _ai_envelope_from_message_safe(msg: Any) -> dict[str, Any] | None:
-    """Re-export of widget_store's envelope detector that handles
-    structured ``function`` + ``input_arguments`` fields OR JSON in
-    ``content``. Wrapped in try/except so a malformed message can't
-    break PDF discovery.
-    """
+    """Detect an AI envelope on a message, swallowing errors."""
     try:
         from openbb_agent_server.runtime.widget_store import (
             _ai_envelope_from_message,
@@ -823,16 +674,7 @@ def _ai_envelope_from_message_safe(msg: Any) -> dict[str, Any] | None:
 
 
 def _walk_pdf_refs(payload: Any) -> list[dict[str, Any]]:
-    """Walk an arbitrary ``widget.data`` blob and yield FileRef dicts
-    for every PDF reference found.
-
-    Workspace's document-list widgets (e.g.
-    ``blk_drill_fund_documents``) put PDF entries on ``widget.data``
-    in one of several shapes — a top-level list, a ``{"items": [...]}``
-    envelope, a ``{"documents": [...]}`` envelope, etc. Rather than
-    encode each, walk recursively and collect anything dict-shaped
-    that looks like a PDF reference.
-    """
+    """Walk a widget data blob and yield FileRef dicts for every PDF."""
     if payload is None:
         return []
     if isinstance(payload, dict):
@@ -1000,8 +842,6 @@ def build_router(
             "endpoints": {"query": query_path},
             "features": features,
         }
-        # ``image`` is optional; emit only when set (keeps the payload
-        # tight and the operator's intent explicit).
         if meta.image_url:
             entry["image"] = meta.image_url
         return entry
@@ -1077,8 +917,6 @@ def build_router(
         cancelled: list[str] = []
         for (uid, rid), ev in list(_cancellations.items()):
             if uid == principal.user_id:
-                # Best-effort: any in-flight run owned by this user that is
-                # tagged for the conversation_id.
                 ev.set()
                 cancelled.append(rid)
         return {"cancelled_runs": cancelled, "conversation_id": conversation_id}
@@ -1160,11 +998,6 @@ def build_router(
             raise HTTPException(status_code=404, detail="agent not found")
         await history.upsert_user(principal)
 
-        # Dump the entire request body to a temp file so we can
-        # inspect the full payload — Workspace bodies can be hundreds
-        # of KB once hundreds of widgets are in scope, way too much to
-        # fit on a single log line. Gated on TRACE: no temp files and
-        # no log line during normal INFO-level operation.
         if logger.isEnabledFor(TRACE):
             try:
                 raw_body = await request.body()
@@ -1181,8 +1014,6 @@ def build_router(
             except Exception as exc:
                 logger.warning("RAW BODY dump failed: %s", exc)
 
-        # Documented ``parse-widget-data`` flow:
-        # https://docs.openbb.co/workspace/developers/ai-features/parse-widget-data
         last_role = body.messages[-1].role if body.messages else None
         n_primary = len(body.widgets.primary) if body.widgets else 0
         n_secondary = len(body.widgets.secondary) if body.widgets else 0
@@ -1201,9 +1032,6 @@ def build_router(
             n_extra,
             n_uploaded,
         )
-        # Per-file metadata: figure out which channel Workspace put each
-        # uploaded file on — ``uploaded_files`` proper, or smuggled into
-        # ``widgets.*`` with a ``file-`` widget id.
         for idx, f in enumerate(body.uploaded_files or []):
             try:
                 trace(
@@ -1282,9 +1110,6 @@ def build_router(
                         data_len,
                         data_preview,
                         extra_keys,
-                        # Truncate the blob so a base64'd PDF doesn't
-                        # blow out the log. We just need to see the
-                        # shape — keys, types, first 200 chars of each.
                         {
                             k: (
                                 v
@@ -1335,10 +1160,6 @@ def build_router(
         prior_tool_results = sum(
             1 for m in body.messages if getattr(m, "role", None) == "tool"
         )
-        # Primary widgets with ``widget_id`` starting with ``file-``
-        # are OpenBB Hub file uploads — Workspace returns
-        # ``{error_type:"not_found"}`` when asked to fetch them, so
-        # never include them in the pre-empt ``get_widget_data``.
         fetchable_primary = [
             w
             for w in (body.widgets.primary if body.widgets else [])
@@ -1349,9 +1170,6 @@ def build_router(
             and fetchable_primary
             and last_role_pre == "human"
             and prior_tool_results == 0
-            # Skip the pre-empt entirely if any primary widget already
-            # carries inline data — the inline-ingestion path above
-            # will have already put their rows in the widget_data store.
             and not any(
                 _rows_from_inline_widget(getattr(w, "data", None))
                 for w in fetchable_primary
@@ -1395,7 +1213,7 @@ def build_router(
                 uuid.uuid4()
             )
             logger.debug(
-                "router pre-empt: yielding reasoning + get_widget_data SSE | %d data_source(s)",
+                "router preempt: yielding reasoning + get_widget_data SSE | %d data_source(s)",
                 len(data_sources),
             )
 
@@ -1442,13 +1260,6 @@ def build_router(
 
         if widget_store is not None:
             try:
-                # Build the set of widgets the user has on this
-                # dashboard. ONLY ``primary`` + ``secondary`` count as
-                # on-dashboard — ``extra`` is Workspace's full widget
-                # catalog, not the pins. Ingesting from ``extra`` would
-                # poison the store with every widget the user could
-                # theoretically use, which is exactly what we don't
-                # want.
                 attached_uuids: set[str] = set()
                 attached_widget_ids: set[str] = set()
                 for bag in (
@@ -1483,11 +1294,6 @@ def build_router(
                                 if isinstance(first, dict)
                                 else repr(first)[:200]
                             )
-                            # Workspace returns ``[{error_type, content}]`` when
-                            # it can't service a data source (file widgets,
-                            # missing creds, etc.). Don't poison the store
-                            # with that — the agent reads it back as real
-                            # data and loops.
                             if (
                                 isinstance(first, dict)
                                 and "error_type" in first
@@ -1540,16 +1346,7 @@ def build_router(
                         skipped_off_dashboard,
                         conversation_id,
                     )
-                # Some Workspace surfaces (notably file-upload) put the
-                # data straight on ``widgets.*[i].data`` instead of
-                # sending a separate ``role:"tool"`` round-trip. Pull
-                # those in too — otherwise the model only sees the
-                # widget id and tries to fetch via ``get_widget_data``,
-                # which Workspace can't service for inline widgets.
                 inline_count = 0
-                # ONLY primary + secondary — ``extra`` is the workspace
-                # catalog, not the dashboard, same rule as the
-                # tool-message ingest path above.
                 for bag_name, bag in (
                     ("primary", body.widgets.primary or []),
                     ("secondary", body.widgets.secondary or []),
@@ -1633,8 +1430,6 @@ def build_router(
             run_id=run_id,
         )
 
-        # Persist the latest human turn so it shows up even if the run is
-        # cancelled mid-stream.
         if body.messages and body.messages[-1].role == "human":
             last_content = body.messages[-1].content
             await history.append_message(
@@ -1666,7 +1461,7 @@ def build_router(
         _cancellations[(principal.user_id, run_id)] = cancel_event
 
         async def stream() -> AsyncIterator[dict[str, Any]]:  # noqa: PLR0912
-            """Drive the agent loop to natural completion."""
+            """Drive the agent loop to completion."""
             assembled: list[str] = []
             client_gone = False
             run_iter = run_agent(
@@ -1678,12 +1473,6 @@ def build_router(
             with run_context.bind(ctx):
                 try:
                     async for ev in run_iter:
-                        # Per-event wire dump — gated on TRACE so the
-                        # ``model_dump_json`` serialization is skipped
-                        # entirely during normal operation. Citation
-                        # payloads can be long (bboxes, input_arguments);
-                        # don't truncate them so the wire shape stays
-                        # auditable when tracing is on.
                         if logger.isEnabledFor(TRACE):
                             _wire = ev.data.model_dump_json()
                             _truncate = (
@@ -1725,13 +1514,6 @@ def build_router(
                                 "event": ev.event,
                                 "data": ev.data.model_dump_json(),
                             }
-                        # Client-side dispatch terminates the SSE. The
-                        # FunctionCallSSE hands control to Workspace,
-                        # which runs the function and POSTs the result
-                        # on the next turn. Return immediately — no
-                        # awaits on the hot path, otherwise a stuck
-                        # DB write or hung astream cleanup keeps the
-                        # HTTP connection open and the UI spins.
                         if isinstance(ev, FunctionCallSSE):
                             logger.info(
                                 "sse: closing after function call dispatch | trace_id=%s",

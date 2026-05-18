@@ -1,18 +1,4 @@
-"""``fetch_url`` tool source — SSRF-guarded fetch of a web page's text.
-
-``web_search`` returns snippets; this fetches the full page so the
-agent can actually read an article. Every fetch is guarded:
-
-- only ``http`` / ``https`` schemes;
-- the host is resolved and every resolved IP is checked — loopback,
-  RFC-1918 private ranges, link-local (including the
-  ``169.254.169.254`` cloud-metadata endpoint), multicast, reserved
-  and any non-globally-routable address are refused;
-- redirects are followed manually, re-validating every hop (a public
-  URL cannot bounce the fetch to an internal address);
-- the body is size-capped while streaming;
-- a wall-clock timeout bounds the request.
-"""
+"""SSRF-guarded fetch of a web page's text."""
 
 from __future__ import annotations
 
@@ -34,14 +20,14 @@ from openbb_agent_server.runtime.plugins import ToolSource
 logger = logging.getLogger("openbb_agent_server.tools.fetch_url")
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
-_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB hard cap on the response body
-_MAX_TEXT_CHARS = 20_000  # chars of extracted text handed back to the model
+_MAX_BYTES = 2 * 1024 * 1024
+_MAX_TEXT_CHARS = 20_000
 _MAX_REDIRECTS = 5
 _TIMEOUT_S = 20.0
 
 
 class FetchUrlError(RuntimeError):
-    """A fetch was refused by the SSRF guard or failed outright."""
+    """Raise when a fetch is refused by the SSRF guard or fails."""
 
 
 class _FetchArgs(BaseModel):
@@ -58,10 +44,7 @@ def _ip_blocked(ip_str: str) -> bool:
     try:
         ip: Any = ipaddress.ip_address(ip_str)
     except ValueError:
-        # An address the stdlib can't even parse — refuse it.
         return True
-    # IPv4-mapped IPv6 (``::ffff:10.0.0.1``) hides a v4 address that
-    # the v6 predicates don't see — unwrap and check the real one.
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
     return (
@@ -167,9 +150,6 @@ async def _fetch(url: str) -> dict[str, Any]:
                         raise FetchUrlError(
                             f"redirect from {current!r} had no Location header"
                         )
-                    # Re-validation of the new target happens at the top
-                    # of the next loop iteration — a public URL cannot
-                    # bounce the fetch onto an internal address.
                     current = urljoin(current, location)
                     continue
                 resp.raise_for_status()
@@ -197,7 +177,7 @@ async def fetch_url(url: str) -> dict[str, Any]:
         result = await _fetch(url)
     except FetchUrlError as exc:
         return {"error": str(exc), "url": url}
-    except Exception as exc:  # noqa: BLE001 — httpx / network errors
+    except Exception as exc:  # noqa: BLE001
         return {
             "error": f"fetch failed: {type(exc).__name__}: {exc}",
             "url": url,
@@ -235,17 +215,17 @@ try:
     from openbb_agent_server.app.settings import (
         FETCH_URL_FEATURE as _FEATURE_SLUG,
     )
-except ImportError:  # pragma: no cover — import-time defence
+except ImportError:  # pragma: no cover
     _FEATURE_SLUG = "fetch-url"
 
 
 class FetchUrlToolSource(ToolSource):
-    """Single ``fetch_url`` tool — SSRF-guarded, feature-gated."""
+    """Provide a single SSRF-guarded, feature-gated fetch_url tool."""
 
     name = "fetch_url"
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[Any]:
-        """Bind ``fetch_url`` only when the ``fetch-url`` feature is on."""
+        """Bind fetch_url only when the fetch-url feature is on."""
         if not ctx.has_workspace_option(_FEATURE_SLUG):
             logger.debug(
                 "fetch_url: %r feature not enabled (workspace_options=%r); "

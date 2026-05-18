@@ -11,19 +11,7 @@ logger = logging.getLogger("openbb_agent_server.memory.translation")
 
 
 class NvidiaTranslator:
-    r"""Async translation client backed by an NVIDIA-hosted instruct model.
-
-    The Riva translate model takes a chat completion of the form::
-
-        system: You are a precise translation engine. ...
-        user:   <source-lang>→<target-lang>:\n<text>
-
-    and returns the translated string in the assistant turn. The exact
-    prompt template can shift between model versions; the system
-    instruction here was tuned for ``riva-translate-4b-instruct-v1_1``
-    and is intentionally conservative (no commentary, preserve
-    formatting / code fences / markdown).
-    """
+    """Async translation client backed by an NVIDIA-hosted instruct model."""
 
     def __init__(
         self,
@@ -103,8 +91,6 @@ class NvidiaTranslator:
             self._client = self._build_client()
         messages = self._build_messages(text, source_language, target_language)
 
-        # ChatNVIDIA exposes ``ainvoke`` (async) and ``invoke`` (sync).
-        # Prefer async; fall back to thread for older builds.
         ainvoke = getattr(self._client, "ainvoke", None)
         if ainvoke is not None:
             response = await ainvoke(messages)
@@ -113,7 +99,6 @@ class NvidiaTranslator:
 
         content = getattr(response, "content", None)
         if isinstance(content, list):
-            # Block-list shape (Anthropic-style). Pull text blocks only.
             parts = []
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":

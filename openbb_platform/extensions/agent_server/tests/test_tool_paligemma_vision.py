@@ -1,4 +1,4 @@
-"""Unit tests for ``paligemma_vision`` — exercises the VLM endpoint path."""
+"""paligemma_vision tool source tests."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ async def test_resolve_data_url_raises_when_no_source() -> None:
 
 
 class _SseTransport(httpx.AsyncBaseTransport):
-    """Pretend NIM VLM endpoint that streams SSE chunks."""
+    """Fake NIM VLM endpoint that streams SSE chunks."""
 
     def __init__(
         self,
@@ -132,7 +132,7 @@ class _SseTransport(httpx.AsyncBaseTransport):
 
 @pytest.fixture
 def stub_httpx(monkeypatch: pytest.MonkeyPatch) -> _SseTransport:
-    """Patch ``httpx.AsyncClient`` to use a controllable transport."""
+    """Patch httpx.AsyncClient to use a controllable transport."""
     transport = _SseTransport()
     real_async_client = httpx.AsyncClient
 
@@ -220,7 +220,6 @@ async def test_caption_image_calls_vlm_endpoint(stub_httpx: _SseTransport) -> No
 
     assert out["caption"] == "HELLO"
     assert out["target"] == "x.png"
-    # Confirm the request shape matches NIM VLM contract.
     [req] = stub_httpx.received_requests
     assert req.method == "POST"
     assert "vlm" in str(req.url)
@@ -382,11 +381,10 @@ async def test_caption_image_wraps_media_error_with_url(
 
 @pytest.mark.asyncio
 async def test_call_skips_done_marker(stub_httpx: _SseTransport) -> None:
-    """The streaming loop terminates on ``data: [DONE]``."""
+    """Terminate the streaming loop on data: [DONE]."""
     stub_httpx.frames = [
         'data: {"choices": [{"delta": {"content": "PART1"}}]}\n\n',
         "data: [DONE]\n\n",
-        # This frame is past [DONE] and must be ignored.
         'data: {"choices": [{"delta": {"content": "IGNORED"}}]}\n\n',
     ]
     img = FileRef(name="x.png", mime="image/png", data_base64="ZGF0YQ==")
@@ -436,7 +434,7 @@ async def test_call_skips_malformed_json(stub_httpx: _SseTransport) -> None:
 
 @pytest.mark.asyncio
 async def test_call_handles_no_delta(stub_httpx: _SseTransport) -> None:
-    """Frames without a ``delta.content`` field are silently dropped."""
+    """Drop frames without a delta.content field."""
     stub_httpx.frames = [
         'data: {"choices": [{"finish_reason": "stop"}]}\n\n',
         'data: {"choices": []}\n\n',

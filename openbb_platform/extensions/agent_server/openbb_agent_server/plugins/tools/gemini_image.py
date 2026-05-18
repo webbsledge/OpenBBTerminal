@@ -450,7 +450,6 @@ def _do_generate(
             )
         return out
 
-    # Gemini multimodal — generate_content yields inline_data parts.
     resp = client.models.generate_content(model=model, contents=prompt)
     return _extract_inline_images(resp)
 
@@ -495,13 +494,13 @@ def _extract_inline_images(resp: Any) -> list[tuple[bytes, str]]:
 
 
 def _retry(max_retries: int, fn: Any) -> Any:
-    """Run ``fn``; retry on 429 / 5xx / connection errors with backoff."""
+    """Run fn, retrying on 429, 5xx, and connection errors with backoff."""
     attempt = 0
     last_exc: BaseException | None = None
     while attempt <= max_retries:
         try:
             return fn()
-        except Exception as exc:  # noqa: BLE001 — Gemini wraps everything in ClientError
+        except Exception as exc:  # noqa: BLE001
             last_exc = exc
             if not _retryable(exc):
                 raise
@@ -535,7 +534,7 @@ def _retryable(exc: BaseException) -> bool:
 
 
 def _retry_delay(exc: BaseException) -> float | None:
-    """Pull ``retry_delay`` from a Gemini ClientError.details if present."""
+    """Pull a retry delay from a Gemini ClientError if present."""
     details = getattr(exc, "details", None)
     if not isinstance(details, dict):
         return None

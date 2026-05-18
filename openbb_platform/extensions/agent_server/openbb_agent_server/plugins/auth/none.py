@@ -1,4 +1,4 @@
-"""``none`` — no-auth, single-user dev backend."""
+"""No-auth, single-user dev backend."""
 
 from __future__ import annotations
 

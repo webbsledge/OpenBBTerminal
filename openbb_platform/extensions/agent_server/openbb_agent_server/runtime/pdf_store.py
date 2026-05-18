@@ -72,29 +72,15 @@ def _build_vec_connection(db_file: str) -> sqlite3.Connection:
 
 
 def _file_key(name: str, url: str | None, data_base64: str | None) -> str:
-    """Stable per-PDF identity so we don't re-ingest the same file twice.
-
-    Keyed on CONTENT only (URL or a prefix of the base64 payload),
-    NOT on the display name. Names can drift across requests (the
-    same file may arrive labelled
-    ``blk_drill_fund_documents.pdf`` one turn and
-    ``blk_drill_fund_documents-IEFA-prospectus.pdf`` the next) but
-    the bytes are identical — keying on bytes makes ingestion
-    idempotent.
-    """
+    """Return a stable per-PDF content identity key."""
     hasher = hashlib.sha256()
     if url:
         hasher.update(b"url\x00")
         hasher.update(url.encode("utf-8"))
     if data_base64:
-        # 16 KB of base64 (~12 KB of decoded bytes) is enough to
-        # distinguish any pair of different PDFs while staying cheap
-        # to hash. The PDF header + xref table sit in the first few
-        # KB and differ across documents.
         hasher.update(b"b64\x00")
         hasher.update(data_base64[:16384].encode("utf-8"))
     if not url and not data_base64:
-        # Last-resort fall-back so two unfetchable refs don't collide.
         hasher.update(b"name\x00")
         hasher.update((name or "").encode("utf-8"))
     return hasher.hexdigest()
@@ -147,9 +133,7 @@ class PdfStore:
         url: str | None = None,
         data_base64: str | None = None,
     ) -> dict[str, Any] | None:
-        """Return ``{status, total_pages, metadata, toc, error}`` if the
-        PDF is known to the store, else ``None``.
-        """
+        """Return the stored PDF status record, or None if unknown."""
         key = _file_key(name, url, data_base64)
         async with self._sessionmaker() as session:
             doc = (
@@ -186,11 +170,7 @@ class PdfStore:
         data_base64: str | None = None,
         page_range: tuple[int, int] | None = None,
     ) -> list[dict[str, Any]] | None:
-        """Return parsed pages for the PDF, optionally filtered by range.
-
-        Returns ``None`` if the PDF isn't in the store yet — caller
-        decides whether to wait / fall back to inline parsing.
-        """
+        """Return parsed pages for the PDF, optionally filtered by range."""
         st = await self.status(
             principal=principal, name=name, url=url, data_base64=data_base64
         )
@@ -221,14 +201,7 @@ class PdfStore:
         data_base64: str | None = None,
         mime: str | None = None,
     ) -> str:
-        """Schedule background parse + index. Returns the file_key.
-
-        Idempotent on content — calling with the same bytes (across
-        any name variations) hits the existing ready row and skips
-        re-parsing. In-flight dedup also catches the same content
-        being submitted twice within one process while the first
-        parse is still running.
-        """
+        """Schedule background parse + index. Returns the file_key."""
         key = _file_key(name, url, data_base64)
         existing = await self.status(
             principal=principal, name=name, url=url, data_base64=data_base64
@@ -286,8 +259,6 @@ class PdfStore:
         data_base64: str | None,
         mime: str | None,
     ) -> None:
-        # Stake a claim immediately so concurrent requests don't all
-        # parse the same PDF.
         async with self._sessionmaker() as session:
             existing = (
                 (
@@ -314,7 +285,7 @@ class PdfStore:
                 await session.commit()
                 doc_id = int(doc.id)
             elif existing.status == "ready":
-                return  # Another request already finished it.
+                return
             else:
                 existing.status = "pending"
                 existing.error = None
@@ -511,8 +482,6 @@ def _parse_pdf_sync(
     if data_base64:
         pdf_bytes = base64.b64decode(data_base64)
     elif url:
-        # ``data:application/pdf;base64,...`` URLs are decoded
-        # locally — httpx can't fetch them.
         head = url[:64].lower()
         if head.startswith(("data:application/pdf", "data:application/octet-stream")):
             _, _, payload = url.partition("base64,")
@@ -558,7 +527,6 @@ def _parse_pdf_sync(
             "mod_date": _s(raw_meta.get("ModDate")).strip() or None,
             "total_pages": total_pages,
         }
-        # TOC: pdfminer outline → flat list.
         page_id_to_num: dict[int, int] = {}
         for idx, page in enumerate(pdf.pages, start=1):
             try:

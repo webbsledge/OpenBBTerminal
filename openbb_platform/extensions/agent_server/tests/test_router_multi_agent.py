@@ -100,10 +100,7 @@ def test_unknown_profile_query_returns_404(client: TestClient) -> None:
 def test_same_conversation_id_under_different_profiles_uses_distinct_threads(
     client: TestClient,
 ) -> None:
-    """Per-turn thread_id (includes trace_id) — but the agent name is
-    still the namespace prefix, so equity and sentiment never share
-    state.
-    """
+    """The agent name namespaces state so profiles never share it."""
     convo = "shared-conversation-id"
     client.post(
         "/agents/equity/v1/query",
@@ -133,17 +130,13 @@ def test_same_conversation_id_under_different_profiles_uses_distinct_threads(
     threads = {it.config["configurable"]["thread_id"] for it in items}
     assert any(t.startswith("anonymous:equity:") for t in threads)
     assert any(t.startswith("anonymous:sentiment:") for t in threads)
-    # The default-profile namespace saw nothing — proves agent_name in
-    # the thread_id properly isolates state across profiles.
     assert not any(t.startswith("anonymous:default:") for t in threads)
 
 
 def test_default_profile_thread_uses_default_in_thread_id(
     client: TestClient,
 ) -> None:
-    """An unprefixed ``/v1/query`` writes its checkpoint under the
-    ``default`` agent namespace.
-    """
+    """An unprefixed query writes its checkpoint under the default namespace."""
     client.post(
         "/v1/query",
         json={

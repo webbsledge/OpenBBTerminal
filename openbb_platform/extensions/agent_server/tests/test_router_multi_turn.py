@@ -58,12 +58,7 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
 
 
 def test_two_turns_share_conversation_via_message_list(client: TestClient) -> None:
-    """Turn 2 of the same conversation_id picks up where turn 1 left off.
-
-    Multi-turn coherence comes from the client resending the full
-    message list (LangGraph's checkpointer thread_id is per-turn to
-    avoid replaying half-completed tool calls).
-    """
+    """Turn 2 of the same conversation_id picks up where turn 1 left off."""
     r1 = client.post(
         "/v1/query",
         json={
@@ -85,14 +80,9 @@ def test_two_turns_share_conversation_via_message_list(client: TestClient) -> No
         },
     )
     assert r2.status_code == 200
-    # Both runs share the conversation id (Workspace ``X-Trace-ID`` ==
-    # conversation_id), but the per-request server trace ids differ.
     assert r1.headers["X-Trace-ID"] == r2.headers["X-Trace-ID"] == "conv-multiturn-1"
     assert r1.headers["X-Server-Trace-ID"] != r2.headers["X-Server-Trace-ID"]
 
-    # Checkpointer accumulated state across the two turns. With
-    # per-turn thread_id (includes trace_id), the two turns live in
-    # distinct threads under the same user/profile namespace.
     saver = client.app.state.checkpointer
     import asyncio
 
@@ -107,7 +97,6 @@ def test_two_turns_share_conversation_via_message_list(client: TestClient) -> No
     matching = [t for t in threads if t.startswith("anonymous:default:")]
     assert len(matching) >= 2
 
-    # History endpoint shows both human turns persisted in order.
     msgs = client.get("/v1/conversations/conv-multiturn-1/messages").json()["messages"]
     human_contents = [m["content"] for m in msgs if m["role"] == "human"]
     assert "what is 2 + 2" in human_contents
@@ -131,7 +120,6 @@ def test_three_turns_keep_main_thread_alive(client: TestClient) -> None:
         history.append({"role": "ai", "content": "ok"})
 
     msgs = client.get(f"/v1/conversations/{convo}/messages").json()["messages"]
-    # Three human turns persisted.
     human = [m for m in msgs if m["role"] == "human"]
     assert len(human) == 3
 
@@ -139,7 +127,7 @@ def test_three_turns_keep_main_thread_alive(client: TestClient) -> None:
 def test_run_completes_to_natural_end_with_full_chunk_assembly(
     client: TestClient,
 ) -> None:
-    """The full canned response is assembled from chunks and saved as the AI turn."""
+    """The full canned response is assembled and saved as the AI turn."""
     resp = client.post(
         "/v1/query",
         json={
@@ -154,5 +142,4 @@ def test_run_completes_to_natural_end_with_full_chunk_assembly(
     ]
     ai_turns = [m for m in msgs if m["role"] == "ai"]
     assert len(ai_turns) == 1
-    # The AI turn captures the entire canned reply, not a truncation.
     assert ai_turns[0]["content"] == "First answer."

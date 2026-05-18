@@ -1,4 +1,4 @@
-"""Unit tests for the helpers in :mod:`openbb_agent_server.runtime.builder`."""
+"""Unit tests for the runtime builder helpers."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def test_parse_function_call_envelope_unparseable_json() -> None:
 
 
 def test_parse_function_call_envelope_with_partial_payload() -> None:
-    """A JSON dict with ``function`` but no ``input_arguments`` is rejected."""
+    """Reject a JSON dict with function but no input_arguments."""
     assert _parse_function_call_envelope('{"function": "x"}') is None
 
 
@@ -165,9 +165,7 @@ def test_tool_message_entry_chunks_non_string_inner_value() -> None:
 
 
 def test_to_lc_messages_synthesises_ai_for_orphan_tool_message() -> None:
-    """A standalone ``tool`` message gets a synthesised pairing ``AIMessage``
-    so LangGraph's tool_call_id pairing doesn't error out.
-    """
+    """Synthesise a pairing AIMessage for an orphan tool message."""
     from langchain_core.messages import ToolMessage
 
     msgs = [ChatMessage(role="tool", content="x", tool_call_id="1")]
@@ -273,8 +271,6 @@ async def test_turn_addendum_emits_sql_surface(
     out = await _build_turn_addendum(_ctx(), body=None, has_ingested=True)
     assert "prices" in out
     assert "rows=2" in out
-    # The SQL-surface addendum advertises the two table-access tools;
-    # semantic ``search_widget_data`` is intentionally not listed here.
     assert "query_widget_data" in out
     assert "read_widget_data" in out
 
@@ -293,7 +289,7 @@ async def test_turn_addendum_swallows_schema_errors(
 
 
 def test_resolve_subagents_resolves_known_subagent_with_tools() -> None:
-    """A subagent whose ``tools`` reference real names attaches them."""
+    """Attach tools referenced by a known subagent."""
     import types as _types
 
     from openbb_agent_server.runtime import registry
@@ -333,7 +329,7 @@ def test_resolve_subagents_resolves_known_subagent_with_tools() -> None:
 
 
 def test_resolve_subagents_drops_unknown_tools() -> None:
-    """A wanted tool that isn't on the main agent gets silently skipped."""
+    """Drop a wanted tool that is not on the main agent."""
     import types as _types
 
     from openbb_agent_server.runtime import registry
@@ -366,7 +362,7 @@ def test_resolve_subagents_drops_unknown_tools() -> None:
 
 
 def test_render_widget_snapshot_includes_description_when_present() -> None:
-    """A widget with a description gets a ``description:`` line in the snapshot."""
+    """Include a description line for a widget with a description."""
     w = WidgetRef(
         uuid="u-1",
         widget_id="balance",
@@ -381,24 +377,21 @@ def test_render_widget_snapshot_includes_description_when_present() -> None:
 
 
 def test_to_lc_messages_serialises_unserialisable_content_via_str() -> None:
-    """``_to_lc_messages`` falls back to ``str(raw)`` when json.dumps fails."""
+    """Fall back to str(raw) when json.dumps fails."""
     cyclic: dict[str, Any] = {}
     cyclic["self"] = cyclic
     msg = ChatMessage(role="human", content=cyclic)
     out = _to_lc_messages([msg])
     assert len(out) == 1
     assert isinstance(out[0].content, str)
-    # The str() fallback produced something non-empty.
     assert out[0].content
 
 
 def test_tool_message_entry_chunks_falls_back_to_str_on_unserialisable() -> None:
-    """A non-JSON-serialisable, non-dict-shaped entry returns ``str(entry)``."""
+    """Fall back to str(entry) for an unserialisable entry."""
     cyclic: dict[str, Any] = {}
     cyclic["self"] = cyclic
     out = _tool_message_entry_chunks(cyclic)
-    # Either json.dumps with default=str succeeds (returns the cyclic repr),
-    # or we fall through to str(). Both must produce one chunk.
     assert len(out) == 1
     assert isinstance(out[0], str)
 
@@ -410,8 +403,7 @@ from openbb_agent_server.runtime.builder import _resolve_tools  # noqa: E402
 async def test_resolve_tools_recognises_workspace_mcp_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Tools whose name starts with the workspace-MCP prefix are flagged as client-side."""
-
+    """Flag tools with the workspace-MCP prefix as client-side."""
     import types as _types
 
     from openbb_agent_server.runtime import registry
@@ -455,7 +447,7 @@ from openbb_agent_server.runtime.builder import (  # noqa: E402
 async def test_resolve_tools_recognises_client_side_prefix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Tools whose name starts with ``client:`` are flagged client-side."""
+    """Flag tools with the client: prefix as client-side."""
     import types as _types
 
     from openbb_agent_server.runtime import registry
@@ -491,7 +483,7 @@ async def test_resolve_tools_recognises_client_side_prefix(
 
 
 def test_load_system_prompt_handles_format_spec(tmp_path: Any) -> None:
-    """``{today:>10}`` (or any spec) substitutes via ``format(...)``."""
+    """Substitute placeholders that carry a format spec."""
     path = tmp_path / "prompt.txt"
     path.write_text("today=[{today:>12}]\ntz={timezone}\n", encoding="utf-8")
 
@@ -499,7 +491,6 @@ def test_load_system_prompt_handles_format_spec(tmp_path: Any) -> None:
 
     profile = _types.SimpleNamespace(system_prompt_file=str(path))
     out = _load_system_prompt(_ctx(), profile)
-    # The right-pad spec was applied.
     assert "today=[" in out
     assert "tz=UTC" in out
 
@@ -507,7 +498,7 @@ def test_load_system_prompt_handles_format_spec(tmp_path: Any) -> None:
 def test_load_system_prompt_preserves_unknown_placeholders_with_conversion(
     tmp_path: Any,
 ) -> None:
-    """Unknown ``{x!r:>10}`` placeholders round-trip with conversion + spec preserved."""
+    """Preserve unknown placeholders along with conversion and spec."""
     path = tmp_path / "prompt.txt"
     path.write_text("known={timezone}\nunknown={mystery!r:>5}\n", encoding="utf-8")
     import types as _types
@@ -519,7 +510,7 @@ def test_load_system_prompt_preserves_unknown_placeholders_with_conversion(
 
 
 def test_render_widget_snapshot_detects_pdf_widget_via_columns() -> None:
-    """A widget whose ``columns`` extra includes ``content`` is a PDF widget."""
+    """Detect a PDF widget via its columns."""
     w = WidgetRef(
         uuid="u-pdf",
         widget_id="plain",
@@ -535,7 +526,7 @@ def test_render_widget_snapshot_detects_pdf_widget_via_columns() -> None:
 
 
 def test_render_widget_snapshot_detects_pdf_widget_via_name_token() -> None:
-    """A widget whose name mentions ``prospectus`` is treated as a PDF widget."""
+    """Detect a PDF widget via a name token."""
     w = WidgetRef(
         uuid="u-doc",
         widget_id="x",
@@ -549,7 +540,7 @@ def test_render_widget_snapshot_detects_pdf_widget_via_name_token() -> None:
 
 
 def test_render_widget_snapshot_marks_file_widget_unreadable() -> None:
-    """A widget id starting ``file-`` renders as an unreadable user upload."""
+    """Mark a file- widget as an unreadable user upload."""
     w = WidgetRef(
         uuid="u-f",
         widget_id="file-123",
@@ -564,7 +555,7 @@ def test_render_widget_snapshot_marks_file_widget_unreadable() -> None:
 
 
 def test_render_widget_snapshot_annotates_in_store_widget() -> None:
-    """A widget uuid in ``in_store`` is annotated ``data_in_store=true``."""
+    """Annotate an in-store widget with data_in_store=true."""
     w = WidgetRef(
         uuid="u-s",
         widget_id="prices",
@@ -579,7 +570,7 @@ def test_render_widget_snapshot_annotates_in_store_widget() -> None:
 
 
 def test_render_widget_snapshot_shows_not_loaded_for_dataless_widget() -> None:
-    """A widget with no data and not in store renders ``data=<not loaded>``."""
+    """Show data=<not loaded> for a dataless widget."""
     w = WidgetRef(
         uuid="u-n",
         widget_id="prices",
@@ -593,19 +584,18 @@ def test_render_widget_snapshot_shows_not_loaded_for_dataless_widget() -> None:
 
 
 def test_load_system_prompt_falls_back_when_file_unreadable(tmp_path: Any) -> None:
-    """An unreadable ``system_prompt_file`` falls back to the in-memory template."""
+    """Fall back to the in-memory template for an unreadable prompt file."""
     import types as _types
 
     profile = _types.SimpleNamespace(
         system_prompt_file=str(tmp_path / "missing-prompt.txt")
     )
     out = _load_system_prompt(_ctx(), profile)
-    # The bundled template text is present.
     assert "OpenBB Agent" in out
 
 
 def test_to_lc_messages_ai_with_function_carries_tool_call() -> None:
-    """An ``ai`` message that announced a function gets a paired tool_call."""
+    """Pair a tool_call onto an ai message that announced a function."""
     msg = ChatMessage(
         role="ai",
         content="dispatching",
@@ -619,9 +609,7 @@ def test_to_lc_messages_ai_with_function_carries_tool_call() -> None:
 
 
 def test_to_lc_messages_rewrites_get_widget_data_tool_message() -> None:
-    """A ``tool`` message for ``get_widget_data`` is rewritten to point the
-    agent at the local store, splitting tabular vs PDF widgets.
-    """
+    """Rewrite a get_widget_data tool message to point at the local store."""
     msgs = [
         ChatMessage(
             role="tool",
@@ -650,7 +638,7 @@ def test_to_lc_messages_rewrites_get_widget_data_tool_message() -> None:
 
 
 def test_to_lc_messages_non_widget_tool_message_uses_data_payload() -> None:
-    """A non-``get_widget_data`` tool message flattens its ``data`` payload."""
+    """Flatten the data payload of a non-get_widget_data tool message."""
     msgs = [
         ChatMessage(
             role="tool",
@@ -706,12 +694,12 @@ from openbb_agent_server.runtime.builder import (  # noqa: E402
 
 
 def test_normalise_message_payload_non_tuple_returns_none() -> None:
-    """A non-tuple ``messages`` payload normalises to ``None``."""
+    """Normalise a non-tuple messages payload to None."""
     assert _normalise_message_payload((), "not-a-tuple") is None
 
 
 def test_resolve_middleware_builds_each_named_middleware() -> None:
-    """``_resolve_middleware`` loads + builds every middleware on the profile."""
+    """Load and build every middleware on the profile."""
     import types as _types
 
     from openbb_agent_server.runtime import registry
@@ -749,7 +737,7 @@ def test_resolve_middleware_builds_each_named_middleware() -> None:
 
 
 class _FakeAgent:
-    """Stand-in deepagents agent whose ``astream`` yields scripted tuples."""
+    """Stand-in deepagents agent whose astream yields scripted tuples."""
 
     def __init__(self, events: list[Any]) -> None:
         self._events = events
@@ -764,7 +752,7 @@ def _install_fake_deepagents(
     events: list[Any],
     captured: dict[str, Any] | None = None,
 ) -> None:
-    """Patch ``deepagents.create_deep_agent`` to return a scripted agent."""
+    """Patch deepagents.create_deep_agent to return a scripted agent."""
     import sys
     import types as _types
 
@@ -805,12 +793,7 @@ async def test_run_agent_streams_messages_and_custom_events(
     tmp_path: Any,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``run_agent`` drives the deepagents stream, logs every chunk shape,
-    and surfaces normalised events through the adapter.
-
-    TRACE is enabled so the per-chunk diagnostic block — gated on
-    ``logger.isEnabledFor(TRACE)`` — actually executes.
-    """
+    """Stream messages and custom events through run_agent."""
     from langchain_core.messages import AIMessageChunk
     from langgraph.checkpoint.memory import InMemorySaver
 
@@ -820,12 +803,6 @@ async def test_run_agent_streams_messages_and_custom_events(
     _services.set_services(checkpointer=InMemorySaver())
     settings = _settings_for_run(monkeypatch, tmp_path)
 
-    # Exercise every astream chunk-logging branch:
-    #  - element-0 == "messages": the messages-mode logger (msg/reasoning).
-    #  - element-0 == "custom":   the non-messages-mode logger.
-    #  - a non-tuple item:        the bare-repr logger.
-    #  - the normal langgraph ``(ns, mode, payload)`` shape that the
-    #    normaliser consumes (element 0 is the namespace tuple).
     events: list[Any] = [
         (
             "messages",
@@ -839,14 +816,9 @@ async def test_run_agent_streams_messages_and_custom_events(
             ),
         ),
         ("custom", (), {"type": "chunk", "content": "custom-log"}),
-        # A 1-tuple payload makes the messages-mode logger's
-        # ``msg, _meta = payload`` unpack raise — the non-fatal
-        # ``except`` branch must swallow it.
         ("messages", (), ("only-one-element",)),
         "not-a-tuple",
         ((), "messages", (AIMessageChunk(content="hello"), {})),
-        # A messages payload whose first element is not an AIMessage
-        # — the normaliser drops it.
         ((), "messages", ("not-a-message", {})),
         ((), "updates", {"agent": {}}),
         ((), "custom", {"type": "chunk", "content": " world"}),
@@ -860,12 +832,10 @@ async def test_run_agent_streams_messages_and_custom_events(
     )
     with caplog.at_level(TRACE, logger="openbb_agent_server.builder"):
         out = await _run_agent_to_list(ctx=_ctx(), body=body, settings=settings)
-    # The per-chunk TRACE diagnostics fired (messages + custom + bare).
     assert any("llm chunk #" in r.getMessage() for r in caplog.records)
     assert any("astream raw #" in r.getMessage() for r in caplog.records)
     deltas = "".join(e.data.delta for e in out if isinstance(e, MessageChunkSSE))
     assert "world" in deltas
-    # The buffered messages prose surfaces somewhere in the SSE stream.
     blob = "".join(
         getattr(e.data, "delta", "") or getattr(e.data, "message", "") for e in out
     )
@@ -876,7 +846,7 @@ async def test_run_agent_streams_messages_and_custom_events(
 async def test_run_agent_astream_raises_propagates(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
-    """An exception inside ``agent.astream`` propagates out of ``run_agent``."""
+    """Propagate an exception raised inside agent.astream."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -912,9 +882,7 @@ async def test_run_agent_in_store_hint_and_addendum(
     tmp_path: Any,
     widget_store_in_services: WidgetDataStore,
 ) -> None:
-    """When a widget store holds data for an attached widget, ``run_agent``
-    flags it ``data_in_store`` and prepends the SQL-surface addendum.
-    """
+    """Flag in-store data and prepend the SQL-surface addendum."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -945,7 +913,6 @@ async def test_run_agent_in_store_hint_and_addendum(
         rows=[{"x": 1}],
         columns=["x"],
     )
-    # Re-bind the checkpointer (the fixture reset services on the widget store).
     services.set_services(
         history=None,
         widget_store=widget_store_in_services,
@@ -969,7 +936,7 @@ async def test_run_agent_in_store_lookup_timeout_is_swallowed(
     tmp_path: Any,
     widget_store_in_services: WidgetDataStore,
 ) -> None:
-    """A slow widget-store lookup times out without stalling the run."""
+    """Swallow a widget-store lookup timeout."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -1002,7 +969,7 @@ async def test_run_agent_in_store_lookup_error_is_swallowed(
     tmp_path: Any,
     widget_store_in_services: WidgetDataStore,
 ) -> None:
-    """An unexpected widget-store error is logged and the run continues."""
+    """Swallow an unexpected widget-store error."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -1031,9 +998,7 @@ async def test_run_agent_in_store_lookup_error_is_swallowed(
 async def test_run_agent_narrows_tools_when_turn_has_tool_message(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
-    """A ``tool`` message in the turn flips ``has_ingested`` so the tool set
-    is narrowed to the data-reading + emitter allowlist.
-    """
+    """Narrow the tool set when the turn has a tool message."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -1099,7 +1064,7 @@ async def test_run_agent_narrows_tools_when_turn_has_tool_message(
 async def test_run_agent_passes_skills_when_profile_has_them(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
-    """A profile with ``skills`` forwards them to ``create_deep_agent``."""
+    """Forward profile skills to create_deep_agent."""
     from langgraph.checkpoint.memory import InMemorySaver
 
     from openbb_agent_server.protocol.schemas import QueryRequest
@@ -1126,6 +1091,5 @@ async def test_run_agent_passes_skills_when_profile_has_them(
         conversation_id="c",
         run_id="r",
     )
-    # ``profile=None`` exercises the resolve-profile fallback too.
     await _run_agent_to_list(ctx=_ctx(), body=body, settings=settings, profile=None)
     assert captured["skills"] == ["/skills/finance"]

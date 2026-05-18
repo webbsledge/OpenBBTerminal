@@ -45,7 +45,7 @@ All methods enforce `user_id` partitioning. Cross-user lookups fail closed witho
 | --- | --- |
 | `upsert_user(principal)` | First-sight insert; subsequent calls refresh `display_name` / `email` and bump `last_seen_at`. |
 | `delete_user(principal)` | Cascade-deletes from `messages`, `tool_calls`, `usage`, `artifacts`, `citations`, `pending_runs`, `runs`, `traces`, `conversations`, `api_keys`, then the `users` row itself — in that order to satisfy FK constraints. |
-| `begin_trace` | Inserts the `traces` row at run start. On re-use of an existing `trace_id`, checks `user_id` matches and resets `ended_at` / `status` to `"running"`. Cross-user re-use raises `PermissionError`. |
+| `begin_trace` | Inserts the `traces` row at run start. On reuse of an existing `trace_id`, checks `user_id` matches and resets `ended_at` / `status` to `"running"`. Cross-user reuse raises `PermissionError`. |
 | `end_trace` | Sets `ended_at = now()` and `status`. Silently no-ops on missing trace (idempotent). |
 | `append_message` | Looks up the `Conversation` row; creates it on first use. Computes `seq` as `max(existing) + 1`. Cross-user conversation lookup raises `PermissionError` with a generic "conversation not found" message. Returns the new `seq`. |
 | `list_conversations` | `SELECT … FROM conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?`. |

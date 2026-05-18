@@ -1,4 +1,4 @@
-"""OpenAI Chat model provider (optional install: ``[openai]``)."""
+"""OpenAI Chat model provider."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from openbb_agent_server.runtime.plugins import ModelProvider
 
 
 class OpenAIProvider(ModelProvider):
-    """Wraps :class:`langchain_openai.ChatOpenAI`."""
+    """Wrap ChatOpenAI."""
 
     name = "openai"
 

@@ -1,4 +1,4 @@
-"""Compose plugins into a working DeepAgents agent and stream its events."""
+"""Compose plugins into a DeepAgents agent and stream its events."""
 
 from __future__ import annotations
 
@@ -189,18 +189,9 @@ OUTPUT
 def _render_widget_snapshot(
     ctx: RunContext, in_store: frozenset[str] = frozenset()
 ) -> str:
-    """Render the attached-widgets section in the system prompt.
-
-    ``in_store`` is the set of widget uuids whose rows are already in
-    the widget_data store for this conversation. Widgets in the set
-    are annotated ``data_in_store=true`` so the model reads them via
-    ``read_widget_data`` / ``query_widget_data`` instead of calling
-    ``get_widget_data`` again.
-    """
+    """Render the attached-widgets section in the system prompt."""
     if not ctx.widgets:
         return ""
-    # Local import avoids a cycle: widget_data tool imports builder via
-    # plugins → runtime → ... — keep it lazy.
     from openbb_agent_server.plugins.tools.widget_data import (
         _short_hash as _hash,
     )
@@ -209,9 +200,6 @@ def _render_widget_snapshot(
         "",
         "Attached widgets (from the user's pinned dashboard)",
         "-" * 51,
-        # Three keys per row. The store keys by widget_uuid; the SQL
-        # surface keys by widget_id. ``name`` is for the user, not for
-        # tool calls.
         "Pass ``widget_uuid`` to read_widget_data / get_widget_data; "
         "use ``widget_id`` as the SQL table name; ``name`` is a label.",
     ]
@@ -225,10 +213,6 @@ def _render_widget_snapshot(
         is_file = isinstance(wid_for_kind_check, str) and wid_for_kind_check.startswith(
             "file-"
         )
-        # PDF-bearing widgets: their data schema includes a ``content``
-        # column or their name / id mentions documents / filings /
-        # prospectus / pdf. The bytes don't ship with the request —
-        # the agent has to call get_widget_data first.
         extra = getattr(w, "model_extra", None) or {}
         columns = extra.get("columns") if isinstance(extra, dict) else None
         is_pdf_widget = False
@@ -335,12 +319,6 @@ async def _build_turn_addendum(
         return ""
 
     try:
-        # ``conversation_id=None`` so the SQL surface includes widget
-        # data ingested in prior conversations for the same user.
-        # No on-dashboard filter: the agent should be able to query
-        # everything the user has stored, even if the originating
-        # widget isn't currently pinned. Citation filtering happens
-        # downstream in ``_cite_widget``.
         entries = await store.schema(
             principal=ctx.principal,
             conversation_id=None,
@@ -410,8 +388,6 @@ def _load_system_prompt(
         "file_snapshot": _render_file_snapshot(ctx),
     }
 
-    # Tolerant formatter: unknown ``{name}`` is left literal so prose
-    # with stray braces doesn't blow up. Real placeholders still substitute.
     out: list[str] = []
     for literal, name, spec, conversion in Formatter().parse(raw):
         out.append(literal)
@@ -424,8 +400,6 @@ def _load_system_prompt(
             else:
                 out.append(str(value))
         else:
-            # Re-emit the original placeholder so prose like ``{x}``
-            # round-trips unchanged.
             placeholder = "{" + name
             if conversion:
                 placeholder += "!" + conversion
@@ -443,7 +417,7 @@ def _json_loads(value: str) -> Any:
 
 
 def _parse_function_call_envelope(content: Any) -> dict[str, Any] | None:
-    """Return the parsed ``{"function": ..., "input_arguments": ...}``"""
+    """Return the parsed function-call envelope, or None."""
     if not isinstance(content, str):
         return None
     stripped = content.strip()
@@ -495,7 +469,6 @@ def _tool_message_entry_chunks(entry: Any) -> list[str]:
         return [inner if isinstance(inner, str) else str(inner)]
     if entry.get("data") is not None:
         return [str(entry.get("data"))]
-    # Last-resort dump so we never silently lose payload.
     try:
         import json as _json
 
@@ -505,24 +478,7 @@ def _tool_message_entry_chunks(entry: Any) -> list[str]:
 
 
 def _to_lc_messages(messages: list[ChatMessage]) -> list[Any]:
-    """Convert wire-protocol messages to LangChain message objects.
-
-    The Workspace wire protocol speaks four shapes that we have to
-    round-trip into the LangChain message types LangGraph expects:
-
-    - ``role:"human"`` → ``HumanMessage``
-    - ``role:"ai"`` with prose → ``AIMessage(content=text)``
-    - ``role:"ai"`` that emitted a function call → ``AIMessage`` carrying
-      a matching ``tool_calls=[{id, name, args}]`` entry
-    - ``role:"tool"`` (widget rows / mcp result) → ``ToolMessage`` paired
-      to the previous ``AIMessage`` by ``tool_call_id``
-
-    Dropping the ``role:"tool"`` messages — which is what we used to do —
-    means the agent never sees the data Workspace handed back, so the
-    next turn is empty. The pairing AIMessage is reconstructed here
-    when the inbound history doesn't already carry one, because some
-    Workspace clients only send the ``tool`` row after the dispatch.
-    """
+    """Convert wire-protocol messages to LangChain message objects."""
     import json as _json
 
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -557,9 +513,6 @@ def _to_lc_messages(messages: list[ChatMessage]) -> list[Any]:
                 continue
             fn_name = m.function or ""
             if fn_name:
-                # The AI turn announced a client-side dispatch (e.g.
-                # ``get_widget_data``). Carry the tool_call forward so
-                # the next ``ToolMessage`` can pair to it.
                 tool_call_id = _call_id_of(m) or f"call-{len(out)}"
                 out.append(
                     AIMessage(
@@ -582,14 +535,6 @@ def _to_lc_messages(messages: list[ChatMessage]) -> list[Any]:
         if m.role == "tool":
             tool_call_id = _call_id_of(m) or f"call-{len(out)}"
             tool_name = m.function or "tool"
-            # For ``get_widget_data``: the router has already
-            # ingested the rows into the local widget_data store.
-            # Don't echo the full payload back into the model's
-            # context — a 12K-row table chews context AND lets the
-            # model answer directly from the ToolMessage without
-            # calling ``read_widget_data`` (which is what fires
-            # widget citations). Instead point the agent at the
-            # store; the read tools will surface the data + cite.
             if tool_name == "get_widget_data":
                 fetched_ids: list[str] = []
                 pdf_ids: list[str] = []
@@ -609,13 +554,6 @@ def _to_lc_messages(messages: list[ChatMessage]) -> list[Any]:
                         pdf_ids.append(wid)
                     else:
                         tabular_ids.append(wid)
-                # Tailor the rewritten ToolMessage so the agent reaches
-                # for the RIGHT follow-up tool. Pointing the agent at
-                # ``read_widget_data`` for a PDF widget is the
-                # observed cause of the
-                #   "called get_widget_data → called read_widget_data
-                #    → returned null → loop"
-                # failure mode.
                 msg_lines: list[str] = [
                     "Widget data has been fetched and stored locally "
                     f"(widget_ids={fetched_ids}). Do NOT re-fetch via "
@@ -639,13 +577,8 @@ def _to_lc_messages(messages: list[ChatMessage]) -> list[Any]:
                     )
                 content = "\n".join(msg_lines)
             else:
-                # Prefer ``data`` (the structured widget rows Workspace
-                # delivers); fall back to ``content`` for MCP results.
                 payload: Any = m.data if m.data is not None else m.content
                 content = payload if isinstance(payload, str) else _coerce_text(payload)
-            # If the matching AIMessage is missing (some Workspace
-            # variants send only the ``tool`` row), synthesise one so
-            # the ToolMessage has something to pair with.
             need_synth = not any(
                 isinstance(prev, AIMessage)
                 and any(tc.get("id") == tool_call_id for tc in (prev.tool_calls or []))
@@ -695,11 +628,9 @@ async def _resolve_tools(
         for t in await source.tools(ctx, source_cfg):
             tools.append(t)
             tool_name = getattr(t, "name", "")
-            if tool_name.startswith(CLIENT_SIDE_TOOL_PREFIX):
-                client_tools.add(tool_name)
-            elif tool_name.startswith(WORKSPACE_MCP_TOOL_PREFIX):
-                # Workspace MCP tools also execute client-side; the
-                # adapter handles routing via the prefix.
+            if tool_name.startswith(CLIENT_SIDE_TOOL_PREFIX) or tool_name.startswith(
+                WORKSPACE_MCP_TOOL_PREFIX
+            ):
                 client_tools.add(tool_name)
     return tools, frozenset(client_tools)
 
@@ -763,7 +694,6 @@ async def run_agent(
         },
     )
 
-    # Lazy imports — these are the heavyweights.
     from deepagents import create_deep_agent
 
     model_provider: ModelProvider = registry.load(
@@ -775,16 +705,6 @@ async def run_agent(
 
     tools, client_tool_names = await _resolve_tools(ctx, profile)
 
-    # Which attached-widget uuids already have rows in the local
-    # widget_data store? If the user (NOT the conversation) has
-    # fetched a widget in a prior turn — even a prior conversation —
-    # the agent should READ from the store, not re-fetch via
-    # ``get_widget_data``. Workspace's per-instance widget UUIDs are
-    # stable across conversations, so a hit on the same UUID is the
-    # same data. Bounded by a short timeout so a slow / locked DB
-    # never stalls the agent loop — the agent works fine without the
-    # hint, it just may call ``get_widget_data`` on a widget that's
-    # already local.
     in_store: frozenset[str] = frozenset()
     has_any_user_widget_data = False
     widget_store = services.get_widget_store()
@@ -817,55 +737,31 @@ async def run_agent(
     has_tool_msg_this_turn = any(
         getattr(m, "role", None) == "tool" for m in body.messages
     )
-    # ``has_ingested`` drives both tool-filtering (drop everything
-    # except widget + emitter tools) and the SQL-surface addendum.
-    # Treat "data lives in the store from any prior conversation"
-    # the same as "tool message in this turn" so the agent reads
-    # from the store instead of re-fetching.
     has_ingested = has_tool_msg_this_turn or has_any_user_widget_data
     if has_ingested:
-        # Tools the agent should still have access to once widget data
-        # has been ingested. Anything NOT in this set is filtered out
-        # to keep the model focused on summarising what was just
-        # fetched rather than going on a fresh exploration. Notable
-        # inclusions:
-        #   - PDF / image / audio tools, because document widgets
-        #     (e.g. ``blk_drill_fund_documents``) auto-promote their
-        #     references into ``uploaded_files`` and the agent reads
-        #     them through ``pdf_extract`` etc.
-        #   - ``web_search`` / ``recall_user_memory`` / ``task`` for
-        #     follow-ups that need information beyond the dashboard.
         keep = {
-            # Inspect previously fetched widget data
             "list_widget_data",
             "read_widget_data",
             "search_widget_data",
             "describe_widget_data",
             "query_widget_data",
-            # Fetch additional widgets the user attaches on follow-up turns
             "get_widget_data",
             "list_widgets",
-            # PDF pipeline (document-list widgets / explicit uploads)
             "list_pdfs",
             "search_pdf",
             "get_pdf_outline",
             "pdf_extract",
-            # Image pipeline (vision-capable models / chart screenshots)
             "list_images",
             "understand_image",
             "caption_image",
             "read_image_text",
             "ask_about_image",
-            # Audio pipeline (uploaded clips / call recordings)
             "list_audio",
             "transcribe_audio",
-            # External context the agent may still need
             "web_search",
             "fetch_url",
             "recall_user_memory",
-            # Sub-agent dispatch (charter, researcher, analyst, …)
             "task",
-            # Render the final answer
             "emit_table_artifact",
             "emit_chart_artifact",
             "emit_markdown_artifact",
@@ -889,13 +785,6 @@ async def run_agent(
     from langchain_core.runnables import RunnableConfig
 
     checkpointer = services.get_checkpointer()
-    # Per-turn thread id (includes ``trace_id``) so each ``/v1/query``
-    # gets a fresh agent state. The full conversation lives in
-    # ``lc_messages`` — we pass it on every request — so reusing the
-    # checkpoint state across turns would just double-up the history
-    # and (worse) replay any half-completed tool calls from a prior
-    # turn. Multi-turn coherence comes from the message list, not from
-    # the checkpointer.
     thread_id = f"{ctx.principal.user_id}:{profile.name}:{ctx.trace_id}"
     run_config: RunnableConfig = {
         "configurable": {
@@ -905,8 +794,6 @@ async def run_agent(
             "agent": profile.name,
             "trace_id": ctx.trace_id,
             "run_id": ctx.run_id,
-            # Surface the human-readable conversation id for log /
-            # trace correlation; thread_id is per-request.
             "conversation_id": ctx.conversation_id,
         }
     }
@@ -955,12 +842,6 @@ async def run_agent(
                 subgraphs=True,
             ):
                 n_raw += 1
-                # Per-chunk visibility into what the LLM is actually
-                # emitting on the wire. ``raw`` is the langgraph
-                # ``(stream_mode, namespace, payload)`` tuple — payload
-                # for "messages" mode is an ``AIMessageChunk``. Gated on
-                # TRACE so the per-chunk repr/preview work is skipped
-                # entirely during normal operation.
                 if logger.isEnabledFor(TRACE):
                     try:
                         if isinstance(raw, tuple) and len(raw) == 3:

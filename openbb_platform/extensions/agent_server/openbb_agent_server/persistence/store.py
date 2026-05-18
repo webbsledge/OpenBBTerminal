@@ -143,7 +143,7 @@ class HistoryStore(ABC):
 
     @abstractmethod
     async def delete_user(self, principal: UserPrincipal) -> None:
-        """Right-to-erasure — cascade-delete every row owned by this user."""
+        """Cascade-delete every row owned by the user."""
 
     @abstractmethod
     async def get_trace_bundle(

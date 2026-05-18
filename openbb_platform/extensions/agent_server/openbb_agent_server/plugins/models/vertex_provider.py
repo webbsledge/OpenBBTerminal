@@ -1,4 +1,4 @@
-"""Google Vertex AI model provider (optional install: ``[vertex]``)."""
+"""Google Vertex AI model provider."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from openbb_agent_server.runtime.plugins import ModelProvider
 
 
 class VertexProvider(ModelProvider):
-    """Wraps :class:`langchain_google_genai.ChatGoogleGenerativeAI` (Vertex mode)."""
+    """Wrap ChatGoogleGenerativeAI in Vertex mode."""
 
     name = "vertex"
 

@@ -92,14 +92,12 @@ async def test_skips_entries_without_a_name() -> None:
 
 
 async def test_skips_entries_that_fail_to_make_a_tool() -> None:
-    """Per-entry exceptions don't take down the whole tool list."""
+    """Keep the tool list intact despite per-entry exceptions."""
     src = WorkspaceMcpToolSource()
-    # ``input_schema.properties`` of the wrong shape would raise inside
-    # ``_args_model_from_schema`` — wrapped so the loop continues.
     tools = await src.tools(
         _ctx(
             tools=(
-                {"name": "", "server_id": "x"},  # blank name → ValueError
+                {"name": "", "server_id": "x"},
                 {"name": "ok", "server_id": "y"},
             )
         ),
@@ -119,14 +117,14 @@ def test_make_tool_handles_non_dict_input_schema() -> None:
 
 
 def test_make_tool_body_invokes_interrupt_when_called() -> None:
-    """The tool body calls ``interrupt(...)`` — outside LangGraph it raises."""
+    """Raise when the tool body's interrupt() runs outside LangGraph."""
     tool = _make_tool({"name": "ping", "server_id": "s"})
     with pytest.raises(Exception):
         tool.invoke({})
 
 
 def test_adapter_routes_mcp_prefix_into_function_call_sse() -> None:
-    """``mcp:<server>:<fn>`` routes through Workspace's"""
+    """Route mcp:<server>:<fn> into a FunctionCallSSE."""
     adapter = DeepAgentEventAdapter(client_tool_names=frozenset())
     out = adapter._translate_messages(
         {
@@ -156,7 +154,7 @@ def test_adapter_routes_mcp_prefix_into_function_call_sse() -> None:
 
 
 def test_adapter_falls_back_to_namespace_when_server_id_missing() -> None:
-    """``mcp:tool_name`` (no server prefix) falls back to namespace[0]."""
+    """Fall back to namespace[0] for mcp:tool_name with no server prefix."""
     adapter = DeepAgentEventAdapter(client_tool_names=frozenset())
     out = adapter._translate_messages(
         {

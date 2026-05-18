@@ -21,7 +21,7 @@ from openbb_agent_server.runtime.principal import UserPrincipal
 
 
 class _Req:
-    """Plain fake request with a ``tool_call`` payload + flat attributes."""
+    """Fake request with a tool_call payload and flat attributes."""
 
     def __init__(
         self,
@@ -38,7 +38,7 @@ class _Req:
 
 
 class _ToolCallObj:
-    """Object-shaped tool call (non-dict) for the ``getattr`` branch."""
+    """Object-shaped tool call for the getattr branch."""
 
     def __init__(self, *, name: str = "", args: Any = None, id: str = "") -> None:
         self.name = name
@@ -52,7 +52,7 @@ def test_args_hash_serialisable() -> None:
 
 
 def test_args_hash_unserialisable_falls_back_to_repr() -> None:
-    """A value ``json.dumps`` cannot handle falls through to ``repr``."""
+    """Fall through to repr when json.dumps cannot handle a value."""
 
     class _NoJson:
         def __repr__(self) -> str:  # noqa: D105
@@ -60,7 +60,6 @@ def test_args_hash_unserialisable_falls_back_to_repr() -> None:
 
     cyclic: dict[str, Any] = {}
     cyclic["self"] = cyclic
-    # ``default=str`` rescues most things; a truly cyclic dict still raises.
     out = _args_hash(cyclic)
     assert len(out) == 12
 
@@ -112,7 +111,7 @@ def test_tool_call_id_defaults_to_empty_string() -> None:
 
 @pytest.mark.asyncio
 async def test_awrap_runs_handler_below_threshold() -> None:
-    """Distinct / first calls pass straight through to the handler."""
+    """Distinct or first calls pass straight through to the handler."""
     mw = _LoopGuardMiddleware(max_repeats=2)
     calls: list[Any] = []
 
@@ -128,7 +127,7 @@ async def test_awrap_runs_handler_below_threshold() -> None:
 
 @pytest.mark.asyncio
 async def test_awrap_short_circuits_after_max_repeats() -> None:
-    """The third identical call returns a synthetic ``ToolMessage``."""
+    """The third identical call returns a synthetic ToolMessage."""
     mw = _LoopGuardMiddleware(max_repeats=2)
     handler_calls = 0
 
@@ -143,7 +142,6 @@ async def test_awrap_short_circuits_after_max_repeats() -> None:
         assert await mw.awrap_tool_call(req, handler) == "real"
         assert await mw.awrap_tool_call(req, handler) == "real"
         tripped = await mw.awrap_tool_call(req, handler)
-        # A fourth call short-circuits silently (no second warning step).
         await mw.awrap_tool_call(req, handler)
 
     assert handler_calls == 2
@@ -151,7 +149,6 @@ async def test_awrap_short_circuits_after_max_repeats() -> None:
     assert "loop_guard" in tripped.content
     assert tripped.tool_call_id == "c1"
     assert tripped.name == "fetch"
-    # Exactly one WARNING reasoning step despite two short-circuited calls.
     warnings = [s for s in sink if s.get("event_type") == "WARNING"]
     assert len(warnings) == 1
     assert warnings[0]["details"]["tool_name"] == "fetch"
@@ -160,7 +157,7 @@ async def test_awrap_short_circuits_after_max_repeats() -> None:
 
 @pytest.mark.asyncio
 async def test_awrap_resets_counter_on_different_key() -> None:
-    """A different tool / args resets the repeat counter and ``_tripped``."""
+    """A different tool or args resets the repeat counter."""
     mw = _LoopGuardMiddleware(max_repeats=1)
 
     async def handler(request: Any) -> str:
@@ -169,14 +166,13 @@ async def test_awrap_resets_counter_on_different_key() -> None:
     req_a = _Req(tool_call={"name": "a", "args": {}, "id": "1"})
     req_b = _Req(tool_call={"name": "b", "args": {}, "id": "2"})
     assert await mw.awrap_tool_call(req_a, handler) == "ok"
-    # Second identical call would trip, but switching tools resets.
     assert await mw.awrap_tool_call(req_b, handler) == "ok"
     assert await mw.awrap_tool_call(req_b, handler) != "ok"
 
 
 @pytest.mark.asyncio
 async def test_awrap_reraises_graph_bubble_up() -> None:
-    """``GraphBubbleUp`` from the handler propagates instead of looping."""
+    """GraphBubbleUp from the handler propagates instead of looping."""
     from langgraph.errors import GraphBubbleUp
 
     mw = _LoopGuardMiddleware(max_repeats=2)

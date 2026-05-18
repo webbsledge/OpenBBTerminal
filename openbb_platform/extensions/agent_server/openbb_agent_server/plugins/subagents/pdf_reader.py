@@ -1,4 +1,4 @@
-"""``pdf_reader`` subagent — extracts text + bounding boxes from uploaded PDFs."""
+"""PDF reader subagent."""
 
 from __future__ import annotations
 

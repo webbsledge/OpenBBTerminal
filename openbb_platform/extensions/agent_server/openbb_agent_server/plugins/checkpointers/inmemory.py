@@ -1,4 +1,4 @@
-"""``inmemory`` — :class:`langgraph.checkpoint.memory.InMemorySaver`."""
+"""In-memory checkpointer provider."""
 
 from __future__ import annotations
 
@@ -10,12 +10,11 @@ from openbb_agent_server.runtime.plugins import CheckpointerProvider
 
 
 class InMemoryCheckpointerProvider(CheckpointerProvider):
-    """Construct a process-local :class:`InMemorySaver`."""
+    """Construct a process-local InMemorySaver."""
 
     name = "inmemory"
 
     def __init__(self, **_config: Any) -> None:
-        # ``InMemorySaver`` takes no constructor args we care about.
         pass
 
     async def open(self, settings: Any) -> InMemorySaver:

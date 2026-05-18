@@ -1,4 +1,4 @@
-"""Range / shape validation helpers shared by every model provider."""
+"""Range and shape validation helpers shared by model providers."""
 
 from __future__ import annotations
 

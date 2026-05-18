@@ -1,4 +1,4 @@
-"""``oidc_jwt`` auth backend — verify JWTs against a JWKS URL."""
+"""OIDC JWT auth backend."""
 
 from __future__ import annotations
 

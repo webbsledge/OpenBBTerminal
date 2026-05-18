@@ -1,4 +1,4 @@
-"""``widget_data`` tool source — read user-pinned dashboard widgets."""
+"""``widget_data`` tool source."""
 
 from __future__ import annotations
 
@@ -38,12 +38,7 @@ class _GetWidgetArgs(BaseModel):
     @field_validator("widget_ids", mode="before")
     @classmethod
     def _coerce_widget_ids(cls, value: Any) -> Any:
-        """Accept a JSON-encoded list / comma-string when the model stringifies.
-
-        Some chat models serialise list-typed tool args as a JSON
-        string (``'["a", "b"]'``) or a comma-separated list — pydantic
-        rejects both. Normalise to a real list before validation.
-        """
+        """Accept a JSON-encoded list or comma-string and normalise to a list."""
         if isinstance(value, str):
             stripped = value.strip()
             if stripped.startswith("[") and stripped.endswith("]"):
@@ -88,7 +83,7 @@ def _summarise(w: WidgetRef) -> dict[str, Any]:
 
 
 class WidgetDataToolSource(ToolSource):
-    """``list_widgets`` + ``get_widget_data`` (interrupt-paused fetch)."""
+    """Expose widget listing and data-fetch tools."""
 
     name = "widget_data"
 
@@ -168,13 +163,6 @@ class WidgetDataToolSource(ToolSource):
                     "widget you need — do not loop calling it per id."
                 ),
                 args_schema=_GetWidgetArgs,
-                # ``return_direct`` short-circuits the agent loop the
-                # moment this tool runs: LangGraph emits the ``ToolMessage``
-                # then goes straight to END instead of re-prompting the
-                # model with the result. This is the proper exit point
-                # for a client-side dispatch — the SSE emitted by
-                # ``emit.function_call`` is what Workspace consumes; the
-                # model has nothing more to do until the next user turn.
                 return_direct=True,
             ),
         ]

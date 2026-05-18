@@ -32,7 +32,6 @@ async def test_inmemory_provider_open_and_close() -> None:
     provider = InMemoryCheckpointerProvider()
     saver = await provider.open(AgentServerSettings())
     assert saver is not None
-    # InMemorySaver supports the BaseCheckpointSaver surface.
     assert hasattr(saver, "aget")
     assert hasattr(saver, "aput")
     await provider.close(saver)
@@ -65,7 +64,6 @@ async def test_sqlite_provider_setup_creates_writes_table(
     opened_sqlite: tuple[Any, Any],
 ) -> None:
     _, saver = opened_sqlite
-    # The checkpointer surfaces ``alist`` — empty thread → empty list.
     out = []
     async for x in saver.alist({"configurable": {"thread_id": "doesnt-exist"}}):
         out.append(x)
@@ -87,7 +85,6 @@ async def test_sqlite_explicit_path_overrides_default(tmp_path: Path) -> None:
 async def test_sqlite_close_is_idempotent(opened_sqlite: tuple[Any, Any]) -> None:
     provider, saver = opened_sqlite
     await provider.close(saver)
-    # Second call is a no-op.
     await provider.close(saver)
 
 

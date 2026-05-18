@@ -19,7 +19,7 @@ class _RecallArgs(BaseModel):
 
 
 class MemoryRecallToolSource(ToolSource):
-    """Wraps a :class:`MemoryStore` instance as a LangChain tool."""
+    """Wrap a MemoryStore instance as a LangChain tool."""
 
     name = "recall_user_memory"
 
@@ -27,7 +27,6 @@ class MemoryRecallToolSource(ToolSource):
         self._store = store
 
     def _bind_store(self, store: MemoryStore) -> None:
-        # Allows app bootstrap to inject the configured backend.
         self._store = store
 
     async def tools(self, ctx: RunContext, config: dict[str, Any]) -> list[Any]:

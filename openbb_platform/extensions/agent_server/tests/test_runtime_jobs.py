@@ -20,7 +20,7 @@ from openbb_agent_server.runtime.principal import UserPrincipal
 
 @pytest.fixture
 def ctx() -> RunContext:
-    """A real :class:`RunContext` shaped for binding inside tests."""
+    """Build a real RunContext for binding inside tests."""
     return RunContext(
         principal=UserPrincipal(user_id="u-test"),
         trace_id="t",
@@ -79,7 +79,7 @@ async def test_status_returns_snapshot_without_result(ctx: RunContext) -> None:
         assert st["label"] == "snap"
         assert st["state"] in (JobState.RUNNING.value, JobState.DONE.value)
         assert st["metadata"] == {"k": "v"}
-        assert "result" not in st  # status() never includes the result
+        assert "result" not in st
         await reg.wait(job_id, timeout_s=1)
 
 
@@ -117,7 +117,6 @@ async def test_wait_returns_timeout_sentinel_when_too_slow(ctx: RunContext) -> N
         job_id = reg.submit(slow(), label="slow")
         out = await reg.wait(job_id, timeout_s=0.01)
         assert out["state"] == WAIT_TIMEOUT
-        # Subsequent wait without a tight timeout collects the real result
         full = await reg.wait(job_id, timeout_s=2)
         assert full["state"] == JobState.DONE.value
         assert full["result"] == "late"
@@ -133,10 +132,8 @@ async def test_wait_on_already_finished_returns_done_immediately(
     with bind(ctx):
         reg = get_registry()
         job_id = reg.submit(quick(), label="q")
-        # First await — finishes naturally
         first = await reg.wait(job_id, timeout_s=1)
         assert first["state"] == JobState.DONE.value
-        # Re-awaiting a finished job is a fast-path with full result
         again = await reg.wait(job_id, timeout_s=0.001)
         assert again["state"] == JobState.DONE.value
         assert again["result"] == 7
@@ -167,7 +164,7 @@ async def test_exception_is_captured_onto_job(ctx: RunContext) -> None:
 async def test_cancel_before_first_step_with_factory_no_warning(
     ctx: RunContext,
 ) -> None:
-    """The factory path is warning-safe even when cancelled before the"""
+    """Cancelling a factory job before its first step emits no warning."""
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always", RuntimeWarning)
 
@@ -180,7 +177,6 @@ async def test_cancel_before_first_step_with_factory_no_warning(
             assert reg.cancel(job_id) is True
             assert reg.status(job_id)["state"] == JobState.CANCELED.value
 
-        # Force GC of any lingering coroutine objects to surface warnings now
         gc.collect()
         coro_warnings = [w for w in recorded if "coroutine" in str(w.message).lower()]
         assert coro_warnings == [], (
@@ -190,7 +186,7 @@ async def test_cancel_before_first_step_with_factory_no_warning(
 
 @pytest.mark.asyncio
 async def test_cancel_mid_run(ctx: RunContext) -> None:
-    """Cancelling a task that's already executing transitions it to CANCELED."""
+    """Cancel a running task and transition it to CANCELED."""
 
     async def slow() -> str:
         await asyncio.sleep(60)
@@ -199,9 +195,9 @@ async def test_cancel_mid_run(ctx: RunContext) -> None:
     with bind(ctx):
         reg = get_registry()
         job_id = reg.submit(slow(), label="mid")
-        await asyncio.sleep(0.01)  # let _run start
+        await asyncio.sleep(0.01)
         assert reg.cancel(job_id) is True
-        await asyncio.sleep(0.05)  # let cancellation propagate
+        await asyncio.sleep(0.05)
         assert reg.status(job_id)["state"] == JobState.CANCELED.value
 
 
@@ -218,7 +214,6 @@ async def test_cancel_already_done_returns_false(ctx: RunContext) -> None:
 
 
 def test_cancel_on_unknown_id_returns_false() -> None:
-    # Bare registry — exercising the early-return without entering bind().
     reg = JobRegistry()
     assert reg.cancel("bogus") is False
 
@@ -233,13 +228,12 @@ async def test_cancel_all_cancels_every_running_job(ctx: RunContext) -> None:
         for i in range(3):
             reg.submit(lambda: sleepy(), label=f"j{i}")
         assert reg.cancel_all() == 3
-        # cancel_all on a now-quiet registry is a no-op
         assert reg.cancel_all() == 0
 
 
 @pytest.mark.asyncio
 async def test_bind_finally_cancels_outstanding_jobs(ctx: RunContext) -> None:
-    """Leaving ``bind()`` cancels every still-running background job."""
+    """Leaving bind() cancels every still-running background job."""
 
     captured: dict[str, JobRegistry] = {}
 
@@ -250,10 +244,7 @@ async def test_bind_finally_cancels_outstanding_jobs(ctx: RunContext) -> None:
         reg = get_registry()
         captured["reg"] = reg
         reg.submit(lambda: never(), label="leak")
-        # Don't cancel manually — let bind()'s finally do it.
 
-    # After unbind, the runtime_state is gone, but our captured reg
-    # still holds the dataclass — its tasks should be CANCELED now.
     [job] = captured["reg"].list_all()
     assert job["state"] == JobState.CANCELED.value
 
@@ -270,7 +261,6 @@ async def test_get_registry_is_idempotent_inside_bind(ctx: RunContext) -> None:
         a = get_registry()
         b = get_registry()
         assert a is b
-        # And it lives in runtime_state under the documented key
         from openbb_agent_server.runtime.jobs import _STATE_KEY
 
         assert runtime_state()[_STATE_KEY] is a

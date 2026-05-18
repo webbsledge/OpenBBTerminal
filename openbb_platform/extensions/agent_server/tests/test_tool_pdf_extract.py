@@ -49,11 +49,7 @@ def _make_ctx(
 def _build_one_page_pdf(
     text: str = "Hello World", *, pages: int = 1, outline: bool = False
 ) -> bytes:
-    """Build a minimal real PDF (no synthesized stubs).
-
-    When ``outline`` is True the PDF carries bookmarks + document
-    metadata so the pdfminer outline / metadata helpers are exercised.
-    """
+    """Build a minimal real PDF."""
     pdfplumber = pytest.importorskip("pdfplumber")  # noqa: F841
     from reportlab.pdfgen import canvas
 
@@ -77,7 +73,7 @@ def _build_one_page_pdf(
 async def _ready_store(
     principal: UserPrincipal, name: str, pdf_bytes: bytes, *, data_base64: str
 ) -> PdfStore:
-    """Build a :class:`PdfStore` with one PDF already ingested to ready."""
+    """Build a PdfStore with one PDF already ingested to ready."""
     store = PdfStore("sqlite+aiosqlite:///:memory:")
     async with store.engine.begin() as conn:
         await conn.run_sync(m.Base.metadata.create_all)
@@ -119,13 +115,10 @@ async def test_pdf_extract_real_round_trip() -> None:
     tools = await src.tools(_make_ctx([ref]), {})
     extract = next(t for t in tools if t.name == "pdf_extract")
     with run_context.bind(_make_ctx([ref])):
-        # ``include_words=True`` — word bboxes are stripped from the
-        # response unless explicitly requested.
         out = await extract.ainvoke({"name": "hello.pdf", "include_words": True})
     assert out["name"] == "hello.pdf"
     assert len(out["pages"]) == 1
     assert "fox" in out["pages"][0]["text"].lower()
-    # Bounding boxes should be present per word.
     assert all("x0" in w for w in out["pages"][0]["words"])
 
 
@@ -139,11 +132,6 @@ async def test_pdf_extract_unknown_name_returns_error() -> None:
     assert "error" in out
 
 
-# --------------------------------------------------------------------------
-# Module-level helpers.
-# --------------------------------------------------------------------------
-
-
 def test_coerce_page_range_all_shapes() -> None:
     assert _coerce_page_range(None) is None
     assert _coerce_page_range([1, 5]) == [1, 5]
@@ -152,21 +140,14 @@ def test_coerce_page_range_all_shapes() -> None:
     assert _coerce_page_range("  ") is None
     assert _coerce_page_range("[1, 5]") == [1, 5]
     assert _coerce_page_range("(2, 8)") == [2, 8]
-    # Malformed JSON list, no separator, non-int → returned unchanged.
     assert _coerce_page_range("[bad") == "[bad"
-    # JSON parses but not a 2-element list → no separator yields 2 parts
-    # and ``int()`` fails → returns the string unchanged.
     assert _coerce_page_range("[1, 2, 3]") == "[1, 2, 3]"
     assert _coerce_page_range("1-5") == (1, 5)
     assert _coerce_page_range("3..9") == (3, 9)
     assert _coerce_page_range("4,6") == (4, 6)
-    # Separator present but parts are non-numeric → returns the string.
     assert _coerce_page_range("a-b") == "a-b"
-    # Single integer string.
     assert _coerce_page_range("12") == (12, 12)
-    # Unparseable string → returned as-is.
     assert _coerce_page_range("hello") == "hello"
-    # Non-str / non-int / non-seq → returned as-is.
     assert _coerce_page_range(3.5) == 3.5
 
 
@@ -174,7 +155,6 @@ def test_coerce_str_variants() -> None:
     assert _coerce_str(b"hi") == "hi"
     assert _coerce_str(None) == ""
     assert _coerce_str(42) == "42"
-    # Non-utf8 bytes still decode via the ``errors="replace"`` path.
     assert isinstance(_coerce_str(b"\xff\xfe"), str)
 
 
@@ -184,12 +164,9 @@ def test_string_to_pdf_b64() -> None:
     assert _string_to_pdf_b64("  JVBERi0xLjQ=") == "JVBERi0xLjQ="
     data_url = "data:application/pdf;base64,JVBERi0xLjQ="
     assert _string_to_pdf_b64(data_url) == "JVBERi0xLjQ="
-    # data: URL whose payload is not a PDF magic → None.
     assert _string_to_pdf_b64("data:application/pdf;base64,aGVsbG8=") is None
-    # Raw ``%PDF-`` text is re-encoded to base64.
     raw = _string_to_pdf_b64("%PDF-1.4 body")
     assert raw is not None and base64.b64decode(raw).startswith(b"%PDF-")
-    # A plain string with no PDF signal.
     assert _string_to_pdf_b64("just text") is None
 
 
@@ -203,7 +180,6 @@ def test_find_any_http_url() -> None:
     assert _find_any_http_url(["a", ["http://deep.test/y"]]) == "http://deep.test/y"
     assert _find_any_http_url({"k": "nothing"}) is None
     assert _find_any_http_url(42) is None
-    # Recursion depth guard returns None past depth 6.
     nested: Any = "https://x.test/deep"
     for _ in range(8):
         nested = [nested]
@@ -227,9 +203,7 @@ def test_bytes_from_data_url() -> None:
     assert _bytes_from_data_url(f"data:application/pdf;base64,{payload}") == b"%PDF-x"
     assert _bytes_from_data_url(123) is None  # type: ignore[arg-type]
     assert _bytes_from_data_url("https://x.test/a.pdf") is None
-    # data: URL with no base64 payload.
     assert _bytes_from_data_url("data:application/pdf;charset=utf8,") is None
-    # Undecodable base64 (bad padding) → None.
     assert _bytes_from_data_url("data:application/pdf;base64,ab") is None
 
 
@@ -243,24 +217,17 @@ def test_match_uploaded_pdf() -> None:
         FileRef(name="IEFA-Prospectus.pdf", mime="application/pdf"),
         FileRef(name="notes.txt"),
     )
-    # Exact match.
     assert _match_uploaded_pdf(files, "IEFA-Prospectus.pdf").name == (
         "IEFA-Prospectus.pdf"
     )
-    # Case / suffix-insensitive match.
     assert _match_uploaded_pdf(files, "iefa-prospectus").name == ("IEFA-Prospectus.pdf")
-    # ``requested`` contained in the filename.
     assert _match_uploaded_pdf(files, "iefa").name == "IEFA-Prospectus.pdf"
-    # filename contained in ``requested``.
     assert (
         _match_uploaded_pdf(files, "the iefa-prospectus document").name
         == "IEFA-Prospectus.pdf"
     )
-    # No PDF uploads at all.
     assert _match_uploaded_pdf((FileRef(name="x.txt"),), "x") is None
-    # No match found.
     assert _match_uploaded_pdf(files, "totally-different") is None
-    # Empty normalised target.
     assert _match_uploaded_pdf(files, ".pdf") is None
 
 
@@ -277,11 +244,7 @@ def test_resolve_pdf_bytes_from_data_url() -> None:
 
 
 def test_resolve_pdf_bytes_from_extras_b64() -> None:
-    """A bare base64 PDF payload sitting in an extra field is recovered.
-
-    The payload must carry the real ``%PDF-1`` header so its base64
-    encoding starts with the ``JVBERi0`` magic the scanner keys on.
-    """
+    """Recover a bare base64 PDF payload sitting in an extra field."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Extras b64")
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -308,15 +271,12 @@ def test_resolve_pdf_bytes_from_extras_url() -> None:
 def test_resolve_pdf_bytes_extras_data_url() -> None:
     pdf_b64 = base64.b64encode(b"%PDF-inline").decode()
     ref = FileRef(name="x.pdf", blob=f"data:application/pdf;base64,{pdf_b64}")
-    # ``blob`` is recognised as a base64 PDF before the url scan runs.
     assert _resolve_pdf_bytes(ref, http_client=None) == b"%PDF-inline"
 
 
 def test_resolve_pdf_bytes_extras_url_decodes_data_url() -> None:
-    """An extras URL that is itself a ``data:`` URL is decoded locally."""
+    """Decode locally an extras URL that is itself a data: URL."""
     pdf_b64 = base64.b64encode(b"%PDF-payload-text").decode()
-    # Use a non-PDF-magic value so _find_any_pdf_b64 misses it, but a
-    # data: URL so _find_any_http_url picks it up.
     ref = FileRef(
         name="x.pdf",
         somefield="data:application/octet-stream;base64," + pdf_b64,
@@ -326,8 +286,7 @@ def test_resolve_pdf_bytes_extras_url_decodes_data_url() -> None:
 
 
 def test_extract_toc_and_metadata_from_outlined_pdf() -> None:
-    """``_extract_toc`` / ``_extract_pdf_metadata`` over a real outlined
-    PDF exercise the page-map + outline-resolution helpers."""
+    """Extract TOC and metadata from a real outlined PDF."""
     import pdfplumber
 
     from openbb_agent_server.plugins.tools.pdf_extract import (
@@ -348,7 +307,7 @@ def test_extract_toc_and_metadata_from_outlined_pdf() -> None:
 
 
 def test_extract_toc_no_outline_returns_empty() -> None:
-    """A PDF with no embedded outline yields an empty TOC."""
+    """Yield an empty TOC for a PDF with no embedded outline."""
     import pdfplumber
 
     from openbb_agent_server.plugins.tools.pdf_extract import _extract_toc
@@ -359,8 +318,7 @@ def test_extract_toc_no_outline_returns_empty() -> None:
 
 
 class _StubPageObj:
-    """A pdfminer page object — ``pageid`` keys the page map, ``objid``
-    is what outline destinations resolve against."""
+    """A pdfminer page object stub."""
 
     def __init__(self, pageid: int) -> None:
         self.pageid = pageid
@@ -397,8 +355,7 @@ class _StubPlumberPdf:
 def test_extract_toc_handles_malformed_entries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A page missing ``page_obj``, a malformed outline tuple, and a
-    ``resolve1`` that raises are all handled defensively."""
+    """Handle malformed outline entries defensively."""
     from pdfminer import pdftypes
 
     from openbb_agent_server.plugins.tools.pdf_extract import _extract_toc
@@ -431,7 +388,7 @@ def test_extract_toc_handles_malformed_entries(
 
 
 def test_extract_toc_outline_access_failure() -> None:
-    """``get_outlines`` raising yields an empty TOC."""
+    """Yield an empty TOC when get_outlines raises."""
     from openbb_agent_server.plugins.tools.pdf_extract import _extract_toc
 
     class _Doc:
@@ -446,15 +403,14 @@ def test_extract_toc_outline_access_failure() -> None:
 
 
 def test_resolve_outline_page_without_pdfminer() -> None:
-    """``_resolve_outline_page`` returns None for non-resolvable dests."""
+    """Return None for non-resolvable outline dests."""
     from openbb_agent_server.plugins.tools.pdf_extract import _resolve_outline_page
 
-    # An int objid that is not in the page map → None.
     assert _resolve_outline_page(None, {}) is None
 
 
 def test_extract_pdf_metadata_access_failure() -> None:
-    """A raising ``pdf.metadata`` accessor yields all-None metadata."""
+    """Yield all-None metadata when the pdf.metadata accessor raises."""
     from openbb_agent_server.plugins.tools.pdf_extract import _extract_pdf_metadata
 
     pdf = _StubPlumberPdf([], meta=RuntimeError("metadata blew up"))
@@ -464,7 +420,7 @@ def test_extract_pdf_metadata_access_failure() -> None:
 
 
 def test_resolve_pdf_bytes_raises_without_any_source() -> None:
-    """A FileRef with no url, no data_base64, and no usable extras raises."""
+    """Raise for a FileRef with no url, data_base64, or usable extras."""
     ref = FileRef(name="orphan.pdf")
     with pytest.raises(RuntimeError, match="has no url or data_base64"):
         _resolve_pdf_bytes(ref, http_client=None)
@@ -483,11 +439,6 @@ def test_resolve_pdf_bytes_url_branch() -> None:
 
     ref = FileRef(name="x.pdf", url="https://x.test/a.pdf")
     assert _resolve_pdf_bytes(ref, _Client()) == b"%PDF-net"
-
-
-# --------------------------------------------------------------------------
-# list_pdfs closure.
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -516,11 +467,6 @@ async def test_list_pdfs_empty_surfaces_document_widgets() -> None:
     assert out["document_widgets"][0]["uuid"] == "w1"
 
 
-# --------------------------------------------------------------------------
-# pdf_extract closure — inline parse + store paths.
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_pdf_extract_preview_range_when_omitted() -> None:
     pytest.importorskip("reportlab")
@@ -539,13 +485,12 @@ async def test_pdf_extract_preview_range_when_omitted() -> None:
     assert out["is_preview"] is True
     assert out["page_range"] == [1, 3]
     assert len(out["pages"]) == 3
-    # ``include_words`` defaults False — words stripped from response.
     assert "words" not in out["pages"][0]
 
 
 @pytest.mark.asyncio
 async def test_pdf_extract_fetch_failure_returns_error() -> None:
-    """A bytes-fetch failure surfaces an error dict, not an exception."""
+    """Surface an error dict, not an exception, on a bytes-fetch failure."""
 
     class _Client:
         def get(self, url: str, headers: dict | None = None) -> Any:
@@ -556,7 +501,6 @@ async def test_pdf_extract_fetch_failure_returns_error() -> None:
     src = PdfExtractToolSource()
     tools = await src.tools(ctx, {})
     extract = next(t for t in tools if t.name == "pdf_extract")
-    # Swap in a client that raises.
     import httpx
 
     orig = httpx.Client
@@ -573,7 +517,7 @@ async def test_pdf_extract_fetch_failure_returns_error() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_parse_failure_returns_error() -> None:
-    """Undecodable PDF bytes surface a parse error dict."""
+    """Surface a parse error dict for undecodable PDF bytes."""
     ref = FileRef(
         name="junk.pdf",
         mime="application/pdf",
@@ -590,7 +534,7 @@ async def test_pdf_extract_parse_failure_returns_error() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_uses_ready_store() -> None:
-    """When a store has the PDF ready, ``pdf_extract`` reads from it."""
+    """Read from the store when it has the PDF ready."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Stored content", pages=2)
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -608,14 +552,13 @@ async def test_pdf_extract_uses_ready_store() -> None:
     assert out["name"] == "doc.pdf"
     assert out["total_pages"] == 2
     assert len(out["pages"]) == 2
-    # A citation event was emitted.
     assert any(e["type"] == "citations" for e in sink)
     await store.engine.dispose()
 
 
 @pytest.mark.asyncio
 async def test_pdf_extract_store_error_status() -> None:
-    """A store row in ``error`` status surfaces a background-ingest error."""
+    """Surface a background-ingest error for a store row in error status."""
     pdf_b64 = base64.b64encode(b"garbage bytes").decode()
     principal = UserPrincipal(user_id="u")
     store = PdfStore("sqlite+aiosqlite:///:memory:")
@@ -639,8 +582,7 @@ async def test_pdf_extract_store_error_status() -> None:
 async def test_pdf_extract_polls_then_falls_through(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An unknown-to-store PDF: status polling yields None, then the
-    inline parse path runs to completion."""
+    """Run the inline parse path after status polling yields None."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Poll fallthrough")
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -650,7 +592,6 @@ async def test_pdf_extract_polls_then_falls_through(
             return None
 
     monkeypatch.setattr(services, "get_pdf_store", lambda: _EmptyStore())
-    # Make the poll loop instantaneous.
     monkeypatch.setattr(pe.asyncio, "sleep", _fast_sleep)
     monkeypatch.setattr(pe, "_PREVIEW_PAGES", 3)
     ref = FileRef(name="poll.pdf", mime="application/pdf", data_base64=pdf_b64)
@@ -662,12 +603,11 @@ async def test_pdf_extract_polls_then_falls_through(
     with run_context.bind(ctx), emit.bind_writer(sink.append):
         out = await extract.ainvoke({"name": "poll.pdf"})
     assert out["name"] == "poll.pdf"
-    # The poll heartbeat reasoning steps were emitted.
     assert any("ingestion" in str(e.get("message", "")) for e in sink)
 
 
 async def _fast_sleep(_seconds: float) -> None:
-    """A no-op replacement for ``asyncio.sleep`` to fast-forward poll loops."""
+    """Replace asyncio.sleep with a no-op to fast-forward poll loops."""
     return None
 
 
@@ -675,7 +615,7 @@ async def _fast_sleep(_seconds: float) -> None:
 async def test_pdf_extract_polls_until_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The poll loop transitions pending → ready and reads from the store."""
+    """Transition the poll loop pending to ready and read from the store."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Becomes ready", pages=2)
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -710,7 +650,7 @@ async def test_pdf_extract_polls_until_ready(
 async def test_pdf_extract_poll_errors_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A status that flips to ``error`` mid-poll surfaces the error."""
+    """Surface the error when status flips to error mid-poll."""
     calls = {"n": 0}
 
     class _Store:
@@ -752,8 +692,7 @@ async def test_pdf_extract_poll_errors_out(
 async def test_pdf_extract_poll_timeout_heartbeats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A store stuck in ``pending`` emits 30-tick heartbeats then falls
-    through to the inline parse."""
+    """Emit heartbeats then fall through to the inline parse on a stuck store."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Timeout then inline")
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -773,13 +712,7 @@ async def test_pdf_extract_poll_timeout_heartbeats(
     with run_context.bind(ctx), emit.bind_writer(sink.append):
         out = await extract.ainvoke({"name": "t.pdf"})
     assert out["name"] == "t.pdf"
-    # A heartbeat ("Still ingesting") fired during the 300-tick loop.
     assert any("Still ingesting" in str(e.get("message", "")) for e in sink)
-
-
-# --------------------------------------------------------------------------
-# search_pdf closure.
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -795,7 +728,7 @@ async def test_search_pdf_no_store_returns_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_search_pdf_with_matched_uploads() -> None:
-    """A hit whose name matches an upload produces a widget citation."""
+    """Produce a widget citation for a hit whose name matches an upload."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Searchable revenue figures", pages=2)
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -817,14 +750,13 @@ async def test_search_pdf_with_matched_uploads() -> None:
 
 @pytest.mark.asyncio
 async def test_search_pdf_unmatched_name_falls_back_to_name_chip() -> None:
-    """Hits whose name has no FileRef get a plain name-only citation."""
+    """Give a plain name-only citation to hits whose name has no FileRef."""
 
     class _Store:
         async def search(self, **kwargs: Any) -> list[dict[str, Any]]:
             return [
                 {"name": "ghost.pdf", "page": 4, "text": "x"},
                 {"name": "", "page": 1, "text": "skip"},
-                # Duplicate (name, page) — the second is deduped.
                 {"name": "ghost.pdf", "page": 4, "text": "dup"},
                 {"name": "ghost.pdf", "page": 0, "text": "no page"},
             ]
@@ -844,14 +776,12 @@ async def test_search_pdf_unmatched_name_falls_back_to_name_chip() -> None:
 
 @pytest.mark.asyncio
 async def test_search_pdf_hit_with_no_page_data() -> None:
-    """A matched-upload hit whose page is missing from the store still
-    emits a citation (empty word list)."""
+    """Emit a citation for a matched-upload hit whose page is missing."""
 
     class _Store:
         async def search(self, **kwargs: Any) -> list[dict[str, Any]]:
             return [
                 {"name": "doc.pdf", "page": 9, "text": "hit text"},
-                # A page-0 hit for a matched upload is skipped.
                 {"name": "doc.pdf", "page": 0, "text": "no page"},
             ]
 
@@ -869,11 +799,6 @@ async def test_search_pdf_hit_with_no_page_data() -> None:
         hits = await search.ainvoke({"query": "q"})
     assert hits[0]["page"] == 9
     assert any(e["type"] == "citations" for e in sink)
-
-
-# --------------------------------------------------------------------------
-# get_pdf_outline closure.
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -944,7 +869,7 @@ async def test_get_pdf_outline_error_status() -> None:
 async def test_get_pdf_outline_polls_until_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Poll loop: pending → ready, emitting status-change reasoning steps."""
+    """Transition the poll loop pending to ready, emitting reasoning steps."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Outline poll", pages=2)
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -1017,7 +942,7 @@ async def test_get_pdf_outline_poll_errors_out(
 async def test_get_pdf_outline_poll_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A store stuck in ``pending`` returns the 30s-timeout error."""
+    """Return the timeout error for a store stuck in pending."""
 
     class _StuckStore:
         async def status(self, **kwargs: Any) -> dict[str, Any]:
@@ -1037,15 +962,9 @@ async def test_get_pdf_outline_poll_timeout(
     assert any("Still ingesting" in str(e.get("message", "")) for e in sink)
 
 
-# --------------------------------------------------------------------------
-# Citation widget-resolution paths.
-# --------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_pdf_extract_citation_deduped_across_calls() -> None:
-    """Two ``pdf_extract`` calls on the same PDF page emit ONE citation —
-    the per-run ``pdf_cited`` set dedups the second."""
+    """Emit one citation for two pdf_extract calls on the same PDF page."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Dedup me")
     ref = FileRef(
@@ -1066,7 +985,7 @@ async def test_pdf_extract_citation_deduped_across_calls() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_empty_page_range_emits_no_citation() -> None:
-    """A ``page_range`` that selects no pages → ``_cite_pdf_pages`` no-ops."""
+    """Emit no citation when page_range selects no pages."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Single page")
     ref = FileRef(
@@ -1087,13 +1006,13 @@ async def test_pdf_extract_empty_page_range_emits_no_citation() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_blank_page_anchors_first_page() -> None:
-    """When no extracted page has text, the citation anchors page one."""
+    """Anchor the citation to page one when no extracted page has text."""
     pytest.importorskip("reportlab")
     from reportlab.pdfgen import canvas
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf)
-    c.showPage()  # a page with no drawn text
+    c.showPage()
     c.save()
     ref = FileRef(
         name="blank.pdf",
@@ -1113,8 +1032,7 @@ async def test_pdf_extract_blank_page_anchors_first_page() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_widget_param_extraction_failure() -> None:
-    """A widget whose ``params`` raises on iteration → ``input_args`` is
-    swallowed to an empty dict by the defensive ``except``."""
+    """Swallow input_args to an empty dict when widget params raise."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Apple inc")
 
@@ -1138,15 +1056,12 @@ async def test_pdf_extract_widget_param_extraction_failure() -> None:
     with run_context.bind(ctx), emit.bind_writer(sink.append):
         await extract.ainvoke({"name": "apple.pdf"})
     cite = next(e for e in sink if e["type"] == "citations")
-    # The citation still resolves to the widget; input_args is empty.
     assert cite["citations"][0]["source_info"]["uuid"] == "bw"
 
 
 @pytest.mark.asyncio
 async def test_pdf_extract_citation_resolves_source_widget() -> None:
-    """A PDF whose filename tokens match a widget's params resolves the
-    citation to that widget (content-match path) and threads its
-    params through as ``input_arguments``."""
+    """Resolve the citation to the widget whose params match PDF tokens."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Apple revenue")
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -1179,8 +1094,7 @@ async def test_pdf_extract_citation_resolves_source_widget() -> None:
 
 @pytest.mark.asyncio
 async def test_pdf_extract_citation_stamp_and_list_params() -> None:
-    """Content match fails (no token overlap) → falls back to the
-    ``source_widget_uuid`` stamp; widget params are a list of objects."""
+    """Fall back to the source_widget_uuid stamp when content match fails."""
     pytest.importorskip("reportlab")
     pdf_bytes = _build_one_page_pdf("Quarterly")
     pdf_b64 = base64.b64encode(pdf_bytes).decode()
@@ -1195,7 +1109,6 @@ async def test_pdf_extract_citation_stamp_and_list_params() -> None:
         widget_id="blk_viewer",
         name="Viewer",
     )
-    # params is a list of param objects (the non-dict branch).
     object.__setattr__(widget, "params", [_Param("region", "us")])
     ref = FileRef(
         name="zzz-unrelated-name.pdf",

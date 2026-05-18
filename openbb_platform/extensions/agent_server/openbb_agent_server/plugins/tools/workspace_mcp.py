@@ -1,4 +1,4 @@
-"""``workspace_mcp`` tool source — surfaces Workspace's MCP tools to the agent."""
+"""``workspace_mcp`` tool source."""
 
 from __future__ import annotations
 

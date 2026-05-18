@@ -114,7 +114,7 @@ def test_resolve_level_int_passthrough() -> None:
 
 
 def test_resolve_level_trace_name() -> None:
-    """``"trace"`` (any case) resolves to the custom TRACE level."""
+    """The trace name resolves to the custom TRACE level."""
     assert resolve_level("trace") == TRACE
     assert resolve_level("TRACE") == TRACE
 
@@ -124,7 +124,7 @@ def test_resolve_level_standard_name() -> None:
 
 
 def test_resolve_level_unknown_name_falls_back_to_info() -> None:
-    """A bogus level name must not raise — it falls back to INFO."""
+    """A bogus level name falls back to INFO without raising."""
     assert resolve_level("not-a-level") == logging.INFO
 
 
@@ -145,7 +145,7 @@ def test_resolve_level_none_without_env_is_info(
 def test_install_trace_logging_honours_trace_level(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``install_trace_logging("trace")`` sets the root logger to TRACE."""
+    """install_trace_logging with trace sets the root logger to TRACE."""
     monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
     original = logging.getLogger().level
     try:
@@ -158,7 +158,7 @@ def test_install_trace_logging_honours_trace_level(
 def test_install_trace_logging_quiets_noisy_loggers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A verbose root level still caps chatty third-party loggers at WARNING."""
+    """A verbose root level still caps third-party loggers at WARNING."""
     monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
     noisy = logging.getLogger("aiosqlite")
     original_root = logging.getLogger().level
@@ -174,7 +174,7 @@ def test_install_trace_logging_quiets_noisy_loggers(
 def test_install_trace_logging_noisy_logger_follows_coarser_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``--log-level error`` wins over the WARNING cap on noisy loggers."""
+    """A coarser root level wins over the WARNING cap on noisy loggers."""
     monkeypatch.delenv(LOG_LEVEL_ENV, raising=False)
     noisy = logging.getLogger("aiosqlite")
     original_root = logging.getLogger().level
@@ -285,7 +285,7 @@ def test_pii_redaction_filter_scrubs_string_args() -> None:
 
 
 def test_pii_redaction_filter_scrubs_dict_args() -> None:
-    """Python's ``LogRecord`` unwraps a single-dict args; the filter follows."""
+    """The filter follows LogRecord unwrapping a single-dict args."""
     f = PIIRedactionFilter()
     record = logging.LogRecord(
         "x",

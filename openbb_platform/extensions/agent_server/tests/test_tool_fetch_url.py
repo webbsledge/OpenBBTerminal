@@ -1,4 +1,4 @@
-"""``fetch_url`` tool source tests — SSRF guard + fetch pipeline."""
+"""fetch_url tool source tests."""
 
 from __future__ import annotations
 
@@ -27,9 +27,6 @@ def _ctx(*, web: bool = True) -> RunContext:
     )
 
 
-# -- _ip_blocked -----------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "ip",
     [
@@ -38,12 +35,12 @@ def _ctx(*, web: bool = True) -> RunContext:
         "172.16.0.1",
         "127.0.0.1",
         "::1",
-        "169.254.169.254",  # cloud-metadata endpoint
-        "224.0.0.1",  # multicast
-        "240.0.0.1",  # reserved
-        "0.0.0.0",  # unspecified
-        "::ffff:10.0.0.1",  # IPv4-mapped IPv6 hiding a private v4
-        "not-an-ip",  # unparseable
+        "169.254.169.254",
+        "224.0.0.1",
+        "240.0.0.1",
+        "0.0.0.0",
+        "::ffff:10.0.0.1",
+        "not-an-ip",
     ],
 )
 def test_ip_blocked_rejects_unsafe(ip: str) -> None:
@@ -53,9 +50,6 @@ def test_ip_blocked_rejects_unsafe(ip: str) -> None:
 @pytest.mark.parametrize("ip", ["8.8.8.8", "1.1.1.1", "93.184.216.34"])
 def test_ip_blocked_allows_public(ip: str) -> None:
     assert fu._ip_blocked(ip) is False
-
-
-# -- _validate_url ---------------------------------------------------------
 
 
 def test_validate_url_returns_host_for_http_and_https() -> None:
@@ -74,14 +68,8 @@ def test_validate_url_rejects_missing_host() -> None:
         fu._validate_url("http:///just-a-path")
 
 
-# -- _resolve_and_check ----------------------------------------------------
-
-
 def _patch_getaddrinfo(monkeypatch: pytest.MonkeyPatch, result: Any) -> None:
-    """Patch the running loop's ``getaddrinfo`` with a canned result.
-
-    ``result`` is either a list of addrinfo tuples or an exception to raise.
-    """
+    """Patch the running loop's getaddrinfo with a canned result."""
     import asyncio
 
     async def _fake(host: str, port: Any, **_kw: Any) -> Any:
@@ -103,7 +91,7 @@ async def test_resolve_and_check_passes_for_public_ip(
         monkeypatch,
         [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))],
     )
-    await fu._resolve_and_check("example.com")  # no raise
+    await fu._resolve_and_check("example.com")
 
 
 @pytest.mark.asyncio
@@ -136,9 +124,6 @@ async def test_resolve_and_check_raises_on_empty_resolution(
         await fu._resolve_and_check("empty.example")
 
 
-# -- _extract_text ---------------------------------------------------------
-
-
 def test_extract_text_html_strips_script_and_style() -> None:
     html = (
         "<html><head><style>.x{color:red}</style></head>"
@@ -161,14 +146,11 @@ def test_extract_text_binary_returns_empty() -> None:
     assert fu._extract_text(b"\x89PNG\r\n", "image/png") == ""
 
 
-# -- _fetch ----------------------------------------------------------------
-
-
 def _mock_httpx(
     monkeypatch: pytest.MonkeyPatch,
     handler: Any,
 ) -> None:
-    """Make ``_fetch``'s ``httpx.AsyncClient`` use a MockTransport."""
+    """Make _fetch's httpx.AsyncClient use a MockTransport."""
     real_client = httpx.AsyncClient
 
     def _factory(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
@@ -179,7 +161,7 @@ def _mock_httpx(
 
 
 async def _no_dns(_host: str) -> None:
-    """Stand-in for ``_resolve_and_check`` that allows every host."""
+    """Stand in for _resolve_and_check, allowing every host."""
 
 
 @pytest.mark.asyncio
@@ -222,7 +204,7 @@ async def test_fetch_follows_and_revalidates_redirects(
 async def test_fetch_redirect_to_blocked_host_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A redirect onto an internal host is caught by the per-hop guard."""
+    """Catch a redirect onto an internal host with the per-hop guard."""
 
     async def _guard(host: str) -> None:
         if host == "169.254.169.254":
@@ -278,9 +260,6 @@ async def test_fetch_body_over_size_cap_raises(
         await fu._fetch("https://example.com/big")
 
 
-# -- fetch_url (the tool callable) ----------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_fetch_url_returns_text_on_success(
     monkeypatch: pytest.MonkeyPatch,
@@ -300,7 +279,6 @@ async def test_fetch_url_returns_text_on_success(
         out = await fu.fetch_url("https://example.com/a")
     assert out["text"] == "Article body."
     assert out["truncated"] is False
-    # The fetched page is attached as a citation.
     assert any(w.get("type") == "citations" for w in captured)
 
 
@@ -371,9 +349,6 @@ async def test_fetch_url_returns_error_on_unexpected_exception(
     assert out["error"].startswith("fetch failed: ConnectError")
 
 
-# -- FetchUrlToolSource ----------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_tool_source_skips_when_web_feature_disabled() -> None:
     src = fu.FetchUrlToolSource()
@@ -391,7 +366,7 @@ async def test_tool_source_yields_fetch_url_when_enabled() -> None:
 async def test_tool_source_tool_runs_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The bound tool invokes the SSRF-guarded pipeline."""
+    """Invoke the SSRF-guarded pipeline through the bound tool."""
     monkeypatch.setattr(fu, "_resolve_and_check", _no_dns)
     _mock_httpx(
         monkeypatch,

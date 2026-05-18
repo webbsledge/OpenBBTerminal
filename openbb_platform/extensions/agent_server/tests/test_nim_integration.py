@@ -34,10 +34,10 @@ pytestmark = [
 
 
 def _silence_wav_b64(duration_s: float = 1.0) -> str:
-    """A mono 24 kHz PCM-16 WAV of pure silence, base64 encoded."""
+    """Build a base64-encoded mono 24 kHz PCM-16 WAV of silence."""
     sample_rate = 24000
     n = int(duration_s * sample_rate)
-    frames = bytes(2 * n)  # 16-bit silence
+    frames = bytes(2 * n)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
@@ -48,7 +48,7 @@ def _silence_wav_b64(duration_s: float = 1.0) -> str:
 
 
 def _tone_wav_b64(duration_s: float = 1.0, freq_hz: float = 440.0) -> str:
-    """A short tone WAV; some models bias toward "music" / "silence" / "(no speech)" — used when the silence response is too sparse."""
+    """Build a base64-encoded short tone WAV."""
     sample_rate = 24000
     n = int(duration_s * sample_rate)
     frames = bytearray()
@@ -65,7 +65,7 @@ def _tone_wav_b64(duration_s: float = 1.0, freq_hz: float = 440.0) -> str:
 
 
 def _hello_png_b64() -> str:
-    """A 256×96 PNG containing the rendered word "HELLO" in black on white."""
+    """Build a base64-encoded PNG with the rendered word HELLO."""
     from PIL import Image, ImageDraw, ImageFont
 
     img = Image.new("RGB", (256, 96), color=(255, 255, 255))
@@ -74,7 +74,6 @@ def _hello_png_b64() -> str:
     try:
         font = ImageFont.load_default(size=48)
     except (AttributeError, TypeError):
-        # Older PIL: load_default() takes no size kwarg.
         font = ImageFont.load_default()
     draw.text((20, 20), text, fill=(0, 0, 0), font=font)
     buf = io.BytesIO()
@@ -119,8 +118,6 @@ async def test_gemma_transcribe_audio_returns_non_empty_text() -> None:
                     "max_output_tokens": 256,
                 }
             )
-    # The tool returns a dict with ``text``. Reply may say "(no speech)" or
-    # describe the tone — both are valid; we just assert non-empty.
     assert isinstance(out, dict)
     assert isinstance(out.get("text"), str)
     assert out["text"].strip() != ""
@@ -129,7 +126,7 @@ async def test_gemma_transcribe_audio_returns_non_empty_text() -> None:
 
 
 async def test_gemma_submit_transcribe_audio_completes_via_wait_for_job() -> None:
-    """The full fire-and-forget loop: ``submit_transcribe_audio`` → ``wait_for_job`` collects the real transcript bytes."""
+    """Submit then wait collects the real transcript bytes."""
     async with asyncio.timeout(_NIM_DEADLINE_S):
         f = FileRef(
             name="clip.wav", mime="audio/wav", data_base64=_silence_wav_b64(1.0)
@@ -174,8 +171,6 @@ async def test_phi4_understand_image_reads_visible_text() -> None:
                 }
             )
     assert isinstance(text, str)
-    # The model may render "HELLO" / "Hello" / wrap it in quotes — be
-    # tolerant on capitalisation / punctuation.
     assert "hello" in text.lower()
 
 
@@ -226,7 +221,7 @@ async def test_paligemma_read_image_text_returns_ocr() -> None:
 
 
 async def test_two_real_nim_jobs_run_concurrently() -> None:
-    """Submit two ``understand_image`` jobs at once and assert the wall clock is significantly less than the serial sum. This is the feature-level smoke test for "the agent can multi-task on long multimodal calls" — if the registry serialises them, this fails."""
+    """Two understand_image jobs run concurrently faster than serially."""
     import time
 
     async with asyncio.timeout(_PARALLEL_NIM_DEADLINE_S):

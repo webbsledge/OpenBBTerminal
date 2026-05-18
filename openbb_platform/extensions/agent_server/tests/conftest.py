@@ -60,23 +60,13 @@ def settings_env(
     monkeypatch.setenv("OPENBB_AGENT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
     monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
-    # Tests use the in-memory checkpointer by default — fast,
-    # process-local, no file I/O.
     monkeypatch.setenv("OPENBB_AGENT_CHECKPOINTER_PROVIDER", "inmemory")
     return AgentServerSettings()
 
 
 @pytest.fixture(autouse=True)
 def _isolate_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
-    """Isolate the test from the host environment + global services.
-
-    The ``runtime.services`` module holds process-global service slots
-    (history / memory / widget_store / pdf_store / checkpointer). A
-    test that binds one — directly or via ``create_app`` — would
-    otherwise leak it into the next test: ``pdf_extract``, for example,
-    polls a stale ``pdf_store`` for 30s when one is left bound. Reset
-    on both sides of every test so global service state is per-test.
-    """
+    """Isolate the test from the host environment and global services."""
     from openbb_agent_server.runtime import services
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -87,6 +77,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[No
     monkeypatch.setenv("OPENBB_AGENT_EMBEDDINGS_CODE_PROVIDER", "")
     monkeypatch.setenv("OPENBB_AGENT_RERANKER_PROVIDER", "")
     monkeypatch.setenv("OPENBB_AGENT_TRANSLATION_PROVIDER", "")
+    monkeypatch.setenv("OPENBB_AGENT_PRUNE_INTERVAL_HOURS", "0")
     services.reset()
     yield
     services.reset()

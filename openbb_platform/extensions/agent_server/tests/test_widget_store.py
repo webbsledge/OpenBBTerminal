@@ -8,9 +8,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from langchain_core.embeddings import Embeddings
 
-from openbb_agent_server.memory.embeddings import HashEmbeddings
 from openbb_agent_server.persistence import models as m
 from openbb_agent_server.runtime.principal import UserPrincipal
 from openbb_agent_server.runtime.widget_store import (
@@ -31,21 +29,6 @@ def _principal(user_id: str = "u") -> UserPrincipal:
 @pytest_asyncio.fixture
 async def store() -> AsyncIterator[WidgetDataStore]:
     s = WidgetDataStore("sqlite+aiosqlite:///:memory:")
-    async with s._engine.begin() as conn:
-        await conn.run_sync(m.Base.metadata.create_all)
-    yield s
-    await s._engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def store_with_embeddings(
-    tmp_path: pytest.TempPathFactory,
-) -> AsyncIterator[WidgetDataStore]:
-    db = tmp_path / "widget.db"
-    s = WidgetDataStore(
-        f"sqlite+aiosqlite:///{db}",
-        embeddings=HashEmbeddings(dim=64),
-    )
     async with s._engine.begin() as conn:
         await conn.run_sync(m.Base.metadata.create_all)
     yield s
@@ -109,90 +92,6 @@ async def test_record_stores_basic_row(store: WidgetDataStore) -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_with_embeddings_indexes_rows_for_search(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """``record`` writes rows to both the SQL table and the SQLiteVec index."""
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name="P",
-        origin="o",
-        input_args={},
-        rows=[{"x": "apple"}, {"x": "banana"}],
-        columns=["x"],
-    )
-    assert rid > 0
-    latest = await store_with_embeddings.read_latest(
-        principal=_principal(), conversation_id="c1"
-    )
-    assert latest is not None
-    # ANN-backed search now finds the apple row by semantic match.
-    hits = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="apple"
-    )
-    assert hits and hits[0]["row"]["x"] == "apple"
-
-
-@pytest.mark.asyncio
-async def test_record_vector_index_failure_still_persists(
-    store_with_embeddings: WidgetDataStore,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A broken embedder doesn't block the row-level SQL insert."""
-
-    class _Broken(Embeddings):
-        def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            raise RuntimeError("nope")
-
-        def embed_query(self, text: str) -> list[float]:
-            raise RuntimeError("nope")
-
-    monkeypatch.setattr(
-        store_with_embeddings._vec, "embedding", _Broken(), raising=False
-    )
-
-    def boom(*_a: object, **_kw: object) -> None:
-        raise RuntimeError("vec index down")
-
-    monkeypatch.setattr(store_with_embeddings._vec, "add_texts", boom)
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name="w",
-        origin="o",
-        input_args={},
-        rows=[{"x": 1}],
-        columns=["x"],
-    )
-    # Indexing runs in the background so the SQL row commits first;
-    # wait for it to finish before asserting on its log line.
-    await store_with_embeddings.await_pending_indexing()
-    assert rid > 0
-    assert any("vector index failed" in r.message for r in caplog.records)
-
-
-@pytest.mark.asyncio
-async def test_record_skips_embeddings_when_no_rows(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name=None,
-        origin=None,
-        input_args={},
-        rows=[],
-        columns=None,
-    )
-    assert rid > 0
-
-
-@pytest.mark.asyncio
 async def test_list_entries_isolated_per_user(store: WidgetDataStore) -> None:
     await store.record(
         principal=_principal("a"),
@@ -235,7 +134,7 @@ async def test_list_entries_empty(store: WidgetDataStore) -> None:
 async def test_list_entries_spans_conversations_for_user(
     store: WidgetDataStore,
 ) -> None:
-    """``conversation_id=None`` returns every ingest the user has."""
+    """Return every ingest the user has when conversation_id is None."""
     await store.record(
         principal=_principal("u"),
         conversation_id="c1",
@@ -275,7 +174,7 @@ async def test_list_entries_spans_conversations_for_user(
 async def test_list_entries_default_spans_conversations(
     store: WidgetDataStore,
 ) -> None:
-    """``list_entries(principal=…)`` (no conversation_id kw) defaults to cross-convo."""
+    """Default to cross-convo when no conversation_id kwarg is given."""
     await store.record(
         principal=_principal("u"),
         conversation_id="c1",
@@ -309,7 +208,7 @@ async def test_read_latest_returns_none_when_missing(store: WidgetDataStore) -> 
 
 @pytest.mark.asyncio
 async def test_read_latest_cross_conversation(store: WidgetDataStore) -> None:
-    """``conversation_id=None`` finds data ingested in any prior conversation."""
+    """Find data ingested in any prior conversation when conversation_id is None."""
     await store.record(
         principal=_principal("u"),
         conversation_id="c1",
@@ -538,30 +437,6 @@ async def test_search_filters_by_widget_uuid(store: WidgetDataStore) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_uses_embeddings_when_available(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[
-            {"text": "apple fruit"},
-            {"text": "banana fruit"},
-            {"text": "completely unrelated"},
-        ],
-        columns=["text"],
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="apple", k=2
-    )
-    assert len(out) > 0
-
-
-@pytest.mark.asyncio
 async def test_search_returns_empty_for_blank_query(
     store: WidgetDataStore,
 ) -> None:
@@ -577,69 +452,6 @@ async def test_search_returns_empty_for_blank_query(
     )
     out = await store.search(principal=_principal(), conversation_id="c1", query="")
     assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_other_users(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """An ANN hit whose metadata belongs to a different user is dropped."""
-    await store_with_embeddings.record(
-        principal=_principal("a"),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal("b"), conversation_id="c1", query="Paris"
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_other_conversations(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c2", query="Paris"
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_spans_conversations_when_unscoped(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """``conversation_id=None`` lets ANN return hits from any conversation."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id=None, query="Paris"
-    )
-    assert len(out) == 1
-    assert out[0]["row"] == {"city": "Paris"}
 
 
 @pytest.mark.asyncio
@@ -664,117 +476,10 @@ async def test_substring_search_spans_conversations_when_unscoped(
 
 
 @pytest.mark.asyncio
-async def test_ann_search_skips_mismatched_widget_uuid(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-a",
-        widget_name="A",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal(),
-        conversation_id="c1",
-        query="Paris",
-        widget_uuid="w-b",
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_dedupes_duplicate_hits(
-    store_with_embeddings: WidgetDataStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """If the ANN returns the same row twice, only one entry survives."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-
-    real = store_with_embeddings._vec.similarity_search_with_score
-
-    def dup(*a: object, **kw: object) -> list[Any]:
-        out = real(*a, **kw)
-        return out + out
-
-    monkeypatch.setattr(store_with_embeddings._vec, "similarity_search_with_score", dup)
-    hits = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Paris"
-    )
-    assert len(hits) == 1
-
-
-@pytest.mark.asyncio
-async def test_fetch_row_missing_parent_returns_none(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    out = await store_with_embeddings._fetch_row(parent_id=99999, row_idx=0)
-    assert out is None
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_when_fetch_row_returns_none(
-    store_with_embeddings: WidgetDataStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """If the vec index points at a row that's since been pruned, drop it."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-
-    async def fake_fetch(self: object, *, parent_id: int, row_idx: int) -> None:
-        return None
-
-    monkeypatch.setattr(WidgetDataStore, "_fetch_row", fake_fetch)
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Paris"
-    )
-    # Vec hit got dropped because the row was unfetchable; substring
-    # fallback then runs and DOES find it via SQL — so we expect 1.
-    assert len(out) == 1
-
-
-@pytest.mark.asyncio
-async def test_fetch_row_out_of_bounds_returns_none(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"x": 1}],
-        columns=["x"],
-    )
-    assert await store_with_embeddings._fetch_row(parent_id=rid, row_idx=99) is None
-
-
-@pytest.mark.asyncio
 async def test_substring_search_returns_only_k_results(
     store: WidgetDataStore,
 ) -> None:
-    """The substring path exits early after collecting ``k`` matches."""
+    """Exit the substring path early after collecting k matches."""
     await store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -791,51 +496,11 @@ async def test_substring_search_returns_only_k_results(
     assert len(out) == 3
 
 
-def test_url_to_file_handles_memory_path() -> None:
-    from openbb_agent_server.runtime.widget_store import _url_to_file
-
-    assert _url_to_file("sqlite+aiosqlite:///:memory:") is None
-    assert _url_to_file("sqlite+aiosqlite:///") is None
-    assert _url_to_file("/abs/path/x.db") == "/abs/path/x.db"
-    assert _url_to_file("sqlite+aiosqlite:////real/path.db") == "/real/path.db"
-
-
-@pytest.mark.asyncio
-async def test_search_ann_failure_falls_back_to_substring(
-    store_with_embeddings: WidgetDataStore,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When ANN raises, the search falls back to the substring path."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-
-    def boom(*_a: object, **_kw: object) -> None:
-        raise RuntimeError("ann down")
-
-    monkeypatch.setattr(
-        store_with_embeddings._vec, "similarity_search_with_score", boom
-    )
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Paris"
-    )
-    assert len(out) == 1
-    assert any("ANN failed" in r.message for r in caplog.records)
-
-
 @pytest.mark.asyncio
 async def test_schema_spans_conversations_when_unscoped(
     store: WidgetDataStore,
 ) -> None:
-    """``conversation_id=None`` exposes widgets from every conversation."""
+    """Expose widgets from every conversation when conversation_id is None."""
     await store.record(
         principal=_principal("u"),
         conversation_id="c1",
@@ -865,7 +530,7 @@ async def test_schema_spans_conversations_when_unscoped(
 async def test_query_spans_conversations_when_unscoped(
     store: WidgetDataStore,
 ) -> None:
-    """SQL queries can see widgets ingested in other conversations."""
+    """See widgets ingested in other conversations from SQL queries."""
     await store.record(
         principal=_principal("u"),
         conversation_id="c-old",
@@ -887,9 +552,7 @@ async def test_query_spans_conversations_when_unscoped(
 
 @pytest.mark.asyncio
 async def test_query_unscoped_still_isolates_users(store: WidgetDataStore) -> None:
-    """Cross-conversation does not mean cross-user — alice's data is
-    not visible to bob even when his ``conversation_id`` is None.
-    """
+    """Isolate users on an unscoped cross-conversation query."""
     await store.record(
         principal=_principal("alice"),
         conversation_id="c1",
@@ -900,9 +563,6 @@ async def test_query_unscoped_still_isolates_users(store: WidgetDataStore) -> No
         rows=[{"sym": "AAPL"}],
         columns=["sym"],
     )
-    # Bob has zero widgets ingested, so the "prices" view is never
-    # created for him and SQLite errors. The important assertion is
-    # that bob does NOT see alice's rows.
     import sqlalchemy.exc
 
     with pytest.raises(sqlalchemy.exc.OperationalError):
@@ -915,7 +575,6 @@ async def test_query_unscoped_still_isolates_users(store: WidgetDataStore) -> No
 
 @pytest.mark.asyncio
 async def test_schema_dedupes_by_slug(store: WidgetDataStore) -> None:
-    # Same widget_name → same slug → only latest survives.
     await store.record(
         principal=_principal(),
         conversation_id="c1",
@@ -956,7 +615,6 @@ async def test_schema_falls_back_to_uuid_and_id(store: WidgetDataStore) -> None:
     )
     sch = await store.schema(principal=_principal(), conversation_id="c1")
     assert len(sch) == 1
-    # Slug derives from widget_uuid since widget_name is None.
     assert sch[0]["table"] == "w_1"
     assert sch[0]["row_count"] == 0
     assert rid > 0
@@ -975,7 +633,6 @@ async def test_schema_uses_widget_id_when_uuid_blank(store: WidgetDataStore) -> 
         columns=[],
     )
     sch = await store.schema(principal=_principal(), conversation_id="c1")
-    # Slug derives from "widget_{id}" when both widget_name and widget_uuid blank.
     assert sch[0]["table"].startswith("widget_")
 
 
@@ -1254,8 +911,7 @@ class _HumanMessage:
 
 
 class _StructuredAIMessage:
-    """AI tool-call envelope using structured ``function`` /
-    ``input_arguments`` fields (the modern wire shape)."""
+    """AI tool-call envelope using structured function fields."""
 
     def __init__(self, function: str, input_arguments: dict[str, Any]) -> None:
         self.role = "ai"
@@ -1265,7 +921,7 @@ class _StructuredAIMessage:
 
 
 class _ToolMessageWithArgs:
-    """Tool message that carries its own ``function`` / ``input_arguments``."""
+    """Tool message carrying its own function and input_arguments."""
 
     def __init__(
         self,
@@ -1281,8 +937,7 @@ class _ToolMessageWithArgs:
 
 
 def test_parse_widget_data_messages_reads_structured_ai_envelope() -> None:
-    """Wire-protocol primary path: AI envelope is structured fields,
-    not JSON in content. ``widget_uuid`` must still flow through."""
+    """Read a structured AI envelope and flow widget_uuid through."""
     ai = _StructuredAIMessage(
         function="get_widget_data",
         input_arguments={
@@ -1305,7 +960,7 @@ def test_parse_widget_data_messages_reads_structured_ai_envelope() -> None:
 
 
 def test_parse_widget_data_messages_reads_data_sources_from_tool_msg() -> None:
-    """Some clients put ``data_sources`` on the tool message itself."""
+    """Read data_sources from the tool message itself."""
     tool = _ToolMessageWithArgs(
         [{"items": [{"x": 1}]}],
         function="get_widget_data",
@@ -1320,12 +975,7 @@ def test_parse_widget_data_messages_reads_data_sources_from_tool_msg() -> None:
 
 
 def test_parse_widget_data_messages_synthesises_from_widget_ids() -> None:
-    """Wire fallback: the agent's tool signature is
-    ``get_widget_data(widget_ids=[...])``. If the client forwards
-    that verbatim without expanding to ``data_sources``, synthesise
-    minimal sources so the rows still get stored under a usable
-    ``widget_uuid``.
-    """
+    """Synthesise minimal sources from a forwarded widget_ids list."""
     ai = _StructuredAIMessage(
         function="get_widget_data",
         input_arguments={"widget_ids": ["uuid-a", "uuid-b"]},
@@ -1492,7 +1142,7 @@ def test_parse_widget_data_messages_normalises_non_list_data() -> None:
 
 
 def test_parse_widget_data_messages_skips_role_none() -> None:
-    """A message without a recognisable role gets the envelope reset."""
+    """Reset the envelope for a message without a recognisable role."""
 
     class _Bare:
         role = None
@@ -1510,7 +1160,7 @@ def test_parse_widget_data_messages_skips_role_none() -> None:
 
 
 def test_apply_sqlite_pragmas_skips_non_sqlite_url() -> None:
-    """``_apply_sqlite_pragmas`` returns early for non-SQLite URLs."""
+    """Return early from _apply_sqlite_pragmas for non-SQLite URLs."""
     from openbb_agent_server.runtime.widget_store import _apply_sqlite_pragmas
 
     class _BoomEngine:
@@ -1519,253 +1169,3 @@ def test_apply_sqlite_pragmas_skips_non_sqlite_url() -> None:
             raise AssertionError("engine must not be touched for non-sqlite URLs")
 
     _apply_sqlite_pragmas(_BoomEngine(), "postgresql+asyncpg://host/db")
-
-
-def test_index_rows_sync_noops_when_vec_unset(store: WidgetDataStore) -> None:
-    """``_index_rows_sync`` returns immediately when there is no vec index."""
-    # ``store`` is built without embeddings, so ``_vec`` is None — the
-    # method must early-return rather than touch a missing index.
-    assert store._vec is None
-    store._index_rows_sync(1, "u", "c1", "w", "W", [{"x": 1}])
-
-
-@pytest.mark.asyncio
-async def test_await_pending_indexing_noop_when_no_tasks(
-    store: WidgetDataStore,
-) -> None:
-    """``await_pending_indexing`` returns at once when nothing is in flight."""
-    assert not store._indexing_tasks
-    await store.await_pending_indexing()
-
-
-@pytest.mark.asyncio
-async def test_record_uses_inline_sync_index_when_no_running_loop(
-    store_with_embeddings: WidgetDataStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``record`` falls back to inline indexing when no loop is running.
-
-    ``asyncio.get_running_loop`` normally succeeds inside an awaited
-    coroutine; stubbing it to raise ``RuntimeError`` drives the sync
-    branch that production hits only when ``record`` is called outside
-    an event loop.
-    """
-    import asyncio as _asyncio
-
-    calls: list[tuple[Any, ...]] = []
-    real_sync = store_with_embeddings._index_rows_sync
-
-    def _spy_sync(*args: Any) -> None:
-        calls.append(args)
-        real_sync(*args)
-
-    def _no_loop() -> Any:
-        raise RuntimeError("no running event loop")
-
-    monkeypatch.setattr(
-        "openbb_agent_server.runtime.widget_store.asyncio.get_running_loop",
-        _no_loop,
-    )
-    monkeypatch.setattr(store_with_embeddings, "_index_rows_sync", _spy_sync)
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    assert rid > 0
-    # The inline sync indexer ran instead of a background task.
-    assert calls
-    del _asyncio
-
-
-@pytest.mark.asyncio
-async def test_record_inline_sync_index_failure_is_swallowed(
-    store_with_embeddings: WidgetDataStore,
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An inline-index failure on the no-loop path is logged, not raised."""
-
-    def _no_loop() -> Any:
-        raise RuntimeError("no running event loop")
-
-    def _boom(*_a: Any) -> None:
-        raise RuntimeError("inline index down")
-
-    monkeypatch.setattr(
-        "openbb_agent_server.runtime.widget_store.asyncio.get_running_loop",
-        _no_loop,
-    )
-    monkeypatch.setattr(store_with_embeddings, "_index_rows_sync", _boom)
-    rid = await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-1",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    assert rid > 0
-    assert any("vector index failed" in r.message for r in caplog.records)
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_other_user_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """A populated ANN index drops hits whose metadata user differs."""
-    await store_with_embeddings.record(
-        principal=_principal("a"),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-    out = await store_with_embeddings.search(
-        principal=_principal("b"), conversation_id="c1", query="Paris"
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_other_conversation_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """A populated ANN index drops hits scoped to a different conversation."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c2", query="Paris"
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_mismatched_widget_uuid_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """A populated ANN index drops hits for a non-matching widget_uuid."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w-a",
-        widget_name="A",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-    out = await store_with_embeddings.search(
-        principal=_principal(),
-        conversation_id="c1",
-        query="Paris",
-        widget_uuid="w-b",
-    )
-    assert out == []
-
-
-@pytest.mark.asyncio
-async def test_ann_search_dedupes_duplicate_hits_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A populated ANN index returning a row twice yields one entry."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-    real = store_with_embeddings._vec.similarity_search_with_score
-
-    def _dup(*a: object, **kw: object) -> list[Any]:
-        out = real(*a, **kw)
-        return out + out
-
-    monkeypatch.setattr(
-        store_with_embeddings._vec, "similarity_search_with_score", _dup
-    )
-    hits = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Paris"
-    )
-    assert len(hits) == 1
-
-
-@pytest.mark.asyncio
-async def test_ann_search_skips_unfetchable_row_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A populated ANN hit pointing at a pruned row is dropped."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": "Paris"}],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-
-    async def _none_row(self: object, *, parent_id: int, row_idx: int) -> None:
-        return None
-
-    monkeypatch.setattr(WidgetDataStore, "_ann_search", WidgetDataStore._ann_search)
-    monkeypatch.setattr(WidgetDataStore, "_fetch_row", _none_row)
-    # ANN hit resolves but the row is unfetchable, so the ANN result
-    # set is empty and search falls back to substring (which still
-    # finds the row via SQL).
-    out = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Paris"
-    )
-    assert len(out) == 1
-
-
-@pytest.mark.asyncio
-async def test_ann_search_stops_at_k_results_after_indexing(
-    store_with_embeddings: WidgetDataStore,
-) -> None:
-    """The ANN result loop breaks once ``k`` rows have been collected."""
-    await store_with_embeddings.record(
-        principal=_principal(),
-        conversation_id="c1",
-        widget_uuid="w",
-        widget_name="W",
-        origin="o",
-        input_args={},
-        rows=[{"city": c} for c in ("Paris", "Parma", "Parana", "Parkes")],
-        columns=["city"],
-    )
-    await store_with_embeddings.await_pending_indexing()
-    hits = await store_with_embeddings.search(
-        principal=_principal(), conversation_id="c1", query="Par", k=2
-    )
-    assert len(hits) == 2

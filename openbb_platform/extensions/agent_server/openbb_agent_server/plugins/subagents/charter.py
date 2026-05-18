@@ -1,4 +1,4 @@
-"""``charter`` subagent — produces chart artifacts (Plotly JSON specs)."""
+"""Charter subagent."""
 
 from __future__ import annotations
 

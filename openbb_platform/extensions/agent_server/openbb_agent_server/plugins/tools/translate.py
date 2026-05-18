@@ -1,4 +1,4 @@
-"""``translate`` tool source — agent-callable text translation."""
+"""``translate`` tool source."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class _TranslateArgs(BaseModel):
 
 
 class NvidiaTranslateToolSource(ToolSource):
-    """Bind one :class:`NvidiaTranslator` per agent run."""
+    """Bind one NvidiaTranslator per agent run."""
 
     name = "translate"
 

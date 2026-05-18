@@ -71,7 +71,7 @@ When `translator` is supplied and the chunk:
 
 ## `def chunk_text(text, *, chunk_chars=1500, overlap=200, language=None) -> list[str]`
 
-Standalone chunker. Used by `ingest_request_context` and re-usable by callers who need to mirror the chunking. Validates `chunk_chars > 0` and `0 <= overlap < chunk_chars`.
+Standalone chunker. Used by `ingest_request_context` and reusable by callers who need to mirror the chunking. Validates `chunk_chars > 0` and `0 <= overlap < chunk_chars`.
 
 ## TOML
 

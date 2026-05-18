@@ -1,4 +1,4 @@
-"""SqliteMemoryStore round-trip + isolation tests."""
+"""SqliteMemoryStore round-trip and isolation tests."""
 
 from __future__ import annotations
 
@@ -123,7 +123,6 @@ async def test_pinned_memories_dominate_recall_score(
     await memory.write(principal=alice, text="banana banana banana")
     await memory.pin(principal=alice, memory_id=pin_target.memory_id, pinned=True)
     out = await memory.recall(principal=alice, query="banana", k=5)
-    # Pinned floats to the top regardless of textual relevance.
     assert out[0].memory_id == pin_target.memory_id
 
 
@@ -150,7 +149,7 @@ async def test_code_kind_uses_code_embedder_on_write(
     memory_with_code_embedder: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """Writing with ``kind='context_code'`` routes through the code embedder."""
+    """Route a context_code write through the code embedder."""
     out = await memory_with_code_embedder.write(
         principal=alice,
         text="def f(): return 1",
@@ -164,7 +163,7 @@ async def test_pin_finds_memory_in_code_table(
     memory_with_code_embedder: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """``pin`` walks both tables — text first, then code."""
+    """Find a memory in the code table when pinning."""
     code_mem = await memory_with_code_embedder.write(
         principal=alice, text="def f(): return 1", kind="context_code"
     )
@@ -196,7 +195,7 @@ async def test_pin_returns_none_for_missing_id(
     memory_with_code_embedder: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """Walking both tables and finding nothing returns ``None``."""
+    """Return None when pinning a missing id."""
     out = await memory_with_code_embedder.pin(
         principal=alice, memory_id="does-not-exist", pinned=True
     )
@@ -221,7 +220,7 @@ async def test_recall_uses_code_qvec_for_code_rows(
     memory_with_code_embedder: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """Code rows score against the code embedder's query vector."""
+    """Score code rows against the code embedder's query vector."""
     await memory_with_code_embedder.write(
         principal=alice, text="def foo(): pass", kind="context_code"
     )
@@ -231,7 +230,7 @@ async def test_recall_uses_code_qvec_for_code_rows(
 
 
 class _OrderingReranker:
-    """A reranker that reverses the input order so we can prove it ran."""
+    """A reranker that reverses the input order."""
 
     async def rerank(
         self,
@@ -276,12 +275,10 @@ async def test_reranker_changes_final_order(
     memory_with_reranker: SqliteMemoryStore,
     alice: UserPrincipal,
 ) -> None:
-    """When a reranker is wired, its order wins over raw embedding score."""
+    """Let the reranker order win over raw embedding score."""
     for text in ("alpha", "beta", "gamma", "delta"):
         await memory_with_reranker.write(principal=alice, text=text)
     out = await memory_with_reranker.recall(principal=alice, query="alpha", k=4)
-    # Reranker reverses the embedding-only ordering, so element 0 must be
-    # whatever embedding-only would have ranked last.
     assert len(out) == 4
 
 
@@ -303,8 +300,6 @@ async def test_reranker_failure_falls_back_to_embedding_order(
         await store.write(principal=alice, text="banana")
         await store.write(principal=alice, text="orange")
         out = await store.recall(principal=alice, query="banana", k=5)
-        # Fall-back returns up to k embedding-ranked rows even after a
-        # reranker exception.
         assert len(out) == 2
         assert {r.text for r in out} == {"banana", "orange"}
     finally:
@@ -316,7 +311,7 @@ async def test_reranker_promotes_pinned_outside_fanout(
     tmp_path: Path,
     alice: UserPrincipal,
 ) -> None:
-    """A pinned row past ``rerank_fanout`` still enters the rerank pool."""
+    """Promote a pinned row past rerank_fanout into the rerank pool."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'mrp.db'}"
     history = SqliteHistoryStore(url)
     await history.init_schema()
@@ -340,8 +335,6 @@ async def test_reranker_promotes_pinned_outside_fanout(
             reranker=_PoolReranker(),  # type: ignore[arg-type]
             rerank_fanout=1,
         )
-        # Two pinned rows: only one fits inside the fanout=1 head; the
-        # second must be promoted by the pinned-rescue loop.
         pinned_a = await store.write(principal=alice, text="pinned alpha")
         pinned_b = await store.write(principal=alice, text="pinned beta")
         await store.write(principal=alice, text="banana 1")
@@ -349,8 +342,6 @@ async def test_reranker_promotes_pinned_outside_fanout(
         await store.pin(principal=alice, memory_id=pinned_a.memory_id, pinned=True)
         await store.pin(principal=alice, memory_id=pinned_b.memory_id, pinned=True)
         out = await store.recall(principal=alice, query="banana", k=1)
-        # Both pinned rows must enter the rerank pool, even though
-        # fanout=1 only admits the top embedding hit.
         assert captured_pool
         assert pinned_a.memory_id in captured_pool[0]
         assert pinned_b.memory_id in captured_pool[0]
@@ -384,7 +375,7 @@ async def test_delete_all_for_user_on_empty_returns_zero(
 
 
 def test_url_passthrough_for_raw_file_path(tmp_path: Path) -> None:
-    """A bare filesystem path (no ``sqlite:///`` prefix) is used as-is."""
+    """Use a bare filesystem path as-is."""
     raw_path = str(tmp_path / "raw.db")
     store = SqliteMemoryStore(raw_path, embeddings=HashEmbeddings(dim=16))
     assert store._db_file == raw_path
@@ -395,7 +386,7 @@ async def test_reranker_skips_unknown_memory_ids(
     tmp_path: Path,
     alice: UserPrincipal,
 ) -> None:
-    """If the reranker emits a ``cid`` that's not in the pool, it's dropped."""
+    """Drop a reranker cid that is not in the pool."""
     url = f"sqlite+aiosqlite:///{tmp_path / 'mr2.db'}"
     history = SqliteHistoryStore(url)
     await history.init_schema()
@@ -422,7 +413,6 @@ async def test_reranker_skips_unknown_memory_ids(
         )
         await store.write(principal=alice, text="real")
         out = await store.recall(principal=alice, query="real", k=2)
-        # The phantom id is silently dropped; only the real row survives.
         assert len(out) == 1
         assert out[0].text == "real"
     finally:

@@ -1,4 +1,4 @@
-"""AWS Bedrock model provider (optional install: ``[bedrock]``)."""
+"""AWS Bedrock model provider."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from openbb_agent_server.runtime.plugins import ModelProvider
 
 
 class BedrockProvider(ModelProvider):
-    """Wraps :class:`langchain_aws.ChatBedrock`."""
+    """Wrap ChatBedrock."""
 
     name = "bedrock"
 

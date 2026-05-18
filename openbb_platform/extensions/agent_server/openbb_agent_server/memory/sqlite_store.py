@@ -46,7 +46,7 @@ def _build_connection(db_file: str) -> sqlite3.Connection:
 
 
 def _is_code_kind(kind: str | None) -> bool:
-    """Rows whose ``kind`` ends with ``_code`` route to the code-embedded table."""
+    """Return True when the kind routes to the code-embedded table."""
     return bool(kind) and kind.endswith("_code")
 
 
@@ -256,8 +256,7 @@ def _ann_search(
     user_id: str,
     fanout: int,
 ) -> list[tuple[Memory, float]]:
-    """ANN search filtered by ``user_id``. Returns memories with cosine-style score."""
-    # Fetch wider than needed; filter user_id in Python.
+    """Run ANN search filtered by user_id."""
     candidates = store.similarity_search_with_score(query, k=fanout * 4)
     out: list[tuple[Memory, float]] = []
     for doc, distance in candidates:
@@ -359,7 +358,7 @@ def _forget_one(
 
 
 def delete_all_for_user(conn: Any, tables: list[str], user_id: str) -> int:
-    """Right-to-erasure: drop every row in the given tables for ``user_id``."""
+    """Drop every row in the given tables for the user."""
     deleted = 0
     for table in tables:
         sql_select = (
@@ -394,7 +393,7 @@ def _doc_to_memory(table: str, doc: Any, meta: dict[str, Any]) -> Memory:
 
 
 def _distance_to_score(distance: float) -> float:
-    """Map a non-negative L2 / cosine distance to a ``[0, 1]`` similarity score."""
+    """Map a distance to a similarity score in [0, 1]."""
     return 1.0 / (1.0 + max(0.0, float(distance)))
 
 
@@ -404,7 +403,6 @@ def _merge_with_pinned(
     by_id: dict[str, tuple[Memory, float]] = {
         mem.memory_id: (mem, score) for mem, score in ann
     }
-    # Pinned rows always pass with a boosted score of 1.0; replace ANN score if higher.
     for mem in pinned:
         existing = by_id.get(mem.memory_id)
         score = max(existing[1] if existing else 0.0, 1.0)

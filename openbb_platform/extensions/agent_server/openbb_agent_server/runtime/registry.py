@@ -27,7 +27,7 @@ def _accepted_kwargs(cls: type) -> set[str] | None:
         if name == "self":
             continue
         if param.kind is inspect.Parameter.VAR_KEYWORD:
-            return None  # accepts arbitrary kwargs
+            return None
         if param.kind is inspect.Parameter.VAR_POSITIONAL:
             continue
         accepted.add(name)
@@ -35,14 +35,7 @@ def _accepted_kwargs(cls: type) -> set[str] | None:
 
 
 def load(group: str, name: str, config: dict[str, Any] | None = None) -> Any:
-    """Load and instantiate one plugin from ``group`` named ``name``.
-
-    Unknown keys in ``config`` are dropped with a warning rather than
-    raising — a profile TOML with a misplaced key (e.g. ``tool_sources``
-    accidentally under ``[model.config]``) shouldn't take the whole
-    agent down. The misplaced keys are logged so the operator can fix
-    the file.
-    """
+    """Load and instantiate one plugin from ``group`` named ``name``."""
     eps = _eps(group)
     ep = eps.get(name)
     if ep is None:

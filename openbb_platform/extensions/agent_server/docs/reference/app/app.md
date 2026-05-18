@@ -19,7 +19,7 @@ Construction order:
    - `_load_checkpointer_provider(settings)` resolves the `CheckpointerProvider` named in `settings.checkpointer_provider`.
 4. **Storage construction.**
    - `SqliteHistoryStore(db_url)` for chat history / traces / usage / artifacts / citations.
-   - `WidgetDataStore(db_url, embeddings=...)` for the widget rows + ANN index.
+   - `WidgetDataStore(db_url)` for fetched widget rows (SQL-queried).
    - `PdfStore(db_url, embeddings=...)` for PDF ingestion (see [`runtime/pdf_store.md`](../runtime/pdf_store.md)).
    - `SqliteMemoryStore(db_url, embeddings, code_embeddings, reranker, rerank_fanout)` for cross-thread vector memory.
 5. **Memory pipeline.** `make_embeddings` / `make_reranker` / `make_translator` (from `memory/factory.py`) wrap NVIDIA NIM endpoints (or the configured provider) behind the LangChain `Embeddings` / `BaseRetriever` interfaces.

@@ -79,7 +79,7 @@ class _StubNVIDIARerank:
 
 
 class _NoAcompressNVIDIARerank:
-    """Reranker without an async method — used to exercise the to_thread fallback."""
+    """Reranker without an async method."""
 
     instances: list[_NoAcompressNVIDIARerank] = []
 
@@ -283,7 +283,7 @@ async def test_reranker_skips_docs_without_id(
             return [
                 Document(
                     page_content="x",
-                    metadata={"relevance_score": 9.0},  # NB: no _rerank_id
+                    metadata={"relevance_score": 9.0},
                 )
             ]
 

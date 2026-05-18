@@ -18,7 +18,7 @@ from openbb_agent_server.protocol.sse import encode_event, encode_stream
 
 
 def test_encode_chunk_event_emits_only_inner_data() -> None:
-    """Workspace's parser expects ``data: {"delta": "..."}`` —"""
+    """The chunk event emits only the inner data payload."""
     frame = encode_event(MessageChunkSSE(data=MessageChunkSSEData(delta="hello")))
     text = frame.decode()
     assert text.startswith("event: copilotMessageChunk\n")

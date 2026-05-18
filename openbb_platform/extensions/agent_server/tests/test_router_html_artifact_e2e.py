@@ -1,4 +1,4 @@
-"""End-to-end test: tool emits an HTML artifact via the custom channel,"""
+"""End-to-end test for a tool emitting an HTML artifact."""
 
 from __future__ import annotations
 
@@ -40,11 +40,8 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClie
     monkeypatch.setenv("OPENBB_AGENT_MODEL_PROVIDER", "fake")
     monkeypatch.setenv("OPENBB_AGENT_MIDDLEWARE", "[]")
     monkeypatch.setenv("OPENBB_AGENT_SUBAGENTS", "[]")
-    # Wire python_module to our test-local tool list.
     monkeypatch.setenv("OPENBB_AGENT_TOOL_SOURCES", '["python_module"]')
     monkeypatch.setenv("OPENBB_AGENT_FAKE_RESPONSES", json.dumps(["short reply"]))
-    # The python_module source needs to know which dotted-path to load.
-    # We'll inject via a custom registry override:
     from openbb_agent_server.plugins.tools import python_module
 
     monkeypatch.setattr(
@@ -77,13 +74,11 @@ def _parse_sse(raw: str) -> list[tuple[str, dict]]:
 
 
 def test_python_module_tool_loads_and_runs(client: TestClient) -> None:
-    """Sanity: the python_module tool source picks up our @tool callable."""
+    """The python_module tool source picks up the @tool callable."""
     resp = client.post(
         "/v1/query",
         json={"messages": [{"role": "human", "content": "hi"}]},
     )
     assert resp.status_code == 200
     events = _parse_sse(resp.text)
-    # The model produced at least one chunk — the run reached the
-    # streaming path and didn't error out.
     assert any(name == "copilotMessageChunk" for name, _ in events)

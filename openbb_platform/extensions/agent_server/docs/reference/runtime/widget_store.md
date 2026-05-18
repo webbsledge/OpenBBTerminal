@@ -1,6 +1,6 @@
 # `openbb_agent_server.runtime.widget_store`
 
-SQL-backed widget-data store with optional ANN row search via `sqlite-vec`. Every `get_widget_data` response observed in a tool message is normalised by `parse_widget_data_messages` and persisted here so subsequent turns (and the agent's `read_widget_data` / `query_widget_data` / `search_widget_data` tools) can read it without re-fetching.
+SQL-backed widget-data store. Every `get_widget_data` response observed in a tool message is normalised by `parse_widget_data_messages` and persisted here so subsequent turns (and the agent's `read_widget_data` / `query_widget_data` / `search_widget_data` tools) can read it without re-fetching. Tabular rows are queried with SQL — there is no vector index.
 
 **Source:** [`openbb_agent_server/runtime/widget_store.py`](../../../openbb_agent_server/runtime/widget_store.py)
 
@@ -10,7 +10,6 @@ SQL-backed widget-data store with optional ANN row search via `sqlite-vec`. Ever
 WidgetDataStore(
     url: str,
     *,
-    embeddings: Embeddings | None = None,
     engine: AsyncEngine | None = None,
 )
 ```
@@ -18,19 +17,13 @@ WidgetDataStore(
 | Arg | Purpose |
 | --- | --- |
 | `url` | SQLAlchemy async URL — typically the same as `HistoryStore` so both stores share one file. |
-| `embeddings` | Optional `Embeddings`. When set, every row is indexed into a `widget_rows_vec` ANN table on top of the parent `widget_data` row. |
 | `engine` | Pre-built `AsyncEngine`. Pass to share the engine across stores instead of constructing a second one. |
 
 For SQLite URLs, the constructor applies WAL + `busy_timeout` pragmas — same as `SqliteHistoryStore`.
 
 ### `async def record(...) -> int`
 
-Persist one ingestion. Two-phase:
-
-1. **Synchronous** — commit the canonical `widget_data` row through the async engine. The id is returned to the caller before the vector index has been written, so later `read_widget_data` / `query_widget_data` calls see the row immediately.
-2. **Fire-and-forget** — schedule `_index_in_background` on the running loop. The background task runs `_index_rows_sync` (one batch of 256 rows at a time, holding a `threading.Lock`) so a 10K-row widget doesn't stall the request and the ANN writer doesn't contend with the async engine.
-
-When no running loop is available (test path), the indexing runs inline.
+Persist one ingestion: commit the canonical `widget_data` row through the async engine and return its id. Later `read_widget_data` / `query_widget_data` calls see the row immediately.
 
 ### `async def list_entries(*, principal, conversation_id=None) -> list[dict]`
 
@@ -42,14 +35,7 @@ Return the most recent ingest matching `widget_uuid` OR `widget_name`. If a row 
 
 ### `async def search(*, principal, conversation_id=None, query, k=8, widget_uuid=None) -> list[dict]`
 
-Top-`k` rows across the user's widget data.
-
-| Path | When | Behaviour |
-| --- | --- | --- |
-| ANN (`_ann_search`) | `embeddings` configured AND vec store created | `similarity_search_with_score` over `widget_rows_vec`, then filter by `user_id` / `conversation_id` / `widget_uuid` and dedup by `(parent_id, row_idx)`. Score is `1 / (1 + distance)`. |
-| Substring fallback (`_substring_search`) | No embeddings OR ANN returned no hits | Linear scan of every row's pipe-joined `key: value` text. Score is `1.0`. |
-
-Each hit is `{"score": float, "row": dict, "widget_uuid": str, "widget_name": str | None}`.
+Top-`k` rows across the user's widget data via `_substring_search` — a linear scan matching the query against every row's pipe-joined `key: value` text. Each hit is `{"score": 1.0, "row": dict, "widget_uuid": str, "widget_name": str | None}`. For structured filtering / aggregation the agent should use `query` (SQL) instead.
 
 ### `async def schema(*, principal, conversation_id=None) -> list[dict]`
 
@@ -66,10 +52,6 @@ Run a READ-ONLY `SELECT` / `WITH` against the widget data. SQLite-only — Postg
 
 The view alias names come from `_slugify_table_name(widget_name | widget_uuid)`; column names come from `ing.columns` when present, else the union of keys across `ing.rows`.
 
-### `async def await_pending_indexing()`
-
-Wait for every in-flight background indexing task to finish. Tests call this to make assertions about `record` side-effects deterministic.
-
 ## `def parse_widget_data_messages(body_messages) -> list[dict]`
 
 Walk the wire-protocol messages and pull out `get_widget_data` results. Supports both:
@@ -84,9 +66,7 @@ For each AI envelope, looks at the following `role:"tool"` message and pairs its
 | Helper | Purpose |
 | --- | --- |
 | `_slugify_table_name(name)` | Map a widget name to a safe SQLite identifier. Empty → `widget`; leading digit → underscore-prefixed. |
-| `_row_text(row)` | Flatten a row dict to a pipe-joined `key: value` string for embedding / substring search. |
-| `_url_to_file(url)` | Parse `sqlite[+driver]:///<path>` → file path (or `None` for `:memory:`). |
-| `_build_vec_connection(file)` | Open a thread-safe `sqlite3` connection with WAL + `sqlite-vec` loaded. |
+| `_row_text(row)` | Flatten a row dict to a pipe-joined `key: value` string for substring search. |
 | `_extract_rows(payload)` / `_extract_columns(rows)` | Best-effort pull of `[{...}]` row dicts out of a Workspace data envelope (list / dict / JSON string). |
 
 ## See also

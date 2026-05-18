@@ -64,7 +64,7 @@ async def test_issue_then_authenticate_round_trip(
 async def test_issue_auto_provisions_the_user_row(
     backend: ApiKeyTableAuthBackend,
 ) -> None:
-    """First call for an unknown user creates the User row in-line."""
+    """Create the User row in-line on first call for an unknown user."""
     issued = await backend.issue(
         user_id="newcomer", display_name="Pat", email="pat@example.com"
     )
@@ -133,11 +133,9 @@ async def test_dangling_key_after_user_deleted_is_rejected(
     backend: ApiKeyTableAuthBackend,
     tmp_path: Path,
 ) -> None:
-    """If the User row is deleted out from under a still-active key"""
+    """Reject a key whose User row was deleted out from under it."""
     issued = await backend.issue(user_id="ghost")
 
-    # Drop just the User row, leave the api_keys row untouched —
-    # simulates an admin who forgot to revoke before deleting.
     async with backend._sessionmaker() as session:  # noqa: SLF001
         await session.execute(delete(m.User).where(m.User.user_id == "ghost"))
         await session.commit()
@@ -158,7 +156,6 @@ async def test_list_keys_returns_metadata_no_secrets(
     assert row["user_id"] == "alice"
     assert row["label"] == "laptop"
     assert row["revoked_at"] is None
-    # Hash / secret are NOT exposed.
     assert "hashed_secret" not in row
     assert "key" not in row
     assert "secret" not in row

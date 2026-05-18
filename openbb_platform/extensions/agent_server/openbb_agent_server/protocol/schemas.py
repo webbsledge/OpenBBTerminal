@@ -104,9 +104,6 @@ class BaseSSE(BaseModel):
     data: Any
 
 
-# -- chunk -----------------------------------------------------------------
-
-
 class MessageChunkSSEData(BaseModel):
     """Payload for ``copilotMessageChunk``."""
 
@@ -118,9 +115,6 @@ class MessageChunkSSE(BaseSSE):
 
     event: Literal["copilotMessageChunk"] = "copilotMessageChunk"
     data: MessageChunkSSEData
-
-
-# -- status update ---------------------------------------------------------
 
 
 StatusEventType = Literal["INFO", "SUCCESS", "WARNING", "ERROR"]
@@ -142,9 +136,6 @@ class StatusUpdateSSE(BaseSSE):
 
     event: Literal["copilotStatusUpdate"] = "copilotStatusUpdate"
     data: StatusUpdateSSEData
-
-
-# -- function call --------------------------------------------------------
 
 
 FunctionName = Literal[
@@ -176,11 +167,6 @@ class FunctionCallSSE(BaseSSE):
     data: FunctionCallSSEData
 
 
-# -- artifact -------------------------------------------------------------
-
-
-# Workspace's supported artifact set. ``markdown`` / ``file`` / ``image``
-# are NOT in the spec — surface markdown as ``text`` and skip the rest.
 ArtifactType = Literal[
     "text",
     "table",
@@ -208,9 +194,6 @@ class MessageArtifactSSE(BaseSSE):
 
     event: Literal["copilotMessageArtifact"] = "copilotMessageArtifact"
     data: ClientArtifact
-
-
-# -- citations ------------------------------------------------------------
 
 
 class CitationHighlightBoundingBox(BaseModel):
@@ -245,23 +228,11 @@ class Citation(BaseModel):
     id: str
     source_info: SourceInfo
     details: list[dict[str, Any]] | None = None
-    # ``quote_bounding_boxes`` is a list of QUOTE GROUPS — each group
-    # is itself a list of per-line bboxes for one contiguous quote.
-    # Workspace's chip needs the outer list to navigate to the page
-    # (``page`` is read off the first inner bbox), and the inner
-    # bboxes draw the highlight rectangles. A flat single-level list
-    # was rejected by Workspace's PDF viewer.
     quote_bounding_boxes: list[list[CitationHighlightBoundingBox]] | None = None
 
     @model_serializer(mode="wrap")
     def _drop_empty_bboxes(self, handler):  # type: ignore[no-untyped-def]
-        """Omit ``quote_bounding_boxes`` from the wire payload when null.
-
-        Workspace's citation chip ignores the key when absent but
-        treats ``"quote_bounding_boxes": null`` as a deliberate signal
-        and renders a broken-highlight tooltip. Dropping the field
-        keeps the chip clean for citations that don't carry a quote.
-        """
+        """Omit ``quote_bounding_boxes`` from the wire payload when null."""
         data = handler(self)
         if data.get("quote_bounding_boxes") is None:
             data.pop("quote_bounding_boxes", None)
@@ -290,6 +261,4 @@ SSEEvent = (
 )
 
 
-# Forward-ref resolution for StatusUpdateSSEData.artifacts (defined above
-# ClientArtifact in source order so the model can reference it).
 StatusUpdateSSEData.model_rebuild()

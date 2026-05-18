@@ -148,7 +148,7 @@ async def test_query_tool_rejects_mutating(sqlite_factory) -> None:
 
 @pytest.mark.asyncio
 async def test_credentials_layer_via_ctx_api_keys(sqlite_factory) -> None:
-    """Per-request api_keys override plugin defaults."""
+    """Override plugin defaults with per-request api_keys."""
     captured_creds: dict[str, Any] = {}
 
     def factory(creds: SnowflakeCredentials):
@@ -211,7 +211,6 @@ async def test_read_only_off_via_constructor(sqlite_factory) -> None:
     )
     tools = await src.tools(_ctx(), {})
     query = next(t for t in tools if t.name == "snowflake_query")
-    # With read_only off, a DELETE no longer raises the safety violation.
     query.invoke({"sql": "DELETE FROM customers WHERE id = 0"})
 
 
@@ -227,7 +226,6 @@ async def test_runtime_emit_records_query_metadata(
     query = next(t for t in tools if t.name == "snowflake_query")
     query.invoke({"sql": "SELECT 1 AS v"})
     step_emits = [e for e in captured_emits if e.get("type") == "step"]
-    # Two reasoning steps: "snowflake_query" + "ok" SUCCESS step.
     assert len(step_emits) >= 2
     success = [e for e in step_emits if e.get("event_type") == "SUCCESS"]
     assert success and "query_id" in success[0]["details"]
@@ -235,7 +233,7 @@ async def test_runtime_emit_records_query_metadata(
 
 @pytest.mark.asyncio
 async def test_search_catalog_uses_named_param(sqlite_factory) -> None:
-    """Verifies the catalog search SQL is pass-through and the param substitution path works."""
+    """Verify the catalog search SQL pass-through and param substitution."""
     src = SnowflakeToolSource(
         credentials={"account": "acc", "user": "u"},
         connection_factory=sqlite_factory,

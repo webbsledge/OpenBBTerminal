@@ -1,4 +1,4 @@
-"""``vision_qa`` tool source — image / chart / table understanding."""
+"""``vision_qa`` tool source."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _is_image(f: FileRef) -> bool:
 async def _resolve_data_url(
     fileref: FileRef, *, max_bytes: int, timeout_s: float
 ) -> str:
-    """Return a ``data:<mime>;base64,<…>`` URL for ``fileref``."""
+    """Return a data URL for ``fileref``."""
     mime = fileref.mime
     if not mime:
         guessed, _ = mimetypes.guess_type(fileref.name or "")
@@ -100,7 +100,7 @@ class _UnderstandArgs(BaseModel):
 
 
 class VisionQaToolSource(ToolSource):
-    """``understand_image`` + ``list_images`` over a vision-capable NIM model."""
+    """Expose image understanding tools over a vision-capable NIM model."""
 
     name = "vision_qa"
 

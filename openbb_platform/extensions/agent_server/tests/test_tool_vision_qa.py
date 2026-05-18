@@ -1,4 +1,4 @@
-"""Unit tests for ``vision_qa`` — exercises the closure-bound tools."""
+"""vision_qa tool source tests."""
 
 from __future__ import annotations
 
@@ -65,7 +65,6 @@ async def test_resolve_data_url_strips_existing_data_prefix() -> None:
         name="x.png", mime="image/png", data_base64="data:image/jpeg;base64,ZGF0YQ=="
     )
     out = await _resolve_data_url(f, max_bytes=100, timeout_s=1)
-    # The function strips the leading "data:...,", then re-prefixes using the mime.
     assert out == "data:image/png;base64,ZGF0YQ=="
 
 
@@ -94,7 +93,7 @@ async def test_resolve_data_url_raises_when_no_source() -> None:
 async def test_resolve_data_url_fetches_from_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When ``data_base64`` is absent, the resolver should fetch the URL."""
+    """Fetch the URL when data_base64 is absent."""
 
     from openbb_agent_server.plugins.tools import _media, vision_qa
 
@@ -115,12 +114,11 @@ async def test_resolve_data_url_fetches_from_url(
     f = FileRef(name="x.png", mime="image/png", url="https://x/y.png")
     out = await _resolve_data_url(f, max_bytes=100, timeout_s=1)
     assert out.startswith("data:image/png;base64,")
-    # Sanity: helpers got called.
     assert _media.fetch_url is not None
 
 
 class _StubChatNVIDIA:
-    """Fake LangChain chat client; ``astream`` yields one chunk per call."""
+    """Fake LangChain chat client; astream yields one chunk per call."""
 
     instances: list[_StubChatNVIDIA] = []
     fake_reply: str = "HELLO"
@@ -143,7 +141,7 @@ class _StubChatNVIDIA:
 
 @pytest.fixture
 def stub_nvidia_module(monkeypatch: pytest.MonkeyPatch) -> Any:
-    """Install a fake ``langchain_nvidia_ai_endpoints`` module."""
+    """Install a fake langchain_nvidia_ai_endpoints module."""
     import types
 
     fake_mod = types.ModuleType("langchain_nvidia_ai_endpoints")
@@ -357,7 +355,7 @@ async def test_submit_understand_image_returns_job_id(
 
 @pytest.mark.asyncio
 async def test_tools_respects_config_overrides(stub_nvidia_module: Any) -> None:
-    """The client kwargs reflect the config-supplied overrides."""
+    """Reflect the config-supplied overrides in the client kwargs."""
 
     src = VisionQaToolSource(model="default-model")
     out = await src.tools(
@@ -371,7 +369,6 @@ async def test_tools_respects_config_overrides(stub_nvidia_module: Any) -> None:
         },
     )
     assert len(out) == 3
-    # Trigger one call so the client is actually instantiated.
     img = FileRef(name="x.png", mime="image/png", data_base64="ZGF0YQ==")
     ctx = _ctx(img, api_key="k")
     src2 = VisionQaToolSource()

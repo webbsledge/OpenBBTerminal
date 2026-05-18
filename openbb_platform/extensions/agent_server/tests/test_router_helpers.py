@@ -1,4 +1,4 @@
-"""Unit tests for the helper functions in :mod:`openbb_agent_server.app.router`."""
+"""Unit tests for the router helper functions."""
 
 from __future__ import annotations
 
@@ -168,7 +168,7 @@ def test_to_widget_ref_includes_name_and_description() -> None:
 def test_to_widget_ref_omits_blank_name_and_description() -> None:
     w = _Widget(uuid="u", widget_id="w", name=None, description=None)
     ref = _to_widget_ref(w)
-    assert getattr(ref, "name", "") in (None, "", "widget")  # not set
+    assert getattr(ref, "name", "") in (None, "", "widget")
 
 
 def test_coerce_feature_bool_true() -> None:
@@ -267,14 +267,14 @@ def _ctx() -> RunContext:
 
 
 def test_post_run_extractor_returns_none_when_provider_unknown() -> None:
-    """An unresolvable provider name produces ``None`` (no extractor model)."""
+    """An unresolvable provider name produces None."""
     assert _post_run_extractor(_profile("does-not-exist-x9z"), _ctx()) is None
 
 
 def test_post_run_extractor_returns_none_on_build_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An exception during ``provider.build`` produces ``None``."""
+    """An exception during provider.build produces None."""
 
     from openbb_agent_server.runtime import registry
 
@@ -304,9 +304,6 @@ def test_post_run_extractor_returns_provider_instance(
     assert _post_run_extractor(_profile(), _ctx()) is sentinel
 
 
-# -- _safe_end_trace -------------------------------------------------------
-
-
 def test_safe_end_trace_calls_history() -> None:
     """The happy path forwards principal / trace_id / status to ``end_trace``."""
     seen: dict[str, Any] = {}
@@ -330,9 +327,6 @@ def test_safe_end_trace_swallows_exception(caplog: pytest.LogCaptureFixture) -> 
     with caplog.at_level("WARNING"):
         asyncio.run(_safe_end_trace(_History(), UserPrincipal(user_id="u"), "t", "x"))
     assert any("background end_trace failed" in r.message for r in caplog.records)
-
-
-# -- _rows_from_inline_widget ---------------------------------------------
 
 
 def test_rows_from_inline_widget_empty() -> None:
@@ -360,9 +354,6 @@ def test_rows_from_inline_widget_dict_without_items() -> None:
 
 def test_rows_from_inline_widget_non_dict_first_element() -> None:
     assert _rows_from_inline_widget(["string", "another"]) == []
-
-
-# -- _extract_pdf_b64_from_string -----------------------------------------
 
 
 def test_extract_pdf_b64_non_string_or_empty() -> None:
@@ -406,9 +397,6 @@ def test_extract_pdf_b64_raw_bytes_encode_failure(
     assert _extract_pdf_b64_from_string("%PDF-raw") is None
 
 
-# -- _extract_pdf_url_from_string -----------------------------------------
-
-
 def test_extract_pdf_url_non_string_or_empty() -> None:
     assert _extract_pdf_url_from_string(None) is None  # type: ignore[arg-type]
     assert _extract_pdf_url_from_string("") is None
@@ -427,9 +415,6 @@ def test_extract_pdf_url_data_url() -> None:
 
 def test_extract_pdf_url_plain_text() -> None:
     assert _extract_pdf_url_from_string("not a url") is None
-
-
-# -- _scan_for_http_url / _scan_for_pdf_b64 --------------------------------
 
 
 def test_scan_for_http_url_depth_guard() -> None:
@@ -464,9 +449,6 @@ def test_scan_for_pdf_b64_no_match() -> None:
     assert _scan_for_pdf_b64({"a": 1, "b": (None,)}) is None
 
 
-# -- _string_is_pdf_* ------------------------------------------------------
-
-
 def test_string_is_pdf_url() -> None:
     assert _string_is_pdf_url("https://x/a.pdf") is True
     assert _string_is_pdf_url("https://x/a.txt") is False
@@ -487,9 +469,6 @@ def test_string_is_pdf_b64() -> None:
     assert _string_is_pdf_b64("not-a-pdf-base64") is False
 
 
-# -- _has_pdf_data_format_marker ------------------------------------------
-
-
 def test_has_pdf_data_format_marker_string() -> None:
     assert _has_pdf_data_format_marker({"data_format": "PdfDataFormat"}) is True
     assert _has_pdf_data_format_marker({"data_format": "csv"}) is False
@@ -502,9 +481,6 @@ def test_has_pdf_data_format_marker_dict() -> None:
 
 def test_has_pdf_data_format_marker_absent() -> None:
     assert _has_pdf_data_format_marker({"other": 1}) is False
-
-
-# -- _looks_like_pdf_ref ---------------------------------------------------
 
 
 def test_looks_like_pdf_ref_by_data_format() -> None:
@@ -548,9 +524,6 @@ def test_looks_like_pdf_ref_value_fallback_non_pdf_url() -> None:
     assert _looks_like_pdf_ref({"x": "https://host/page.html"}) is False
 
 
-# -- _pdf_ref_from_dict ----------------------------------------------------
-
-
 def test_pdf_ref_from_dict_non_dict_or_not_pdf() -> None:
     assert _pdf_ref_from_dict("string") is None  # type: ignore[arg-type]
     assert _pdf_ref_from_dict({"name": "x.csv"}) is None
@@ -572,7 +545,6 @@ def test_pdf_ref_from_dict_url_scanned_from_nested() -> None:
     )
     assert ref is not None
     assert ref["url"] == "https://x/a.pdf"
-    # Name derived from URL tail.
     assert ref["name"] == "a.pdf"
 
 
@@ -583,8 +555,6 @@ def test_pdf_ref_from_dict_name_from_url_with_query() -> None:
 
 
 def test_pdf_ref_from_dict_b64_only_name_hashed() -> None:
-    # ``data_format`` as a dict marker carries no string value for the
-    # name fallback to latch onto, so the hashed-name path runs.
     ref = _pdf_ref_from_dict({"data_format": {"kind": "pdf"}, "base64": "JVBERi0xyz"})
     assert ref is not None
     assert ref["data_base64"] == "JVBERi0xyz"
@@ -593,7 +563,6 @@ def test_pdf_ref_from_dict_b64_only_name_hashed() -> None:
 
 
 def test_pdf_ref_from_dict_no_url_no_b64_returns_none() -> None:
-    # PdfDataFormat marker present but no resolvable bytes anywhere.
     assert _pdf_ref_from_dict({"data_format": "PdfDataFormat"}) is None
 
 
@@ -615,12 +584,11 @@ def test_pdf_ref_from_dict_skips_long_and_url_string_values_for_name() -> None:
         }
     )
     assert ref is not None
-    # Long + blank string values are skipped; falls back to the hash.
     assert ref["name"].startswith("document_")
 
 
 def test_pdf_ref_from_dict_name_fallback_skips_url_valued_string() -> None:
-    """A ``data:``-prefixed (non-PDF) string value is skipped by the name scan."""
+    """A non-PDF data-URL string value is skipped by the name scan."""
     ref = _pdf_ref_from_dict(
         {
             "data_format": {"kind": "pdf"},
@@ -629,7 +597,6 @@ def test_pdf_ref_from_dict_name_fallback_skips_url_valued_string() -> None:
         }
     )
     assert ref is not None
-    # The ``data:image`` value is skipped; falls back to the hashed name.
     assert ref["name"].startswith("document_")
 
 
@@ -645,9 +612,6 @@ def test_pdf_ref_from_dict_mime_with_slash() -> None:
     )
     assert ref is not None
     assert ref["mime"] == "application/pdf"
-
-
-# -- _walk_pdf_refs --------------------------------------------------------
 
 
 def test_walk_pdf_refs_none_and_scalar() -> None:
@@ -674,18 +638,14 @@ def test_walk_pdf_refs_list_envelope() -> None:
     assert {r["url"] for r in refs} == {"https://x/c.pdf", "https://x/d.pdf"}
 
 
-# -- _ai_envelope_from_message_safe ---------------------------------------
-
-
 def test_ai_envelope_from_message_safe_handles_none() -> None:
-    # A bare object is not a recognised envelope; returns None cleanly.
     assert _ai_envelope_from_message_safe(object()) is None
 
 
 def test_ai_envelope_from_message_safe_swallows_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An exception inside the underlying detector yields ``None``."""
+    """An exception inside the underlying detector yields None."""
     import openbb_agent_server.runtime.widget_store as ws
 
     def boom(_msg: Any) -> Any:
@@ -693,9 +653,6 @@ def test_ai_envelope_from_message_safe_swallows_exception(
 
     monkeypatch.setattr(ws, "_ai_envelope_from_message", boom)
     assert _ai_envelope_from_message_safe(object()) is None
-
-
-# -- _slugify_filename_segment / _build_pdf_filename ----------------------
 
 
 def test_slugify_filename_segment_list_uses_first_nonempty() -> None:
@@ -733,9 +690,6 @@ def test_build_pdf_filename_empty_everything() -> None:
     assert _build_pdf_filename("", {}) == "document.pdf"
 
 
-# -- _is_pdf_ref -----------------------------------------------------------
-
-
 def test_is_pdf_ref_by_mime() -> None:
     assert _is_pdf_ref(FileRef(name="x", mime="application/pdf")) is True
 
@@ -746,9 +700,6 @@ def test_is_pdf_ref_by_name() -> None:
 
 def test_is_pdf_ref_negative() -> None:
     assert _is_pdf_ref(FileRef(name="data.csv", mime="text/csv")) is False
-
-
-# -- _require_scope --------------------------------------------------------
 
 
 def test_require_scope_passes_when_present() -> None:
@@ -763,9 +714,6 @@ def test_require_scope_raises_403_when_missing() -> None:
     with pytest.raises(HTTPException) as exc:
         _require_scope(p, "memory:write")
     assert exc.value.status_code == 403
-
-
-# -- _collect_uploaded_files ----------------------------------------------
 
 
 def _query(**kw: Any) -> QueryRequest:
@@ -798,7 +746,7 @@ def test_collect_uploaded_files_dedupes() -> None:
 def test_collect_uploaded_files_recovers_url_from_extras(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A non-canonical ``download_url`` extra is recovered by the scan."""
+    """A non-canonical download_url extra is recovered by the scan."""
     body = _query(uploaded_files=[{"name": "a.pdf", "download_url": "https://x/a.pdf"}])
     with caplog.at_level(TRACE):
         refs = _collect_uploaded_files(body)
@@ -860,7 +808,7 @@ def test_collect_uploaded_files_from_widget_data() -> None:
 
 
 def test_collect_uploaded_files_dedupes_same_pdf_across_widgets() -> None:
-    """The same PDF in two widgets is de-duplicated by ``_push``."""
+    """The same PDF in two widgets is de-duplicated."""
     pdf = {"url": "https://x/shared.pdf", "name": "Shared"}
     body = _query(
         widgets={
@@ -925,14 +873,13 @@ def test_collect_uploaded_files_tool_message_resets_hint_on_human() -> None:
         ]
     )
     refs = _collect_uploaded_files(body)
-    # Hint was cleared by the human turn — filename keeps its own name.
     assert any(r.name == "document_x.pdf" for r in refs)
 
 
 def test_collect_uploaded_files_from_context_channel(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """PDFs riding on ``body.context`` are promoted."""
+    """PDFs riding on body.context are promoted."""
     body = _query(context=[{"url": "https://x/ctx.pdf", "name": "Ctx"}])
     with caplog.at_level(TRACE):
         refs = _collect_uploaded_files(body)
@@ -965,11 +912,8 @@ def test_collect_uploaded_files_zero_pdf_with_doc_widget_warns(
     assert any("zero PDF refs resolved" in r.message for r in caplog.records)
 
 
-# -- _collect_uploaded_files_with_ingest ----------------------------------
-
-
 def test_collect_with_ingest_no_pdf_store_returns_refs() -> None:
-    """When no PdfStore is bound the refs are returned untouched."""
+    """When no PdfStore is bound, the refs are returned untouched."""
     body = _query(uploaded_files=[{"name": "a.pdf", "url": "https://x/a.pdf"}])
     refs = asyncio.run(
         _collect_uploaded_files_with_ingest(body, principal=UserPrincipal(user_id="u"))
@@ -998,14 +942,13 @@ def test_collect_with_ingest_dispatches_pdf(monkeypatch: pytest.MonkeyPatch) -> 
         _collect_uploaded_files_with_ingest(body, principal=UserPrincipal(user_id="u"))
     )
     assert len(refs) == 2
-    # Only the PDF was dispatched for ingestion.
     assert ingested == ["a.pdf"]
 
 
 def test_collect_with_ingest_swallows_dispatch_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A failing ``ingest_async`` is logged but does not abort collection."""
+    """A failing ingest_async is logged but does not abort collection."""
     import openbb_agent_server.app.router as router_mod
 
     class _PdfStore:

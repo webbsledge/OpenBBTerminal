@@ -19,7 +19,7 @@ def _pick(ctx: RunContext, *names: str) -> str | None:
 
 
 class SnowflakeProvider(ModelProvider):
-    """Wraps :class:`langchain_community.chat_models.ChatSnowflakeCortex`."""
+    """Wrap ChatSnowflakeCortex."""
 
     name = "snowflake"
 
@@ -57,7 +57,7 @@ class SnowflakeProvider(ModelProvider):
         self._extra = extra
 
     def build_kwargs(self, ctx: RunContext, config: dict[str, Any]) -> dict[str, Any]:
-        """Construct the kwargs that would feed ``ChatSnowflakeCortex``."""
+        """Construct the kwargs that feed ChatSnowflakeCortex."""
         kwargs: dict[str, Any] = {
             "model": config.get("model_name", self._model_name),
             "cortex_function": self._cortex_function,

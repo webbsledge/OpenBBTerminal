@@ -86,7 +86,7 @@ async def test_config_overrides_constructor_specs() -> None:
 
 
 def test_json_schema_to_python_unknown_type_returns_any() -> None:
-    """A JSON-schema fragment with no ``type`` string maps to ``Any``."""
+    """Map a JSON-schema fragment with no type string to Any."""
     from typing import Any as _Any
 
     from openbb_agent_server.plugins.tools.client_side import (
@@ -99,11 +99,9 @@ def test_json_schema_to_python_unknown_type_returns_any() -> None:
 
 
 def test_client_side_tool_invocation_raises_outside_langgraph_context() -> None:
-    """The tool body calls ``interrupt(...)`` which only runs inside an agent."""
+    """Raise when the tool body's interrupt() runs outside an agent."""
     from openbb_agent_server.plugins.tools.client_side import _make_tool
 
     tool = _make_tool({"name": "ping"})
-    # Outside a LangGraph node, ``interrupt`` raises — but the call exercises
-    # the body branch (lines 57-59) for coverage.
     with pytest.raises(Exception):
         tool.invoke({})

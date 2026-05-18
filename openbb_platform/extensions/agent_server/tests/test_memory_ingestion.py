@@ -1,4 +1,4 @@
-"""Tests for :mod:`openbb_agent_server.memory.ingestion`."""
+"""Tests for memory ingestion."""
 
 from __future__ import annotations
 
@@ -144,19 +144,17 @@ def test_chunk_text_long_text_creates_overlapping_chunks() -> None:
     text = "a" * 100
     chunks = chunk_text(text, chunk_chars=30, overlap=10)
     assert len(chunks) >= 3
-    # Each chunk is at most 30 chars.
     assert all(len(c) <= 30 for c in chunks)
 
 
 def test_chunk_text_terminates_on_last_chunk() -> None:
     text = "x" * 50
     chunks = chunk_text(text, chunk_chars=20, overlap=5)
-    # Should not loop forever.
     assert len(chunks) > 0
 
 
 def test_chunk_text_with_language_uses_language_splitter() -> None:
-    """A code splitter uses syntactic separators (``def``, ``class``)."""
+    """Use a syntactic splitter for a known language."""
     code = (
         "def a():\n    return 1\n\ndef b():\n    return 2\n\ndef c():\n    return 3\n"
     )
@@ -200,7 +198,7 @@ def test_decode_file_text_application_json_mime() -> None:
 
 
 def test_decode_file_text_extension_match() -> None:
-    """Even without a text-like MIME, ``.md`` extension triggers decode."""
+    """Trigger decode from a known text extension."""
     b64 = base64.b64encode(b"# header").decode()
     assert _decode_file_text("README.md", "application/octet-stream", b64) == "# header"
 
@@ -213,17 +211,16 @@ def test_decode_file_text_invalid_b64_returns_none(
 
 
 def test_decode_file_text_latin1_fallback() -> None:
-    """Bytes that aren't UTF-8 but are valid latin-1 still decode."""
-    raw = bytes([0xC0, 0xC1, 0xC2])  # invalid UTF-8 lead bytes
+    """Fall back to latin-1 for non-UTF-8 bytes."""
+    raw = bytes([0xC0, 0xC1, 0xC2])
     b64 = base64.b64encode(raw).decode()
     out = _decode_file_text("x.txt", "text/plain", b64)
-    # latin-1 ALWAYS succeeds on any byte string, so we always get a result.
     assert isinstance(out, str)
     assert len(out) == 3
 
 
 def test_decode_file_text_csv_uses_csvloader() -> None:
-    """CSV files go through ``CSVLoader``, producing row-aware output."""
+    """Decode CSV files through CSVLoader."""
     raw = b"name,age\nAlice,30\nBob,25\n"
     b64 = base64.b64encode(raw).decode()
     out = _decode_file_text("people.csv", "text/csv", b64)
@@ -259,7 +256,7 @@ def test_decode_file_text_html_uses_bs_loader() -> None:
 def test_decode_file_text_loader_failure_falls_back_to_plain_decode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A loader exception drops through to the raw UTF-8 / latin-1 path."""
+    """Fall back to plain decode when the loader fails."""
     from openbb_agent_server.memory import ingestion
 
     def broken(*_a: object, **_kw: object) -> None:
@@ -475,8 +472,7 @@ async def test_ingest_translates_non_english_chunks() -> None:
         translator=translator,  # type: ignore[arg-type]
     )
     assert out > 0
-    assert translator.calls  # the translator was actually invoked
-    # The translated text appears in the stored body.
+    assert translator.calls
     assert any("HOLA-TRANSLATED" in w["text"] for w in store.writes)
 
 
@@ -510,7 +506,6 @@ async def test_ingest_translation_failure_falls_back_to_original(
 async def test_ingest_translation_skips_code_chunks() -> None:
     store = _FakeStore()
     translator = _StubTranslator()
-    # Code with high non-ascii density still skips translation (is_code wins).
     code = ("def f():\n" + "  # comment éèà ñ\n" + "  return 1\n") * 200
     file = _FakeFile(
         name="x.py",
@@ -564,7 +559,7 @@ async def test_ingest_continues_past_write_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     store = _FakeStore()
-    store.raise_on_call = 1  # second write blows up
+    store.raise_on_call = 1
     long_text = "a" * 3000
     file = _FakeFile(
         name="x.txt",
@@ -605,5 +600,4 @@ async def test_ingest_uploaded_file_without_name() -> None:
         chunk_overlap=50,
     )
     assert out > 0
-    # Label defaults to "uploaded_file".
     assert any("uploaded_file" in w["text"] for w in store.writes)

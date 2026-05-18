@@ -35,14 +35,12 @@ def test_mcp_local_explicit_command_args_env_persist() -> None:
         env={"FOO": "bar"},
     )
     assert src._command == "/opt/custom-mcp"  # noqa: SLF001
-    # Operator-supplied args replace the default — they're responsible
-    # for picking a transport that the spawn flow can actually talk to.
     assert src._args == ["--allowed-categories", "equity"]  # noqa: SLF001
     assert src._env == {"FOO": "bar"}  # noqa: SLF001
 
 
 def test_mcp_local_explicit_empty_args_is_respected() -> None:
-    """Pass ``args=[]`` explicitly to opt out of the stdio default"""
+    """Respect an explicit args=[] opting out of the stdio default."""
     src = LocalMcpToolSource(args=[])
     assert src._args == []  # noqa: SLF001
 
@@ -58,11 +56,9 @@ def test_mcp_local_resolves_command_from_venv_bin_when_path_lacks_it(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    """Critical fallback for sterile-PATH deployments: even if PATH"""
+    """Resolve the command from the venv bin when PATH lacks it."""
     import sys
 
-    # Stage a fake `openbb-mcp` next to a fake interpreter so the
-    # fallback resolver picks it up.
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake_interpreter = bin_dir / "python"
@@ -104,13 +100,10 @@ def test_resolve_config_file_uses_explicit_kwarg() -> None:
 def test_resolve_config_file_env_priority(monkeypatch: pytest.MonkeyPatch) -> None:
     from openbb_agent_server.plugins.tools.mcp_local import _resolve_config_file
 
-    # Lowest-priority slot
     monkeypatch.setenv("OPENBB_CONFIG", "/c.toml")
     assert _resolve_config_file(None) == "/c.toml"
-    # Mid-priority
     monkeypatch.setenv("OPENBB_AGENT_CONFIG", "/agent.toml")
     assert _resolve_config_file(None) == "/agent.toml"
-    # Top-priority mcp-specific override
     monkeypatch.setenv("OPENBB_AGENT_MCP_CONFIG", "/mcp.toml")
     assert _resolve_config_file(None) == "/mcp.toml"
 
@@ -164,19 +157,14 @@ def test_read_mcp_table_returns_empty_when_no_mcp_section(tmp_path) -> None:
 def test_read_mcp_table_swallows_invalid_path() -> None:
     from openbb_agent_server.plugins.tools.mcp_local import _read_mcp_table
 
-    # Non-existent path: bootstrap raises, helper returns empty.
     assert _read_mcp_table("/no/such/file.toml") == {}
-
-
-# Subprocess args plumbing — patch MultiServerMCPClient to capture
-# what we'd actually pass to ``openbb-mcp`` without spawning it.
 
 
 @pytest.mark.asyncio
 async def test_subprocess_args_force_stdio_transport(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """Even with no [mcp] config, --transport stdio is in the spawn args."""
+    """Include --transport stdio in the spawn args even with no [mcp] config."""
     captured: dict[str, object] = {}
 
     class _FakeClient:
@@ -190,7 +178,6 @@ async def test_subprocess_args_force_stdio_transport(
         "openbb_agent_server.plugins.tools.mcp_local.MultiServerMCPClient",
         _FakeClient,
     )
-    # Stage a fake CLI binary so _resolve_command finds it.
     fake_bin = tmp_path / "openbb-mcp"
     fake_bin.write_text("#!/bin/sh\nexit 0\n")
     fake_bin.chmod(0o755)
@@ -323,7 +310,7 @@ def test_mcp_http_accepts_supported_transports() -> None:
 
 
 def test_mcp_http_accepts_dash_form_transport() -> None:
-    """openbb-mcp's TOML uses 'streamable-http' (dash). We translate."""
+    """Translate the dash form 'streamable-http' from openbb-mcp's TOML."""
     src = HttpMcpToolSource(url="http://x", transport="streamable-http")
     assert src._transport == "streamable_http"  # noqa: SLF001
 
@@ -359,7 +346,7 @@ def test_mcp_http_build_url_with_explicit_scheme() -> None:
 
 
 def test_mcp_http_build_url_scheme_without_double_port() -> None:
-    """If the URL already has a port, don't append another."""
+    """Skip appending a port when the URL already has one."""
     from openbb_agent_server.plugins.tools.mcp_http import _build_url
 
     assert _build_url("https://mcp.example.com:8443", 9000, "streamable_http") == (
@@ -371,7 +358,7 @@ def test_mcp_http_build_url_scheme_without_double_port() -> None:
 async def test_mcp_http_composes_url_from_mcp_table(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    """When url= isn't given, mcp_http builds one from [mcp].host/port."""
+    """Build a URL from [mcp].host/port when url= isn't given."""
     captured: dict[str, object] = {}
 
     class _FakeClient:
@@ -487,7 +474,7 @@ async def test_mcp_http_forwards_ctx_api_keys_as_x_openbb_headers(
 async def test_mcp_http_raises_when_no_url_anywhere(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No url=, no [mcp] in the cascade → clear error message."""
+    """Raise a clear error when no url= and no [mcp] in the cascade."""
     from openbb_agent_server.plugins.tools.mcp_http import _CONFIG_FILE_ENVS
 
     for var in _CONFIG_FILE_ENVS:
@@ -513,7 +500,6 @@ def test_mcp_http_resolve_config_file_priority(
     assert _resolve_config_file(None) == "/c.toml"
     monkeypatch.setenv("OPENBB_AGENT_MCP_CONFIG", "/mcp.toml")
     assert _resolve_config_file(None) == "/mcp.toml"
-    # Explicit kwarg trumps env.
     assert _resolve_config_file("/explicit.toml") == "/explicit.toml"
 
 

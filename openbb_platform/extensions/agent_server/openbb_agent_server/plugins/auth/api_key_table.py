@@ -1,4 +1,4 @@
-"""``api_key_table`` auth backend."""
+"""API key table auth backend."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _now() -> _dt.datetime:
 
 
 class IssuedKey:
-    """Plaintext key + its row metadata. Returned by :meth:`issue`."""
+    """Plaintext key and its row metadata."""
 
     __slots__ = ("plaintext", "key_id", "user_id", "scopes", "label")
 
@@ -113,7 +113,7 @@ class ApiKeyTableAuthBackend(AuthBackend):
         display_name: str | None = None,
         email: str | None = None,
     ) -> IssuedKey:
-        """Mint a key. Upserts the user row and returns the plaintext key once."""
+        """Mint a key, upsert the user row, and return the plaintext key."""
         key_id = secrets.token_urlsafe(8)
         secret = secrets.token_urlsafe(32)
         hashed = self._hasher.hash(secret)
@@ -160,7 +160,7 @@ class ApiKeyTableAuthBackend(AuthBackend):
             return True
 
     async def list_keys(self, *, user_id: str | None = None) -> list[dict[str, Any]]:
-        """Return non-secret metadata for every key (or every key for one user)."""
+        """Return non-secret metadata for keys."""
         async with self._sessionmaker() as session:
             stmt = select(m.ApiKey)
             if user_id:

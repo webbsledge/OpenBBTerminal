@@ -41,6 +41,4 @@ def test_set_partial_then_overwrite() -> None:
 def test_extra_keys_pass_through() -> None:
     services.reset()
     services.set_services(custom_value=42)
-    # ``extra`` is intentionally a private surface; we just confirm the
-    # call path doesn't blow up when used.
     services.reset()

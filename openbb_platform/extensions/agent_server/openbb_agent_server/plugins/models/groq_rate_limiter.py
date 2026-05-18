@@ -1,4 +1,4 @@
-"""Groq rate limiter — RPM / RPD / TPM / TPD plus audio-seconds buckets."""
+"""Groq rate limiter."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from langchain_core.rate_limiters import BaseRateLimiter
 
 @dataclass(frozen=True)
 class GroqLimits:
-    """Published per-model quotas. ``None`` means "no published cap"."""
+    """Published per-model quotas."""
 
     rpm: int | None = None
     rpd: int | None = None
@@ -25,9 +25,7 @@ class GroqLimits:
     audio_per_day: int | None = None
 
 
-# Pulled directly from Groq's published rate-limits tables (chat + STT).
 GROQ_LIMITS: dict[str, GroqLimits] = {
-    # Chat / completion models.
     "llama-3.1-8b-instant": GroqLimits(rpm=30, rpd=14_400, tpm=6_000, tpd=500_000),
     "llama-3.3-70b-versatile": GroqLimits(rpm=30, rpd=1_000, tpm=12_000, tpd=100_000),
     "meta-llama/llama-4-scout-17b-16e-instruct": GroqLimits(
@@ -42,7 +40,6 @@ GROQ_LIMITS: dict[str, GroqLimits] = {
     "groq/compound": GroqLimits(rpm=30, rpd=250, tpm=70_000),
     "groq/compound-mini": GroqLimits(rpm=30, rpd=250, tpm=70_000),
     "allam-2-7b": GroqLimits(rpm=30, rpd=7_000, tpm=6_000, tpd=500_000),
-    # Speech-to-text models.
     "whisper-large-v3": GroqLimits(
         rpm=20, rpd=2_000, audio_per_hour=7_200, audio_per_day=28_800
     ),
@@ -51,13 +48,12 @@ GROQ_LIMITS: dict[str, GroqLimits] = {
     ),
 }
 
-# Conservative fallback for unlisted / preview models. Free-tier-shaped.
 _DEFAULT_LIMITS = GroqLimits(rpm=30, rpd=1_000, tpm=6_000, tpd=100_000)
 
 
 @dataclass
 class _Bucket:
-    """Token-bucket-style counter that refills over a fixed period."""
+    """Token-bucket counter that refills over a fixed period."""
 
     capacity: float
     period_seconds: float
@@ -227,7 +223,7 @@ class GroqRateLimiter(BaseRateLimiter):
 
 
 class _GroqUsageHandler(BaseCallbackHandler):
-    """Reads ``response.usage_metadata`` and feeds it into a limiter."""
+    """Read response usage metadata and feed it into a limiter."""
 
     raise_error = False
 
@@ -253,7 +249,7 @@ _CACHE_LOCK = threading.Lock()
 
 
 def get_limiter(*, api_key: str, model_name: str) -> GroqRateLimiter:
-    """Return the process-shared limiter for ``(api_key, model_name)``."""
+    """Return the process-shared limiter for a key and model."""
     cache_key = (api_key, model_name)
     with _CACHE_LOCK:
         existing = _LIMITER_CACHE.get(cache_key)
@@ -266,6 +262,6 @@ def get_limiter(*, api_key: str, model_name: str) -> GroqRateLimiter:
 
 
 def reset_cache() -> None:
-    """Test hook: drop every cached limiter so the next ``get_limiter`` rebuilds."""
+    """Drop every cached limiter."""
     with _CACHE_LOCK:
         _LIMITER_CACHE.clear()

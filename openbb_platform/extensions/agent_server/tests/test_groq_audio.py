@@ -1,4 +1,4 @@
-"""GroqAudioToolSource tests — argument validation + offline transport mock."""
+"""GroqAudioToolSource tests."""
 
 from __future__ import annotations
 
@@ -113,14 +113,11 @@ async def test_transcribe_uses_uploaded_file_and_records_audio_seconds(
     assert out["_groq"]["endpoint"] == "/audio/transcriptions"
     assert out["_groq"]["duration_seconds"] == 2.5
 
-    # Multipart body must contain exactly one response_format and the file
-    # part with the uploaded file's bytes + filename.
     body = captured["body"].decode("latin-1")
     assert body.count('name="response_format"') == 1
     assert "hello.wav" in body
     assert "FAKE-AUDIO-BYTES" in body
 
-    # Audio buckets debited by the API-reported duration.
     snap = get_limiter(api_key="k", model_name="whisper-large-v3-turbo").snapshot()
     assert snap["audio_seconds_per_hour_remaining"] == pytest.approx(
         7_200 - 2.5, abs=1.0
@@ -149,11 +146,10 @@ async def test_transcribe_includes_language_only_for_transcriptions(
 
     src = GroqAudioToolSource(api_key="k", default_language="en")
     [_tx, tr] = await src.tools(_ctx(files=(_mp3_ref(),)), {})
-    await tr.ainvoke({"audio_name": "hello.wav"})  # translate
+    await tr.ainvoke({"audio_name": "hello.wav"})
 
     body = captured["body"].decode("latin-1")
     assert "/audio/translations" in captured["url"]
-    # language is silently dropped for translations.
     assert 'name="language"' not in body
 
 
@@ -243,7 +239,7 @@ async def test_transcribe_retries_on_429_with_retry_after(
     out = await tx.ainvoke({"audio_name": "hello.wav"})
 
     assert out["text"] == "ok"
-    assert len(calls) == 2  # one 429, one success
+    assert len(calls) == 2
 
 
 async def test_transcribe_eventually_raises_after_exhausting_retries(
@@ -344,7 +340,7 @@ async def test_transcribe_audio_url_propagates_fetch_error(
 async def test_transcribe_uploaded_url_only_ref_is_fetched(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``FileRef.url`` (no inline base64) is fetched and forwarded."""
+    """Fetch and forward a URL-only FileRef."""
     reset_cache()
     sent: dict[str, Any] = {}
 
@@ -451,7 +447,6 @@ async def test_transcribe_text_response_format(
     [tx, _] = await src.tools(_ctx(files=(_mp3_ref(),)), {})
     out = await tx.ainvoke({"audio_name": "hello.wav", "response_format": "text"})
     assert out["text"] == "bare-transcript"
-    # Audio buckets stay full because no duration was returned.
     snap = out["_groq"]["rate_limiter_snapshot"]
     assert snap["audio_seconds_per_hour_remaining"] == pytest.approx(7_200, abs=1.0)
 
@@ -539,7 +534,7 @@ async def test_transcribe_4xx_other_than_429_raises_immediately(
     [tx, _] = await src.tools(_ctx(files=(_mp3_ref(),)), {})
     with pytest.raises(RuntimeError, match="HTTP 400"):
         await tx.ainvoke({"audio_name": "hello.wav"})
-    assert len(calls) == 1  # no retry on 400
+    assert len(calls) == 1
 
 
 async def test_transcribe_includes_optional_prompt(
@@ -574,7 +569,7 @@ async def test_transcribe_includes_optional_prompt(
 async def test_transcribe_429_with_invalid_retry_after_header_falls_back_to_backoff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-numeric retry-after triggers the exponential-backoff fallback."""
+    """Fall back to exponential backoff on a non-numeric retry-after."""
     reset_cache()
     calls: list[int] = []
 
@@ -608,7 +603,7 @@ async def test_transcribe_429_with_invalid_retry_after_header_falls_back_to_back
 async def test_tools_picks_up_per_call_config_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``tools(ctx, config)`` plumbs base_url / default_model / timeouts."""
+    """Plumb per-call config overrides through tools()."""
     reset_cache()
     captured: dict[str, Any] = {}
 
@@ -643,7 +638,6 @@ async def test_tools_picks_up_per_call_config_overrides(
     await tx.ainvoke({"audio_name": "hello.wav"})
     assert captured["url"].startswith("https://override.example/openai/v1")
     assert b'name="model"\r\n\r\nwhisper-large-v3' in captured["body"]
-    # default_language should land because we didn't pass language= in args.
     assert b'name="language"\r\n\r\nfr' in captured["body"]
 
 
@@ -666,14 +660,12 @@ async def test_tools_picks_api_key_from_per_call_config(
 
 
 async def test_resolve_audio_skips_files_with_other_names() -> None:
-    """File-loop iterates past entries whose name doesn't match."""
+    """Skip uploaded files whose name does not match."""
     reset_cache()
     src = GroqAudioToolSource(api_key="k")
     [tx, _] = await src.tools(
         _ctx(files=(_mp3_ref(name="other.wav"), _mp3_ref(name="hello.wav"))),
         {},
     )
-    # Whether or not the call succeeds depends on httpx, but reaching the
-    # post call means the loop stepped past 'other.wav' to find 'hello.wav'.
     with pytest.raises(Exception):  # noqa: B017 — any post-resolve failure is fine
         await tx.ainvoke({"audio_name": "hello.wav"})

@@ -1,4 +1,4 @@
-"""Google Gemini model provider (optional install: ``[google_genai]``)."""
+"""Google Gemini model provider."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from openbb_agent_server.runtime.plugins import ModelProvider
 
 
 class GoogleGenAIProvider(ModelProvider):
-    """Wraps :class:`langchain_google_genai.ChatGoogleGenerativeAI`."""
+    """Wrap ChatGoogleGenerativeAI."""
 
     name = "google_genai"
 

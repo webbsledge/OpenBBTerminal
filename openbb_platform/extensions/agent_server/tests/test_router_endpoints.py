@@ -1,4 +1,4 @@
-"""Coverage for the remaining router endpoints (memory, cancel, scope errors)."""
+"""Tests for the memory, cancel, and scope-error router endpoints."""
 
 from __future__ import annotations
 
@@ -57,8 +57,7 @@ def readonly_client(
 
 
 def _seed_memory(client: TestClient) -> str:
-    """Populate one memory by running a query that triggers memory write."""
-    # Direct insert via the memory store so we don't depend on the writer middleware.
+    """Populate one memory directly via the memory store."""
     history = client.app.state.history
     memory = client.app.state.memory
     import asyncio
@@ -135,7 +134,6 @@ def test_query_requires_agent_query_scope(
 
 
 def test_cancel_returns_run_ids_for_caller(client: TestClient) -> None:
-    # No active runs; cancel returns an empty list cleanly.
     resp = client.post("/v1/conversations/conv-cancel-1/cancel")
     assert resp.status_code == 202
     body = resp.json()
@@ -173,7 +171,7 @@ def test_messages_endpoint_returns_persisted_history(client: TestClient) -> None
 def test_list_messages_endpoint_returns_empty_for_unknown_conversation(
     client: TestClient,
 ) -> None:
-    """The ``/v1/conversations/{id}/messages`` endpoint round-trips."""
+    """The messages endpoint returns empty for an unknown conversation."""
     resp = client.get("/v1/conversations/no-such-conv/messages")
     assert resp.status_code == 200
     assert resp.json() == {"messages": []}

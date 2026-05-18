@@ -75,7 +75,6 @@ async def test_check_returns_running_snapshot(ctx: RunContext) -> None:
         job_id = get_registry().submit(slow(), label="slow")
         out = await check_tool.ainvoke({"job_id": job_id})
         assert out["state"] in (JobState.RUNNING.value, JobState.DONE.value)
-        # check() never includes the result — keeps the chip cheap.
         assert "result" not in out
         await get_registry().wait(job_id, timeout_s=1)
 
@@ -148,7 +147,7 @@ async def test_cancel_job_returns_false_when_already_done(ctx: RunContext) -> No
 
 
 def test_tool_source_is_registered_as_entry_point() -> None:
-    """The `background_jobs` group entry must point at this class."""
+    """Confirm the background_jobs group entry points at this class."""
     from importlib.metadata import entry_points
 
     eps = {

@@ -1,4 +1,4 @@
-"""``tool_message_normaliser`` middleware — strict human → assistant."""
+"""Tool message normaliser middleware."""
 
 from __future__ import annotations
 
@@ -23,14 +23,7 @@ logger = logging.getLogger("openbb_agent_server.middleware.tool_message_normalis
 
 
 def _to_openai_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
-    """Convert LangChain ``ToolCall`` list to OpenAI wire format.
-
-    ``langchain_nvidia_ai_endpoints/_utils.py:convert_message_to_dict``
-    only forwards ``additional_kwargs["tool_calls"]`` to the NIM wire,
-    completely ignoring the modern top-level ``AIMessage.tool_calls``
-    field. We mirror the calls into ``additional_kwargs`` in the
-    OpenAI wire shape so the lib's serializer picks them up.
-    """
+    """Convert a LangChain ToolCall list to OpenAI wire format."""
     out: list[dict[str, Any]] = []
     for tc in tool_calls or []:
         if isinstance(tc, dict):
@@ -58,16 +51,7 @@ def _to_openai_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
 
 
 def _valid_tool_calls(tool_calls: Any) -> list[Any]:
-    """Drop tool_calls with empty / missing ``name``.
-
-    Streaming aggregators (notably langchain-nvidia and the NIM
-    chunk parser) occasionally emit a stub tool_call entry with
-    ``name=''`` before the real name token arrives, then never
-    backfill it. If we forward that to Mistral Large 3, the
-    server-side parser collapses the entire ``tool_calls`` list
-    to ``None`` and the assistant message is rejected as
-    ``content='' tool_calls=None``.
-    """
+    """Drop tool_calls with empty or missing name."""
     if not tool_calls:
         return []
     out: list[Any] = []
@@ -88,7 +72,6 @@ def _content_str(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        # ``content_blocks`` form — concatenate text blocks.
         parts: list[str] = []
         for block in content:
             if isinstance(block, str):
@@ -106,17 +89,9 @@ def _content_str(content: Any) -> str:
 def _strict_human_assistant(  # noqa: PLR0912
     messages: list[Any], *, preserve_tool_role: bool = False
 ) -> list[Any]:
-    """Reduce the message list to strict human → assistant.
-
-    ``preserve_tool_role=True`` keeps ``ToolMessage``s with their
-    ``tool_call_id`` intact — used for providers that strictly require
-    ``role: "tool"`` pairing (Mistral Large 3 specifically). The
-    default (``False``) flattens them into a ``HumanMessage`` carrying
-    the tool result as text, which is the behavior every other NIM
-    model in the stack was tested against.
-    """
+    """Reduce the message list to strict human and assistant turns."""
     out: list[Any] = []
-    pending_tool_payloads: list[tuple[str, str]] = []  # (tool_name, content)
+    pending_tool_payloads: list[tuple[str, str]] = []
 
     def _push_pending_as_human() -> None:
         nonlocal pending_tool_payloads
@@ -137,10 +112,6 @@ def _strict_human_assistant(  # noqa: PLR0912
             if not payload:
                 continue
             if preserve_tool_role:
-                # Mistral path: emit the ToolMessage verbatim so the
-                # serializer renders it as ``{role:"tool",
-                # tool_call_id:..., content:...}`` and the strict
-                # function-call/response pairing invariant holds.
                 out.append(
                     ToolMessage(
                         content=payload,
@@ -153,31 +124,12 @@ def _strict_human_assistant(  # noqa: PLR0912
             pending_tool_payloads.append((name, payload))
             continue
         if isinstance(m, AIMessage):
-            # Flush any pending tool results AS A HUMAN TURN before
-            # this AI turn so the model sees "(X result) → I now call Y".
             _push_pending_as_human()
             text = _content_str(m.content).strip()
             raw_tool_calls = _valid_tool_calls(getattr(m, "tool_calls", []) or [])
             if not text and not raw_tool_calls:
                 continue
-            # CRITICAL: keep the structured ``tool_calls`` field intact.
-            # Earlier versions of this middleware appended a textual
-            # ``"(called <tool>)"`` marker AND dropped the tool_calls
-            # field — that poisoned the conversation history (the next
-            # model invocation read the marker as plain text and
-            # imitated the pattern, emitting ``"(called search_pdf)"``
-            # in prose instead of producing a structured tool_call).
-            # Preserve the structured field so the chat template /
-            # downstream model gets a real tool-call signal.
             new_kwargs = dict(getattr(m, "additional_kwargs", {}) or {})
-            # ``langchain_nvidia_ai_endpoints`` only forwards
-            # ``additional_kwargs["tool_calls"]`` to the NIM wire (it
-            # ignores the top-level ``AIMessage.tool_calls`` field).
-            # Mirror our calls into additional_kwargs in OpenAI wire
-            # shape so Mistral / Nemotron / etc receive them. Without
-            # this, tool_calls vanish silently between the agent loop
-            # and the NIM endpoint, and Mistral 400s with
-            # ``Invalid assistant message: content='' tool_calls=None``.
             if raw_tool_calls:
                 new_kwargs["tool_calls"] = _to_openai_tool_calls(raw_tool_calls)
             else:
@@ -201,26 +153,15 @@ def _strict_human_assistant(  # noqa: PLR0912
             combined = f"{prefix_blocks}\n\n{text}".strip() if prefix_blocks else text
             out.append(HumanMessage(content=combined))
             continue
-        # Unknown message — treat content as user input.
         text = _content_str(getattr(m, "content", None)).strip()
         if text:
             _push_pending_as_human()
             out.append(HumanMessage(content=text))
 
-    # Flush any trailing tool results so they aren't lost.
     _push_pending_as_human()
 
-    # Pass 2 — merge consecutive same-role turns so the chat
-    # template sees strict alternation. When merging two AIMessages
-    # we keep the UNION of their structured ``tool_calls`` so the
-    # model doesn't lose them.
     merged: list[Any] = []
     for m in out:
-        # ``ToolMessage``s NEVER merge — each carries its own
-        # ``tool_call_id`` paired to a distinct assistant tool_call,
-        # and merging would both lose the pairing and crash the
-        # constructor (``ToolMessage(content=...)`` without
-        # tool_call_id raises ``KeyError: 'tool_call_id'``).
         if isinstance(m, ToolMessage):
             merged.append(m)
             continue
@@ -251,33 +192,19 @@ def _strict_human_assistant(  # noqa: PLR0912
         else:
             merged.append(m)
 
-    # Pass 3 — drop any AIMessage that's empty on BOTH axes (no text
-    # content AND no tool_calls). Most providers tolerate empty
-    # assistant turns silently, but Mistral Large 3 rejects them
-    # with ``Invalid assistant message: content='' tool_calls=None``.
-    # These show up in history when the model returns
-    # ``finish_reason=stop`` with no body — e.g. when a previous turn
-    # ran out of tokens or was short-circuited by ``call_limit`` /
-    # ``loop_guard``.
     cleaned: list[Any] = []
     for m in merged:
         if isinstance(m, AIMessage):
             text_ok = bool(_content_str(m.content).strip())
             calls_ok = bool(_valid_tool_calls(getattr(m, "tool_calls", None) or []))
             if not text_ok and not calls_ok:
-                # Unreachable in practice: pass 1 already drops every
-                # AIMessage empty on both axes before append, and
-                # pass 2's merge always unions valid ``tool_calls`` or
-                # joins non-empty text — so ``merged`` never holds an
-                # empty AIMessage. Kept as defense-in-depth for the
-                # Mistral "no empty assistant turn" invariant.
                 continue  # pragma: no cover
         cleaned.append(m)
     return cleaned
 
 
 def _dedupe_tool_calls(response: Any) -> Any:
-    """Collapse identical ``tool_calls`` in one AIMessage to a single call."""
+    """Collapse identical tool_calls in one AIMessage to a single call."""
     import json as _json
 
     if response is None:
@@ -311,7 +238,6 @@ def _dedupe_tool_calls(response: Any) -> Any:
     try:
         response.tool_calls = unique
     except (AttributeError, TypeError):
-        # Immutable model — fall back to copying.
         from langchain_core.messages import AIMessage
 
         if isinstance(response, AIMessage):
@@ -325,7 +251,7 @@ def _dedupe_tool_calls(response: Any) -> Any:
 
 
 def _dump_messages(messages: list[Any], where: str) -> None:
-    """Diagnostic — TRACE-log every message about to be sent to the model."""
+    """TRACE-log every message about to be sent to the model."""
     if not logger.isEnabledFor(TRACE):
         return
     for i, m in enumerate(messages):
@@ -344,13 +270,7 @@ def _dump_messages(messages: list[Any], where: str) -> None:
 
 
 def _wants_tool_role(request: Any) -> bool:
-    """Return True when the request's model needs strict ``role:"tool"`` pairing.
-
-    Some providers (Mistral Large 3) strictly require ``role:"tool"``
-    responses paired by ``tool_call_id`` and 400 with ``Not the same
-    number of function calls and responses`` if we flatten them into
-    HumanMessages. Detect those by model-name substring.
-    """
+    """Return True when the request's model needs strict tool-role pairing."""
     model = getattr(request, "model", None)
     name = getattr(model, "model", None) or getattr(model, "model_name", None) or ""
     return "mistral" in str(name).lower()
