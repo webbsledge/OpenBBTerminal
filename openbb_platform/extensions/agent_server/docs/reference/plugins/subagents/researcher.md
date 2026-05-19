@@ -31,7 +31,7 @@ The plugin entry-point class. Class attributes mirror the deepagents `SubAgent` 
 
 ### `def factory(**_config)`
 
-Legacy dict factory. Returns the same fields as the class — kept for backwards compatibility with profiles that reference a plain callable rather than the class. New profiles should reference the class directly.
+Dict-factory form — returns the same fields as the class, for profiles that reference a plain callable rather than the class.
 
 ## How to register
 

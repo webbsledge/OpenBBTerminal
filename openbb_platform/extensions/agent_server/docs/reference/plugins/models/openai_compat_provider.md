@@ -34,7 +34,7 @@ Keyword-only. `base_url` and `model_name` are required and raise `ValueError` if
 | `max_retries` | `int` | `2` | `>= 0`. |
 | `reasoning_effort` | `str \| None` | `None` | One of `{"none", "minimal", "low", "medium", "high"}`. Native ChatOpenAI field on recent versions; harmless when the backend ignores it. |
 | `reasoning_budget` | `int \| None` | `None` | NIM / vLLM thinking-token cap. `-1` disables enforcement; `>= 0` is a hard cap. Forwarded via `model_kwargs`. |
-| `chat_template_kwargs` | `dict[str, Any] \| None` | `None` | Top-level field vLLM / NIM forward into the chat-template render — legacy path for `reasoning_budget`. Forwarded via `model_kwargs`. |
+| `chat_template_kwargs` | `dict[str, Any] \| None` | `None` | Top-level field vLLM / NIM forward into the chat-template render — path for `reasoning_budget`. Forwarded via `model_kwargs`. |
 | `default_headers` | `dict[str, str] \| None` | `None` | Per-request headers. |
 | `default_query` | `dict[str, Any] \| None` | `None` | Per-request query-string params (e.g. API versioning). |
 | `streaming` | `bool` | `True` | SSE deltas. |

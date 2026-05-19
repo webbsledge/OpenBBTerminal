@@ -29,6 +29,7 @@ One markdown file per Python module in `openbb_agent_server/`. Layout mirrors th
 
 ## [`protocol/`](protocol/index.md) — wire types
 
+- [`wire-contract`](protocol/wire-contract.md) — the explicit Workspace ⇄ agent-server contract: `agents.json` + `/v1/query` request/response shapes, every field and type, all artifact types, emission ordering.
 - [`protocol.schemas`](protocol/schemas.md) — Pydantic models (`QueryRequest`, `MessageChunkSSE`, `StatusUpdateSSE`, `FunctionCallSSE`, `MessageArtifactSSE`, `CitationsSSE`).
 - [`protocol.adapter`](protocol/adapter.md) — translate DeepAgents stream events into OpenBB SSE.
 - [`protocol.sse`](protocol/sse.md) — SSE encoding helpers.

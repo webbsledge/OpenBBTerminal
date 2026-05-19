@@ -28,6 +28,8 @@ The agent server is a FastAPI app that translates the [OpenBB Workspace custom-a
 
 ## Wire protocol
 
+The full request/response contract — every field, type, and artifact shape — is in [`reference/protocol/wire-contract.md`](../reference/protocol/wire-contract.md). This section is the overview.
+
 ### `GET /agents.json`
 
 Returns per-profile metadata:

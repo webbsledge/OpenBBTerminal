@@ -29,7 +29,7 @@ _CONFIG_FILE_ENVS: tuple[str, ...] = (
 
 def _resolve_command(command: str) -> str | None:
     """Resolve a command via which, the venv bin dir, or the literal path."""
-    if os.path.sep in command:
+    if os.sep in command or (os.altsep is not None and os.altsep in command):
         return command if Path(command).is_file() else None
     found = shutil.which(command)
     if found:

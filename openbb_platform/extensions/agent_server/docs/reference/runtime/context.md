@@ -44,9 +44,9 @@ Bundles identity + request payload for one `/v1/query` exchange. Bound on a cont
 | `api_keys` | `dict[str, str]` | `{}` | Per-request keys forwarded by Workspace; takes precedence over env vars. |
 | `api_urls` | `dict[str, str]` | `{}` | Per-request base URLs. |
 | `tools` | `tuple[dict, ...]` | `()` | The user's enabled MCP tool list (when `mcp-tools` feature is on). |
-| `workspace_options` | `frozenset[str]` | `frozenset()` | User-toggled custom features (e.g. `deep-research`, `search-web`). Test with `ctx.has_workspace_option("X")`. |
+| `workspace_options` | `dict[str, Any]` | `{}` | Custom-feature option values keyed by id (`{"search-web": True, "model": "gpt-4o"}`). Read a value directly, or test a toggle with `ctx.has_workspace_option("X")`. |
 
-`has_workspace_option(slug: str) -> bool` is a convenience helper for the last field.
+`has_workspace_option(slug: str) -> bool` returns `True` only when the option's value is truthy — a toggle the user left off arrives as `False`.
 
 ## Contextvars
 

@@ -22,7 +22,7 @@ Keyword-only. Validation in `__init__` via [`_validation.py`](_validation.md): `
 | `api_key` | `str \| None` | `None` | Static fallback. See API-key resolution. |
 | `base_url` | `str \| None` | `None` | For self-hosted NIM. Omit for the public NVIDIA API. |
 | `temperature` | `float` | `0.0` | `[0, 2]`. |
-| `max_tokens` | `int \| None` | `None` | NIM legacy name. `>= 1`. |
+| `max_tokens` | `int \| None` | `None` | Older NIM name for the completion cap. `>= 1`. |
 | `max_completion_tokens` | `int \| None` | `None` | Reasoning-model spelling, aliased to `max_tokens`. If both are set, `max_tokens` wins. Forwarded as `max_completion_tokens` (avoids ChatNVIDIA's deprecation warning). |
 | `top_p` | `float \| None` | `None` | `[0, 1]`. |
 | `frequency_penalty` | `float \| None` | `None` | `[-2, 2]`. Forwarded via `model_kwargs`. |
@@ -32,7 +32,7 @@ Keyword-only. Validation in `__init__` via [`_validation.py`](_validation.md): `
 | `streaming` | `bool` | `True` | Translated to ChatNVIDIA's inverted `disable_streaming` at build time. |
 | `reasoning_effort` | `str \| None` | `None` | One of `{"none", "low", "medium", "high"}`. Forwarded via `model_kwargs`. |
 | `reasoning_budget` | `int \| None` | `None` | Max thinking tokens; `-1` disables enforcement. Forwarded via `model_kwargs`. Most useful paired with `reasoning_effort="high"`. |
-| `chat_template_kwargs` | `dict[str, Any] \| None` | `None` | Legacy path for `reasoning_budget` on older NIM builds. Forwarded via `model_kwargs`. |
+| `chat_template_kwargs` | `dict[str, Any] \| None` | `None` | Path for `reasoning_budget` on older NIM builds. Forwarded via `model_kwargs`. |
 | `default_headers` | `dict[str, str] \| None` | `None` | Per-request headers (e.g. `X-Tenant`). |
 | `extra_body` | `dict[str, Any] \| None` | `None` | Body-field passthrough merged into `model_kwargs`. |
 | `model_kwargs` | `dict[str, Any] \| None` | `None` | Body-field passthrough merged into `model_kwargs`. Wins on collision with `extra_body`. |
@@ -83,6 +83,6 @@ presence_penalty = 0.0
 - `streaming` is inverted at build time because ChatNVIDIA's native field is `disable_streaming` — the provider exposes the normal positive flag and translates.
 - Non-native fields (`frequency_penalty`, `presence_penalty`, `reasoning_effort`, `reasoning_budget`, `chat_template_kwargs`) are merged into `kwargs["model_kwargs"]` manually so langchain's auto-transfer warning does not fire. Collision precedence (highest wins): user `model_kwargs` > `chat_template_kwargs` slot > per-field slots > `extra_body`.
 - `_silence_unknown_tools_warning` is best-effort: if ChatNVIDIA's internal `_client.model.supports_tools` attribute moves or disappears in a future release, the override is a no-op and the worst case is the warning we tried to silence reappears.
-- The legacy `max_tokens` field is auto-mapped to `max_completion_tokens` on the wire so newer reasoning models work without changing the profile.
+- The `max_tokens` field is auto-mapped to `max_completion_tokens` on the wire so newer reasoning models work without changing the profile.
 
 See also: [`writing-a-model-provider.md`](../../../developing/writing-a-model-provider.md), [`../../operating/configuration.md`](../../../operating/configuration.md), [`../../runtime/plugins.md`](../../runtime/plugins.md).

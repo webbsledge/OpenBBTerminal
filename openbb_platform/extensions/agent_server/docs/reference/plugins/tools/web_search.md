@@ -18,7 +18,7 @@ Plugin entry-point name: `web_search`. `tools(ctx, config)` registers one `Struc
 
 Constructor argument `provider` (or `[agent.tool_source_config.web_search].provider`) picks the backend:
 
-- `"duckduckgo"` (default) — uses `ddgs.DDGS` (falling back to the legacy `duckduckgo_search.DDGS`). No API key. Emits one `reasoning_step` before the call: `web_search: '<query>' provider=duckduckgo k=<k>`.
+- `"duckduckgo"` (default) — uses `ddgs.DDGS` (falling back to `duckduckgo_search.DDGS`). No API key. Emits one `reasoning_step` before the call: `web_search: '<query>' provider=duckduckgo k=<k>`.
 - `"tavily"` — uses `tavily.TavilyClient`. Requires `TAVILY_API_KEY` in `ctx.api_keys`; raises `RuntimeError` at tool-build time if missing. No reasoning step (the backend is silent because the implementation path is exercised only when the key is forwarded).
 
 Both backends share the same result shape: a list of `{title, url, snippet}` dicts. Empty fields are normalised to empty strings.

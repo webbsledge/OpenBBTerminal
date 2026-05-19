@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
 
 MessageRole = Literal["human", "ai", "tool"]
 
@@ -86,7 +86,7 @@ class QueryRequest(BaseModel):
     api_keys: dict[str, Any] = Field(default_factory=dict)
     api_urls: dict[str, Any] = Field(default_factory=dict)
 
-    workspace_options: list[str] = Field(default_factory=list)
+    workspace_options: dict[str, Any] = Field(default_factory=dict)
 
     timezone: str | None = None
 
@@ -95,6 +95,16 @@ class QueryRequest(BaseModel):
     force_web_search: bool | None = None
     workspace_state: dict[str, Any] | None = None
     tools: list[dict[str, Any]] | None = None
+
+    @field_validator("workspace_options", mode="before")
+    @classmethod
+    def _coerce_workspace_options(cls, value: Any) -> Any:
+        """Normalise ``workspace_options`` to an option-id-keyed dict."""
+        if value is None:
+            return {}
+        if isinstance(value, list):
+            return {str(item): True for item in value}
+        return value
 
 
 class BaseSSE(BaseModel):

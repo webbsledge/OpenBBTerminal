@@ -17,7 +17,7 @@ Plugin entry-point name: `tool_call_announcer`. Enabled by default.
 - `awrap_tool_call` runs before the tool handler. It extracts the tool name from `request.tool_name` or `request.tool_call["name"]`, flattens `request.tool_call["args"]` into a string-keyed dict, and emits one `INFO` reasoning step titled `"Calling tool: <name>"` with the args as detail rows.
 - Long arg values are clipped to `_MAX_ARG_VALUE_LEN = 400` chars with a trailing ellipsis. Workspace's status-detail panel renders dict entries as plain key/value rows of strings; oversized blobs (page text, embeddings, etc.) blow out the panel.
 - Non-string args are JSON-encoded via `json.dumps(..., default=str)`; `None` becomes `""`.
-- `ToolCall` shape detection handles both the LangChain v1 dict form and the legacy attribute form (`getattr(tc, "name", None)`).
+- `ToolCall` shape detection handles both the LangChain v1 dict form and the attribute form (`getattr(tc, "name", None)`).
 - On exception the announcer emits a second reasoning step with `event_type="ERROR"`, the exception message in the title, and `tool_name` in detail — then re-raises. `GraphBubbleUp` is re-raised without an extra step so checkpoint-bubble flows don't read as errors in the UI.
 - Detail dict always starts with `tool_name` so the panel row order is deterministic.
 

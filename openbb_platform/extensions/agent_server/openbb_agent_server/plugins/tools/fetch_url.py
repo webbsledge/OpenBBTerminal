@@ -231,7 +231,7 @@ class FetchUrlToolSource(ToolSource):
                 "fetch_url: %r feature not enabled (workspace_options=%r); "
                 "skipping tool registration",
                 _FEATURE_SLUG,
-                sorted(ctx.workspace_options),
+                dict(ctx.workspace_options),
             )
             return []
         return [

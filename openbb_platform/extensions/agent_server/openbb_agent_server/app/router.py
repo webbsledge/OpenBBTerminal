@@ -1418,9 +1418,7 @@ def build_router(
                 if v is not None
             },
             tools=tuple(dict(t) for t in (body.tools or [])),
-            workspace_options=frozenset(
-                str(opt) for opt in (body.workspace_options or [])
-            ),
+            workspace_options=dict(body.workspace_options),
         )
 
         await history.begin_trace(

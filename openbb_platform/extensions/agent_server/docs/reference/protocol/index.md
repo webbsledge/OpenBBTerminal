@@ -8,6 +8,7 @@ Wire-protocol layer: typed SSE event shapes, the DeepAgents-to-SSE adapter, and 
 
 | Page | What it covers |
 | --- | --- |
+| [`wire-contract.md`](wire-contract.md) | The explicit Workspace ⇄ agent-server contract — `GET /agents.json` and `POST /v1/query` request/response shapes by example, every field with its type, all artifact types, and the emission/ordering + client-side round-trip rules. |
 | [`schemas.md`](schemas.md) | Every typed event variant — `MessageChunkSSE`, `StatusUpdateSSE`, `FunctionCallSSE`, `MessageArtifactSSE`, `CitationCollectionSSE` — plus `QueryRequest`, `Citation`, `ClientArtifact`. |
 | [`adapter.md`](adapter.md) | `DeepAgentEventAdapter` — the streaming translator. Handles `<thinking>` splitting, gpt-oss Harmony-format leak suppression, retroactive prose reclassification when the upstream NVIDIA adapter strips the opening `<think>` tag, and citation buffering. |
 | [`sse.md`](sse.md) | `encode_event` / `encode_stream` — UTF-8 SSE frame encoders. |

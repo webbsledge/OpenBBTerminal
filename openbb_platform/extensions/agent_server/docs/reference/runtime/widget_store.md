@@ -57,7 +57,7 @@ The view alias names come from `_slugify_table_name(widget_name | widget_uuid)`;
 Walk the wire-protocol messages and pull out `get_widget_data` results. Supports both:
 
 1. **Structured AI envelope.** `role:"ai"` with top-level `function` / `input_arguments` fields.
-2. **Legacy JSON-in-content.** `role:"ai"` with `content = '{"function": "get_widget_data", ...}'`.
+2. **JSON-in-content.** `role:"ai"` with `content = '{"function": "get_widget_data", ...}'`.
 
 For each AI envelope, looks at the following `role:"tool"` message and pairs its `data` payload with the envelope's `data_sources`. Tool-message-only payloads (no preceding AI envelope) are accepted as a fallback. When `data_sources` is missing entirely, falls back to `widget_ids` and synthesises minimal data sources so rows still get stored.
 

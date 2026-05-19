@@ -51,11 +51,16 @@ class RunContext(BaseModel):
     api_keys: dict[str, str] = Field(default_factory=dict)
     api_urls: dict[str, str] = Field(default_factory=dict)
     tools: tuple[dict[str, Any], ...] = ()
-    workspace_options: frozenset[str] = frozenset()
+    workspace_options: dict[str, Any] = Field(default_factory=dict)
 
     def has_workspace_option(self, slug: str) -> bool:
-        """Return True iff the user has enabled the named custom feature."""
-        return slug in self.workspace_options
+        """Return True iff the user has enabled the named custom feature.
+
+        ``workspace_options`` is option-id-keyed values; a feature counts
+        as enabled only when its value is truthy — a toggle left off
+        arrives as ``False``.
+        """
+        return bool(self.workspace_options.get(slug))
 
 
 _current: contextvars.ContextVar[RunContext | None] = contextvars.ContextVar(

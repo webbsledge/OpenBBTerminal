@@ -55,9 +55,11 @@ Inside a tool / middleware:
 ```python
 from openbb_agent_server.runtime import context as run_context
 ctx = run_context.current()
-if "deep-research" in ctx.workspace_options:
+if ctx.has_workspace_option("deep-research"):
     ...
 ```
+
+`workspace_options` is a `dict` of option values keyed by id — `has_workspace_option` returns `True` only when the value is truthy. Read a non-boolean option's value directly with `ctx.workspace_options.get("...")`.
 
 The built-in `search-web` and `fetch-url` features follow this same shape — each is a per-user toggle that gates the `web_search` and `fetch_url` tool sources respectively; see [Features](../operating/configuration.md#features).
 

@@ -22,10 +22,8 @@ _SQLITE_VAR_LIMIT = 500
 # parent table).
 _VECTOR_INDEXES = (("pdf_pages_vec", "pdf_pages_vec_vec", "doc_id", "pdf_documents"),)
 
-# The widget per-row vector index was removed — tabular data is queried
-# with SQL, not embeddings. Drop the legacy tables wholesale on an
-# existing database. (data table first so its trigger goes with it.)
-_LEGACY_VECTOR_TABLES = ("widget_rows_vec", "widget_rows_vec_vec")
+# Widget data is queried with SQL — these vector tables are dead weight.
+_WIDGET_VECTOR_TABLES = ("widget_rows_vec", "widget_rows_vec_vec")
 
 
 @dataclass
@@ -131,7 +129,7 @@ def _prune_history_vectors_sync(db_path: str, *, vacuum: bool) -> dict[str, int]
         conn.execute("PRAGMA busy_timeout=30000")
         if _table_exists(conn, "widget_rows_vec"):
             removed = conn.execute("SELECT COUNT(*) FROM widget_rows_vec").fetchone()[0]
-            for tbl in _LEGACY_VECTOR_TABLES:
+            for tbl in _WIDGET_VECTOR_TABLES:
                 if _table_exists(conn, tbl):
                     conn.execute(f"DROP TABLE {tbl}")  # noqa: S608
             counts["widget_rows_vec"] = int(removed)

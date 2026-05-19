@@ -75,7 +75,7 @@ Body of `POST /v1/query`.
 | `uploaded_files` | `list[UploadedFile]` | `[]` | Files attached this turn. |
 | `api_keys` | `dict` | `{}` | Per-request keys forwarded into `RunContext`. |
 | `api_urls` | `dict` | `{}` | Per-request base URLs. |
-| `workspace_options` | `list[str]` | `[]` | User-toggled custom features (`deep-research`, `search-web`, …). |
+| `workspace_options` | `dict[str, Any]` | `{}` | Custom-feature option values keyed by id (`{"search-web": true, …}`). |
 | `timezone` | `str \| None` | `None` | IANA TZ. |
 | `context` | `list[dict] \| None` | `None` | Additional Workspace-supplied context blobs. |
 | `urls` | `list[str] \| None` | `None` | URLs the agent should consider. |
