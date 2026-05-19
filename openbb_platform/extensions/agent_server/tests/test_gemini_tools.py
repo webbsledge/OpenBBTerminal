@@ -949,8 +949,8 @@ def test_retry_delay_skips_non_dict_entries() -> None:
     assert _retry_delay(_E()) == 3.0
 
 
-def test_retry_delay_returns_none_on_unparseable_seconds() -> None:
-    """Return None on an unparseable retryDelay string."""
+def test_retry_delay_returns_none_on_unparsable_seconds() -> None:
+    """Return None on an unparsable retryDelay string."""
     from openbb_agent_server.plugins.tools.gemini_image import _retry_delay
 
     class _E(Exception):

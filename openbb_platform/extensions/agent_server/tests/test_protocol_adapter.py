@@ -1088,9 +1088,9 @@ def test_thinking_splitter_holds_back_only_partial_tag_tail() -> None:
     from openbb_agent_server.protocol.adapter import _ThinkingStreamSplitter
 
     sp = _ThinkingStreamSplitter()
-    first = sp.feed("hello <thi")
+    first = sp.feed("hello <thin")
     assert first == [("prose", "hello ")]
-    second = sp.feed("nking>secret</thinking>tail")
+    second = sp.feed("king>secret</thinking>tail")
     channels = [c for c, _ in second]
     assert "thinking" in channels
     assert ("prose", "tail") in second
