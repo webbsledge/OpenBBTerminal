@@ -132,6 +132,39 @@ def test_query_request_minimal_payload_validates() -> None:
     )
     assert len(req.messages) == 1
     assert req.messages[0].role == "human"
+    assert req.workspace_options == {}
+
+
+def test_query_request_workspace_options_keyed_object_passes_through() -> None:
+    """The current Workspace shape — option values keyed by id."""
+    req = QueryRequest.model_validate(
+        {
+            "messages": [{"role": "human", "content": "hi"}],
+            "workspace_options": {"search-web": True, "fetch-url": False},
+        }
+    )
+    assert req.workspace_options == {"search-web": True, "fetch-url": False}
+
+
+def test_query_request_workspace_options_list_is_coerced() -> None:
+    """A ``list[str]`` of enabled ids coerces to ``{id: True}``."""
+    req = QueryRequest.model_validate(
+        {
+            "messages": [{"role": "human", "content": "hi"}],
+            "workspace_options": ["search-web", "deep-research"],
+        }
+    )
+    assert req.workspace_options == {"search-web": True, "deep-research": True}
+
+
+def test_query_request_workspace_options_null_coerces_to_empty() -> None:
+    req = QueryRequest.model_validate(
+        {
+            "messages": [{"role": "human", "content": "hi"}],
+            "workspace_options": None,
+        }
+    )
+    assert req.workspace_options == {}
 
 
 def test_chat_message_tool_role_carries_tool_call_id() -> None:
@@ -155,13 +188,13 @@ def test_chat_message_tool_role_can_carry_function_call_result_shape() -> None:
 
 
 def test_widget_spec_id_property_picks_uuid_over_widget_id() -> None:
-    w = WidgetSpec(uuid="u-1", widget_id="legacy-1")
+    w = WidgetSpec(uuid="u-1", widget_id="wid-1")
     assert w.id == "u-1"
 
 
 def test_widget_spec_id_falls_back_to_widget_id() -> None:
-    w = WidgetSpec(widget_id="legacy-1")
-    assert w.id == "legacy-1"
+    w = WidgetSpec(widget_id="wid-1")
+    assert w.id == "wid-1"
 
 
 def test_widget_spec_id_empty_when_neither_set() -> None:

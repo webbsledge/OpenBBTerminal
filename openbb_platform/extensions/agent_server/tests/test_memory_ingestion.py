@@ -210,8 +210,13 @@ def test_decode_file_text_invalid_b64_returns_none(
     assert any("base64 decode failed" in r.message for r in caplog.records)
 
 
-def test_decode_file_text_latin1_fallback() -> None:
-    """Fall back to latin-1 for non-UTF-8 bytes."""
+def test_decode_file_text_latin1_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fall back to latin-1 for non-UTF-8 bytes when no loader handles the file."""
+    from openbb_agent_server.memory import ingestion
+
+    monkeypatch.setattr(ingestion, "_load_via_loader", lambda path, ext: None)
     raw = bytes([0xC0, 0xC1, 0xC2])
     b64 = base64.b64encode(raw).decode()
     out = _decode_file_text("x.txt", "text/plain", b64)

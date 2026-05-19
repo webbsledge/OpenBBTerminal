@@ -24,9 +24,7 @@ def _ctx(
         run_id="r",
         conversation_id="c",
         api_keys=api_keys or {},
-        workspace_options=(
-            frozenset({"search-web"}) if search_enabled else frozenset()
-        ),
+        workspace_options={"search-web": True} if search_enabled else {},
     )
 
 
@@ -137,7 +135,7 @@ async def test_web_search_tool_runs_against_stubbed_provider(
         trace_id="t",
         run_id="r",
         conversation_id="c",
-        workspace_options=frozenset({"search-web"}),
+        workspace_options={"search-web": True},
     )
     src = WebSearchToolSource()
     [tool] = await src.tools(ctx, {})

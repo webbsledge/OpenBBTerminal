@@ -23,7 +23,7 @@ def _ctx(*, web: bool = True) -> RunContext:
         trace_id="t",
         run_id="r",
         conversation_id="c",
-        workspace_options=frozenset({"fetch-url"} if web else set()),
+        workspace_options={"fetch-url": True} if web else {},
     )
 
 
