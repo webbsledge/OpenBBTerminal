@@ -406,5 +406,13 @@ def test_remaining_collection_none_and_direct_classmethod_branches():
 
     assert str(EquityFtdData.date_validate(datetime(2024, 1, 1))) == "2024-01-01"
     assert Form13FHRData.validate_option_type("CALL") == "call"
-    assert FuturesHistoricalData.date_validate("2024-01-01T00:00:00").year == 2024
+    fh = FuturesHistoricalData(
+        date="2024-01-01T00:00:00",
+        open=None,
+        high=None,
+        low=None,
+        close=1,
+        volume=None,
+    )
+    assert fh.date.year == 2024
     assert ReportedFinancialsData.replace_zero({"a": 0, "b": 1}) == {"a": None, "b": 1}
