@@ -1441,3 +1441,20 @@ def test_fetch_openapi_final_parse_attempt_runs_when_landing_empty(monkeypatch):
     monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
     with pytest.raises((ValueError,)):
         openapi_schema.fetch_openapi("http://h")
+
+
+def test_fetch_openapi_rejects_non_dict_body(monkeypatch):
+    """A 200 response that parses to a string (not a dict) raises a clear error."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Resp:
+        status_code = 200
+        text = '"hello"'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", lambda *a, **k: _Resp())
+    with pytest.raises(ValueError, match="not an OpenAPI document"):
+        openapi_schema.fetch_openapi("http://h", path="/swagger/v1/swagger.json")

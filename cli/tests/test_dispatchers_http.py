@@ -467,6 +467,114 @@ async def test_dispatch_keeps_placeholder_when_param_missing():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_picks_longest_satisfied_url_template():
+    """When a command has multiple URL templates, pick the longest one whose placeholders are filled."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={
+            "x": [
+                "/api/ratings/historical/{country}",
+                "/api/ratings/historical/{country}/{d1}/{d2}",
+            ]
+        },
+    )
+    try:
+        await d.dispatch(
+            Request(
+                command="x",
+                params={"country": "USA", "d1": "2024-01-01", "d2": "2024-12-31"},
+            )
+        )
+    finally:
+        await d.aclose()
+    assert "/api/ratings/historical/USA/2024-01-01/2024-12-31" in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_falls_back_to_shorter_template_when_extras_missing():
+    """When the longer template is missing extra path params, fall back to the shorter."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={
+            "x": [
+                "/api/ratings/historical/{country}",
+                "/api/ratings/historical/{country}/{d1}/{d2}",
+            ]
+        },
+    )
+    try:
+        await d.dispatch(Request(command="x", params={"country": "USA"}))
+    finally:
+        await d.aclose()
+    assert "/api/ratings/historical/USA" in captured["url"]
+    assert "{d1}" not in captured["url"]
+    assert "%7Bd1%7D" not in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_falls_back_to_no_placeholder_template_when_path_params_missing():
+    """When no path params are supplied, a placeholder-free template still wins."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={"x": ["/api/ratings", "/api/ratings/{country}"]},
+    )
+    try:
+        await d.dispatch(Request(command="x", params={}))
+    finally:
+        await d.aclose()
+    assert captured["url"].endswith("/api/ratings")
+
+
+def test_http_dispatcher_from_spec_uses_url_templates_when_present():
+    """The spec-doc factory routes ``url_templates`` through to the dispatcher."""
+    from openbb_cli.dispatchers.http import http_dispatcher_from_spec
+
+    spec_doc = {
+        "base_url": "http://h",
+        "api_prefix": "/api/v1",
+        "commands": {
+            "x": {
+                "method": "get",
+                "url_path": "/api/x",
+                "url_templates": ["/api/x", "/api/x/{id}"],
+            }
+        },
+    }
+    d = http_dispatcher_from_spec(spec_doc)
+    assert d._command_url_paths["x"] == ["/api/x", "/api/x/{id}"]
+
+
+@pytest.mark.asyncio
 async def test_dispatch_invokes_sync_auth_hook_and_merges_headers():
     """Sync hook returning headers/query gets merged into the request."""
     from openbb_cli.auth import AuthContext, AuthDecision

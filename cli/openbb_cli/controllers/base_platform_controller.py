@@ -140,10 +140,11 @@ class PlatformController(BaseController):
 
             sub_menu_translators = {}
             choices_commands = []
+            sub_prefix = f"{self._name}_{path}_"
 
             for translator_name, translator in self.translators.items():
-                if f"{self._name}_{path}" in translator_name:
-                    new_name = translator_name.replace(f"{self._name}_{path}_", "")
+                if translator_name.startswith(sub_prefix):
+                    new_name = translator_name[len(sub_prefix) :]
                     sub_menu_translators[new_name] = translator
                     choices_commands.append(new_name)
 

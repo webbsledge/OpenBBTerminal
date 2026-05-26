@@ -150,14 +150,98 @@ def _normalize_parameter(
     }
 
 
+def _build_operation_entry(
+    spec: dict[str, Any], url: str, method: str, op: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the per-URL command entry — params, providers, schemas."""
+    providers = _operation_providers(op)
+    providers_set = set(providers) if providers else None
+    params: list[dict[str, Any]] = []
+    for raw in op.get("parameters", []) or []:
+        resolved = deref_parameter(spec, raw) if isinstance(raw, dict) else raw
+        if not resolved:
+            continue
+        normalized = _normalize_parameter(resolved, providers_set)
+        if normalized is not None:
+            params.append(normalized)
+    return {
+        "url_path": url,
+        "method": method,
+        "description": (op.get("description") or op.get("summary") or "").strip(),
+        "parameters": params,
+        "providers": providers,
+        "request_body_schema": extract_request_body_schema(spec, op),
+        "response_schema": extract_response_schema(spec, op),
+        "response_schemas": extract_response_schemas(spec, op),
+    }
+
+
+def _merge_overload_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge URL overloads (same dotted name) into a single command entry.
+
+    Each variant URL is recorded in ``url_templates`` (sorted by path-placeholder
+    count, descending). All path params become optional on the merged command —
+    the dispatcher picks the longest URL template whose placeholders are
+    satisfied at call time. Query-/body- params are unioned by name; ``required``
+    holds only when the param is required in every variant where it appears.
+    """
+    entries = sorted(entries, key=lambda e: -_count_path_placeholders(e["url_path"]))
+    base = entries[-1]
+    by_name: dict[str, dict[str, Any]] = {}
+    seen_in_count: dict[str, int] = {}
+    for entry in entries:
+        for p in entry["parameters"]:
+            name = p["name"]
+            seen_in_count[name] = seen_in_count.get(name, 0) + 1
+            merged = by_name.setdefault(name, dict(p))
+            if not merged.get("help") and p.get("help"):
+                merged["help"] = p["help"]
+            if not merged.get("choices") and p.get("choices"):
+                merged["choices"] = list(p["choices"])
+            if merged.get("default") is None and p.get("default") is not None:
+                merged["default"] = p["default"]
+            if merged.get("example") is None and p.get("example") is not None:
+                merged["example"] = p["example"]
+    total_entries = len(entries)
+    merged_params: list[dict[str, Any]] = []
+    for name, merged in by_name.items():
+        if seen_in_count[name] < total_entries:
+            merged["required"] = False
+        merged_params.append(merged)
+    description = next(
+        (entry.get("description") for entry in entries if entry.get("description")),
+        "",
+    )
+    return {
+        "url_path": base["url_path"],
+        "url_templates": [entry["url_path"] for entry in entries],
+        "method": base["method"],
+        "description": description,
+        "parameters": merged_params,
+        "providers": base.get("providers", []),
+        "request_body_schema": base.get("request_body_schema"),
+        "response_schema": base.get("response_schema"),
+        "response_schemas": base.get("response_schemas"),
+    }
+
+
+def _count_path_placeholders(url: str) -> int:
+    """Count ``{placeholder}`` occurrences in a URL template."""
+    return url.count("{")
+
+
 def build_command_spec(
     spec: dict[str, Any], *, api_prefix: str = "/api/v1"
 ) -> dict[str, dict[str, Any]]:
-    """Return ``{dotted_command: {url_path, method, description, parameters[]}}``."""
-    out: dict[str, dict[str, Any]] = {}
+    """Return ``{dotted_command: {url_path, method, description, parameters[]}}``.
+
+    URLs that strip to the same dotted command (e.g. ``/x/{a}`` and
+    ``/x/{a}/{b}``) are merged into a single command entry whose
+    ``url_templates`` lists every variant. The dispatcher picks the longest
+    fully-satisfied template at call time.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
     for url, methods in spec.get("paths", {}).items():
-        method: str | None
-        op: dict[str, Any] | None
         if "get" in methods:
             method, op = "get", methods["get"]
         elif "post" in methods:
@@ -167,31 +251,12 @@ def build_command_spec(
         base_cmd = url_to_command(url, api_prefix=api_prefix)
         if not base_cmd:
             continue
-        cmd = base_cmd
-        suffix = 2
-        while cmd in out:
-            cmd = f"{base_cmd}_{suffix}"
-            suffix += 1
-        providers = _operation_providers(op)
-        providers_set = set(providers) if providers else None
-        params: list[dict[str, Any]] = []
-        for raw in op.get("parameters", []) or []:
-            resolved = deref_parameter(spec, raw) if isinstance(raw, dict) else raw
-            if not resolved:
-                continue
-            normalized = _normalize_parameter(resolved, providers_set)
-            if normalized is not None:
-                params.append(normalized)
-        out[cmd] = {
-            "url_path": url,
-            "method": method,
-            "description": (op.get("description") or op.get("summary") or "").strip(),
-            "parameters": params,
-            "providers": providers,
-            "request_body_schema": extract_request_body_schema(spec, op),
-            "response_schema": extract_response_schema(spec, op),
-            "response_schemas": extract_response_schemas(spec, op),
-        }
+        groups.setdefault(base_cmd, []).append(
+            _build_operation_entry(spec, url, method, op)
+        )
+    out: dict[str, dict[str, Any]] = {}
+    for cmd, entries in groups.items():
+        out[cmd] = entries[0] if len(entries) == 1 else _merge_overload_entries(entries)
     return out
 
 
@@ -286,6 +351,7 @@ class _CommandSpec(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     url_path: str
+    url_templates: list[str] | None = None
     method: str
     description: str | None = None
     parameters: list[_CommandParameter] = Field(default_factory=list)

@@ -643,18 +643,24 @@ def fetch_openapi(
     )
     if response.status_code < 400:
         try:
-            return _parse_spec_text(
-                response.text,
-                content_type=response.headers.get("content-type", ""),
+            return _ensure_openapi_dict(
+                _parse_spec_text(
+                    response.text,
+                    content_type=response.headers.get("content-type", ""),
+                ),
+                full_url,
             )
         except (json.JSONDecodeError, ValueError):
             pass
 
     if explicit_path:
         response.raise_for_status()
-        return _parse_spec_text(
-            response.text,
-            content_type=response.headers.get("content-type", ""),
+        return _ensure_openapi_dict(
+            _parse_spec_text(
+                response.text,
+                content_type=response.headers.get("content-type", ""),
+            ),
+            full_url,
         )
 
     landing_url = base_url.rstrip("/") + "/"
@@ -671,7 +677,22 @@ def fetch_openapi(
         return embedded
 
     response.raise_for_status()
-    return _parse_spec_text(
-        response.text,
-        content_type=response.headers.get("content-type", ""),
+    return _ensure_openapi_dict(
+        _parse_spec_text(
+            response.text,
+            content_type=response.headers.get("content-type", ""),
+        ),
+        full_url,
     )
+
+
+def _ensure_openapi_dict(parsed: Any, source_url: str) -> dict[str, Any]:
+    """Reject parsed bodies that aren't a JSON object (and thus can't be an OpenAPI doc)."""
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"{source_url!r} returned a "
+            f"{type(parsed).__name__}, not an OpenAPI document. "
+            "Pass --openapi-path to point at the real spec endpoint "
+            "(e.g. /swagger/v1/swagger.json)."
+        )
+    return parsed

@@ -691,21 +691,95 @@ def test_build_command_spec_skips_empty_command():
     assert build_command_spec(spec) == {}
 
 
-def test_build_command_spec_disambiguates_collisions_with_numeric_suffix():
-    """Two URLs that strip to the same dotted command get ``_2`` / ``_3`` suffixes."""
+def test_build_command_spec_merges_url_overloads():
+    """URLs that strip to the same dotted command merge into one entry with ``url_templates``."""
     spec = {
         "paths": {
             "/api/x/{a}": {"get": {"operationId": "first", "parameters": []}},
-            "/api/x/{b}/{c}": {"get": {"operationId": "second", "parameters": []}},
-            "/api/x/{d}": {"get": {"operationId": "third", "parameters": []}},
+            "/api/x/{a}/{b}": {"get": {"operationId": "second", "parameters": []}},
+            "/api/x/{c}/{d}": {"get": {"operationId": "third", "parameters": []}},
         }
     }
     out = build_command_spec(spec, api_prefix="/api")
-    keys = sorted(out.keys())
-    assert keys == ["x", "x_2", "x_3"]
-    assert out["x"]["url_path"] == "/api/x/{a}"
-    assert out["x_2"]["url_path"] == "/api/x/{b}/{c}"
-    assert out["x_3"]["url_path"] == "/api/x/{d}"
+    assert list(out.keys()) == ["x"]
+    entry = out["x"]
+    assert sorted(entry["url_templates"]) == sorted(
+        ["/api/x/{a}", "/api/x/{a}/{b}", "/api/x/{c}/{d}"]
+    )
+    assert entry["url_path"] == "/api/x/{a}"
+
+
+def test_build_command_spec_marks_overload_path_params_optional():
+    """Path params that only appear in some variants of an overload become optional."""
+    param_country = {
+        "name": "country",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    param_d1 = {
+        "name": "d1",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    param_d2 = {
+        "name": "d2",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    spec = {
+        "paths": {
+            "/api/ratings/historical/{country}": {
+                "get": {"parameters": [param_country]}
+            },
+            "/api/ratings/historical/{country}/{d1}/{d2}": {
+                "get": {"parameters": [param_country, param_d1, param_d2]}
+            },
+        }
+    }
+    out = build_command_spec(spec, api_prefix="/api")
+    entry = out["ratings.historical"]
+    by_name = {p["name"]: p for p in entry["parameters"]}
+    assert by_name["country"]["required"] is True
+    assert by_name["d1"]["required"] is False
+    assert by_name["d2"]["required"] is False
+
+
+def test_merge_overload_backfills_missing_param_metadata():
+    """When one overload entry omits help/choices/default/example, fill from a sibling."""
+    long_param = {
+        "name": "fmt",
+        "in": "query",
+        "required": False,
+        "schema": {"type": "string"},
+    }
+    short_param = {
+        "name": "fmt",
+        "in": "query",
+        "required": False,
+        "description": "Response format.",
+        "schema": {
+            "type": "string",
+            "enum": ["json", "csv"],
+            "default": "json",
+            "example": "json",
+        },
+    }
+    spec = {
+        "paths": {
+            "/api/x/{a}/{b}": {"get": {"parameters": [long_param]}},
+            "/api/x/{a}": {"get": {"parameters": [short_param]}},
+        }
+    }
+    out = build_command_spec(spec, api_prefix="/api")
+    by_name = {p["name"]: p for p in out["x"]["parameters"]}
+    fmt = by_name["fmt"]
+    assert fmt["help"] == "Response format."
+    assert fmt["choices"] == ["json", "csv"]
+    assert fmt["default"] == "json"
+    assert fmt["example"] == "json"
 
 
 def test_parse_command_argv_drops_none_params():

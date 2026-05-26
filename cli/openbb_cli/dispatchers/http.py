@@ -460,7 +460,7 @@ class HttpDispatcher:
         timeout: float = 60.0,
         api_prefix: str = "/api/v1",
         command_methods: dict[str, str] | None = None,
-        command_url_paths: dict[str, str] | None = None,
+        command_url_paths: dict[str, str | list[str]] | None = None,
         headers: dict[str, str] | None = None,
         query_params: dict[str, str] | None = None,
         spec_doc: dict[str, Any] | None = None,
@@ -477,7 +477,10 @@ class HttpDispatcher:
             self._client = None
             self._owns_client = True
         self._command_methods = command_methods or {}
-        self._command_url_paths = command_url_paths or {}
+        self._command_url_paths: dict[str, list[str]] = {
+            cmd: [paths] if isinstance(paths, str) else list(paths)
+            for cmd, paths in (command_url_paths or {}).items()
+        }
         self._headers = dict(headers) if headers else {}
         self._query_params = dict(query_params) if query_params else {}
         self._spec_doc = spec_doc or {}
@@ -492,12 +495,30 @@ class HttpDispatcher:
     def _resolve_url(
         self, command: str, params: dict[str, Any]
     ) -> tuple[str, dict[str, Any]]:
-        """Build the URL for ``command`` and split path-substituted params off."""
-        template = self._command_url_paths.get(command)
-        if template is None:
+        """Build the URL for ``command`` and split path-substituted params off.
+
+        When multiple URL templates exist for the command (overloads merged at
+        spec-build time), pick the one with the most path placeholders that are
+        all satisfied by ``params``; fall back to the shortest template otherwise.
+        """
+        templates = self._command_url_paths.get(command)
+        if not templates:
             return self._url_for(command), self._apply_param_transforms(
                 command, dict(params)
             )
+
+        ordered = sorted(templates, key=lambda t: -t.count("{"))
+        chosen: str | None = None
+        for template in ordered:
+            placeholders = _PATH_TEMPLATE_RE.findall(template)
+            if not placeholders:
+                chosen = template
+                break
+            if all(params.get(key) not in (None, "") for key in placeholders):
+                chosen = template
+                break
+        if chosen is None:
+            chosen = ordered[-1]
 
         consumed: set[str] = set()
 
@@ -509,7 +530,7 @@ class HttpDispatcher:
                 return match.group(0)
             return str(value)
 
-        path = _PATH_TEMPLATE_RE.sub(_substitute, template)
+        path = _PATH_TEMPLATE_RE.sub(_substitute, chosen)
         remaining = {k: v for k, v in params.items() if k not in consumed}
         return f"{self._base_url}{path}", self._apply_param_transforms(
             command, remaining
@@ -959,9 +980,13 @@ def http_dispatcher_from_spec(
     """Build an ``HttpDispatcher`` from a loaded ``.spec`` document."""
     commands = spec_doc.get("commands", {})
     methods = {cmd: meta.get("method", "post") for cmd, meta in commands.items()}
-    url_paths = {
-        cmd: meta["url_path"] for cmd, meta in commands.items() if meta.get("url_path")
-    }
+    url_paths: dict[str, str | list[str]] = {}
+    for cmd, meta in commands.items():
+        templates = meta.get("url_templates")
+        if templates:
+            url_paths[cmd] = list(templates)
+        elif meta.get("url_path"):
+            url_paths[cmd] = meta["url_path"]
     return HttpDispatcher(
         spec_doc["base_url"],
         api_prefix=spec_doc.get("api_prefix", "/api/v1"),
