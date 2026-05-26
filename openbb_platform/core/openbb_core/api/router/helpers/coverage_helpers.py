@@ -4,7 +4,8 @@ from collections.abc import Callable
 from inspect import _empty, signature
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field, FieldInfo, create_model
+from pydantic import BaseModel, Field, create_model
+from pydantic.fields import FieldInfo
 
 from openbb_core.app.provider_interface import ProviderInterface
 
