@@ -264,7 +264,9 @@ class PlatformController(BaseController):
                                         f"[red]Display error: {e}[/red]"
                                     )
                                     if hasattr(obbject, "model_dump"):
-                                        results = obbject.model_dump().get("results")
+                                        results = obbject.model_dump(
+                                            exclude_unset=True, exclude_none=True
+                                        ).get("results")
                                         session.console.print(results)
 
                         elif isinstance(obbject, dict):

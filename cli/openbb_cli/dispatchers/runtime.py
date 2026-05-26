@@ -63,7 +63,10 @@ async def _run_one(dispatcher: Dispatcher, request: Request) -> Response:
 
 def _to_json_line(response: Response) -> str:
     """Serialize a Response to a single JSON line, tolerating non-serializable values."""
-    return json.dumps(response.model_dump(), default=str)
+    return json.dumps(
+        response.model_dump(exclude_unset=True, exclude_none=True),
+        default=str,
+    )
 
 
 def run_argv(dispatcher: Dispatcher, argv: Iterable[str]) -> int:

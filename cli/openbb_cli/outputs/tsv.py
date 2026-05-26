@@ -22,7 +22,7 @@ def _coerce_results(results: Any) -> pd.DataFrame | None:
 def _to_dataframe(data: Any) -> pd.DataFrame | None:
     """Best-effort coerce arbitrary CLI payloads into a DataFrame."""
     if hasattr(data, "model_dump"):
-        results = data.model_dump().get("results")
+        results = data.model_dump(exclude_unset=True, exclude_none=True).get("results")
         return _coerce_results(results) if results is not None else None
     if isinstance(data, pd.DataFrame):
         return data

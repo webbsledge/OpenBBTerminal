@@ -150,10 +150,20 @@ def test_serialize_passes_through_primitives():
 
 def test_serialize_uses_model_dump():
     class M:
-        def model_dump(self):
-            return {"v": 1}
+        def model_dump(
+            self, *, exclude_unset: bool = False, exclude_none: bool = False
+        ) -> dict:
+            return {
+                "v": 1,
+                "exclude_unset": exclude_unset,
+                "exclude_none": exclude_none,
+            }
 
-    assert LocalDispatcher._serialize(M()) == {"v": 1}
+    assert LocalDispatcher._serialize(M()) == {
+        "v": 1,
+        "exclude_unset": True,
+        "exclude_none": True,
+    }
 
 
 def test_serialize_uses_to_dict_for_dataframe_like():

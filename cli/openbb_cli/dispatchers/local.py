@@ -40,7 +40,7 @@ class LocalDispatcher:
         if value is None:
             return None
         if hasattr(value, "model_dump"):
-            return value.model_dump()
+            return value.model_dump(exclude_unset=True, exclude_none=True)
         if hasattr(value, "to_dict"):
             return value.to_dict(orient="records")
         return value

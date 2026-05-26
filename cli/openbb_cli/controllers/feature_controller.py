@@ -574,7 +574,7 @@ class FeatureController(BaseController):
             from openbb_cli.controllers.utils import SQLiteTable
 
             data_obj = (
-                result.model_dump().get("results")
+                result.model_dump(exclude_unset=True, exclude_none=True).get("results")
                 if hasattr(result, "model_dump")
                 else result
             )

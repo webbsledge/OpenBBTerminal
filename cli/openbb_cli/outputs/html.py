@@ -46,7 +46,9 @@ class HtmlOutput:
                     )
 
         if hasattr(data, "model_dump"):
-            results = data.model_dump().get("results")
+            results = data.model_dump(exclude_unset=True, exclude_none=True).get(
+                "results"
+            )
             if results is None:
                 session.console.print("[yellow]No results to display[/yellow]")
                 return

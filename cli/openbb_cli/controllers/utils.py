@@ -142,7 +142,7 @@ def extract_dataframe(obbject) -> pd.DataFrame:
         DataFrame extracted from results.
     """
     results = (
-        obbject.model_dump().get("results")
+        obbject.model_dump(exclude_unset=True, exclude_none=True).get("results")
         if hasattr(obbject, "model_dump")
         else obbject
     )
