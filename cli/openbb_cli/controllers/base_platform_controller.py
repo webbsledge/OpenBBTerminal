@@ -367,7 +367,7 @@ class PlatformController(BaseController):
             if trl and hasattr(trl, "parser"):
                 command_description = trl.parser.description
 
-        return command_description.split(".")[0].lower()
+        return (command_description or "").split(".")[0].lower()
 
     def _get_menu_description(self, menu: str) -> str:
         """Get menu description."""
