@@ -9,7 +9,7 @@ def test_mcp_settings_defaults():
     assert settings.name == "OpenBB MCP"
     assert settings.default_tool_categories == ["all"]
     assert settings.allowed_tool_categories is None
-    assert settings.enable_tool_discovery is True
+    assert settings.enable_tool_discovery is False
     assert settings.describe_responses is False
 
 
@@ -39,6 +39,20 @@ def test_get_fastmcp_kwargs():
     assert kwargs["version"] == "1.0"
     assert kwargs["cache_expiration_seconds"] == 3600
     assert "api_prefix" not in kwargs
+
+
+def test_list_page_size_defaults_none():
+    """list_page_size defaults to None and is excluded from fastmcp kwargs."""
+    settings = MCPSettings()
+    assert settings.list_page_size is None
+    assert "list_page_size" not in settings.get_fastmcp_kwargs()
+
+
+def test_list_page_size_in_fastmcp_kwargs():
+    """When set, list_page_size is passed through to FastMCP constructor kwargs."""
+    settings = MCPSettings(list_page_size=50)  # type: ignore
+    kwargs = settings.get_fastmcp_kwargs()
+    assert kwargs["list_page_size"] == 50
 
 
 def test_get_http_run_kwargs():

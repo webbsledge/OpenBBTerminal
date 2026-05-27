@@ -896,3 +896,139 @@ def test_is_safe_dependency(method_definition):
     assert not method_definition._is_safe_dependency(optional_request_dependency)
     assert not method_definition._is_safe_dependency(none_return_dependency)
     assert method_definition._is_safe_dependency(optional_return_dependency)
+
+
+def test_build_func_params_unwraps_forward_ref(method_definition):
+    """Test that ForwardRef annotations are unwrapped in generated function params.
+
+    Regression test: when extensions use `from __future__ import annotations`
+    with `no_validate=True`, annotations remain as strings at runtime.
+    Annotated["int", ...] auto-wraps "int" into ForwardRef("int").
+    The builder must unwrap these to plain type strings.
+    """
+    # pylint: disable=import-outside-toplevel
+    from collections import OrderedDict
+    from typing import ForwardRef
+
+    from openbb_core.app.model.field import OpenBBField
+
+    param_map = OrderedDict(
+        {
+            "symbol": Parameter(
+                name="symbol",
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=Annotated[
+                    ForwardRef("str"), OpenBBField(description="")
+                ],
+            ),
+            "days": Parameter(
+                name="days",
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=Annotated[
+                    ForwardRef("int"), OpenBBField(description="")
+                ],
+                default=7,
+            ),
+            "asset_type": Parameter(
+                name="asset_type",
+                kind=Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=Annotated[
+                    ForwardRef("Literal['stock', 'etf', 'all'] | None"),
+                    OpenBBField(description=""),
+                ],
+                default=None,
+            ),
+        }
+    )
+
+    output = method_definition.build_func_params(param_map)
+
+    assert "ForwardRef" not in output, (
+        f"ForwardRef should be unwrapped in generated params, got:\n{output}"
+    )
+    assert "str," in output
+    assert "int," in output
+    assert "Literal['stock', 'etf', 'all']" in output
+
+
+def test_build_func_returns_string_annotation(method_definition):
+    """Test that string return types are emitted directly, not wrapped in ForwardRef.
+
+    Regression test: `from __future__ import annotations` causes return annotations
+    to be strings. The builder should emit the string directly (e.g., "OBBject")
+    rather than wrapping it as ForwardRef('OBBject').
+    """
+    output = method_definition.build_func_returns(return_type="OBBject")
+    assert output == "OBBject"
+    assert "ForwardRef" not in output
+
+    output2 = method_definition.build_func_returns(return_type="Any")
+    assert output2 == "Any"
+    assert "ForwardRef" not in output2
+
+
+def test_get_field_type_unwraps_forward_ref(docstring_generator):
+    """Test that ForwardRef is unwrapped in docstring type formatting.
+
+    Regression test: ForwardRef('int') should render as 'int' in docstrings,
+    not as the literal string "ForwardRef('int')".
+    """
+    # pylint: disable=import-outside-toplevel
+    from typing import ForwardRef
+
+    result = docstring_generator.get_field_type(ForwardRef("int"), is_required=True)
+    assert "ForwardRef" not in result, (
+        f"ForwardRef should be unwrapped in docstring types, got: {result}"
+    )
+    assert "int" in result
+
+    result2 = docstring_generator.get_field_type(
+        ForwardRef("Literal['stock', 'etf', 'all'] | None"), is_required=False
+    )
+    assert "ForwardRef" not in result2, (
+        f"ForwardRef should be unwrapped in docstring types, got: {result2}"
+    )
+
+
+def test_build_purges_on_failure(tmp_openbb_dir):
+    """Test that build purges incomplete assets on failure."""
+    builder = PackageBuilder(tmp_openbb_dir)
+
+    # Mocking _save_modules to fail
+    with (
+        patch.object(builder, "_clean") as mock_clean,
+        patch.object(builder.console, "error") as mock_error,
+        patch.object(builder, "_get_extension_map"),
+        patch.object(builder, "_save_modules", side_effect=Exception("Generation failed")),
+    ):
+        with pytest.raises(Exception, match="Generation failed"):
+            builder.build()
+
+        # _clean should be called twice: once at the start, once after failure
+        assert mock_clean.call_count == 2
+        # console.error should be called for error message, traceback and instruction
+        assert mock_error.call_count >= 3
+        mock_error.assert_any_call("\nBuild failed!")
+        assert any("Generation failed" in str(call) for call in mock_error.call_args_list)
+
+
+def test_build_purges_on_keyboard_interrupt(tmp_openbb_dir):
+    """Test that build purges incomplete assets on KeyboardInterrupt."""
+    builder = PackageBuilder(tmp_openbb_dir)
+
+    # Mocking _save_modules to raise KeyboardInterrupt
+    with (
+        patch.object(builder, "_clean") as mock_clean,
+        patch.object(builder.console, "error") as mock_error,
+        patch.object(builder, "_get_extension_map"),
+        patch.object(builder, "_save_modules", side_effect=KeyboardInterrupt()),
+    ):
+        with pytest.raises(KeyboardInterrupt):
+            builder.build()
+
+        # _clean should be called twice: once at the start, once after interruption
+        assert mock_clean.call_count == 2
+        # console.error should NOT be called for KeyboardInterrupt
+        mock_error.assert_not_called()
+
+
