@@ -1014,10 +1014,6 @@ def test_cpi_supplemental_tables_explicit_date(
     assert result is None
 
 
-# ---------------------------------------------------------------------------
-# CPI News Release tables — bundled XLSX fixtures, no HTTP
-# ---------------------------------------------------------------------------
-
 _CPI_NR_TABLES = [
     ("t1", BlsCpiNrTable1Fetcher),
     ("t2", BlsCpiNrTable2Fetcher),
@@ -1036,11 +1032,6 @@ def test_cpi_news_release_table(label, Fetcher, mock_bls_http, test_credentials)
     """Test each of the 7 CPI News Release Table fetchers."""
     result = Fetcher().test({"date": date(2026, 4, 1)}, test_credentials)
     assert result is None
-
-
-# ---------------------------------------------------------------------------
-# CPI supplemental + relative importance + seasonal factors — bundled XLSX
-# ---------------------------------------------------------------------------
 
 
 def test_cpi_supplemental_tables_fetcher(mock_bls_http, test_credentials):
@@ -1081,10 +1072,6 @@ def test_ppi_seasonal_factors_fetcher(mock_bls_http, test_credentials):
     assert result is None
 
 
-# ---------------------------------------------------------------------------
-# JOLTS — bundled TXT (change analysis) + mini XLSX (revisions)
-# ---------------------------------------------------------------------------
-
 _JOLTS_CHANGE_ANALYSIS = [
     ("national_t1", "national", 1),
     ("state_t1", "state", 1),
@@ -1111,11 +1098,6 @@ def test_jolts_revisions_fetcher(seasonally_adjusted, mock_bls_http, test_creden
     params = {"seasonally_adjusted": seasonally_adjusted, "industry_code": "00"}
     result = BlsJoltsRevisionsFetcher().test(params, test_credentials)
     assert result is None
-
-
-# ---------------------------------------------------------------------------
-# Productivity tables — mini LPS / TEH fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

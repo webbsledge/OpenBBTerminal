@@ -109,6 +109,5 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:openbb_core.provider.utils.client",
-    "ignore::async_lru.AlruCacheLoopResetWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]

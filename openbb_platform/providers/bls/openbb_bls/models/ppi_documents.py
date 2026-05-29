@@ -158,9 +158,7 @@ _PDF_RE = re.compile(
     r"(?P<month>[a-z]+)-(?P<year>\d{4})\.pdf$",
     re.IGNORECASE,
 )
-_MONTH_NAME_TO_NUM = {
-    name.lower(): i for i, name in enumerate(calendar.month_name) if name
-}
+_MONTH_NAME_TO_NUM = {calendar.month_name[_m].lower(): _m for _m in range(1, 13)}
 
 
 @lru_cache(maxsize=1)

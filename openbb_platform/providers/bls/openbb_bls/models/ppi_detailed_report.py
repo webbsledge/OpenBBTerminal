@@ -551,12 +551,9 @@ def _strip_footnote_marker(text: str) -> str:
 
 
 _MONTH_LOOKUP: dict[str, int] = {}
-for _i, _name in enumerate(calendar.month_abbr):
-    if _name:
-        _MONTH_LOOKUP[_name.lower()] = _i
-for _i, _name in enumerate(calendar.month_name):
-    if _name:
-        _MONTH_LOOKUP[_name.lower()] = _i
+for _m in range(1, 13):
+    _MONTH_LOOKUP[calendar.month_abbr[_m].lower()] = _m
+    _MONTH_LOOKUP[calendar.month_name[_m].lower()] = _m
 _MONTH_LOOKUP["sept"] = 9
 
 
