@@ -5,17 +5,10 @@ description = "BLS provider extension for OpenBB Platform."
 authors = [{ name = "OpenBB Team", email = "hello@openbb.co" }]
 license = { text = "AGPL-3.0-only" }
 readme = "README.md"
-requires-python = ">=3.10,<4"
+requires-python = ">=3.10"
 dependencies = [
-    "openbb-core[pandas]>=2.0.0",
-    "requests>=2.31",
-    "beautifulsoup4>=4.12",
-    "lxml>=5",
-    "openpyxl>=3.1",
+    "openbb-core>=1.6.10",
 ]
-
-[project.scripts]
-generate-bls-cache = "openbb_bls.utils.generate_cache:main"
 
 [project.entry-points."openbb_provider_extension"]
 bls = "openbb_bls:bls_provider"
@@ -27,8 +20,6 @@ bls = "openbb_bls.bls_router:router"
 Homepage = "https://openbb.co"
 Repository = "https://github.com/OpenBB-finance/OpenBB"
 
-[dependency-groups]
-dev = ["openbb-devtools>=2.0.0"]
 
 [build-system]
 requires = ["hatchling>=1.25", "requests>=2.31"]
