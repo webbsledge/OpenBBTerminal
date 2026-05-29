@@ -1,7 +1,5 @@
 """Fama-French Breakpoints Model."""
 
-# pylint: disable=unused-argument
-
 from datetime import date as dateType
 from typing import Any
 
@@ -256,7 +254,6 @@ class FamaFrenchBreakpointFetcher(
         **kwargs: Any,
     ) -> tuple:
         """Extract data from the Fama-French FTP."""
-        # pylint: disable=import-outside-toplevel
         from openbb_famafrench.utils.helpers import get_breakpoint_data
 
         try:

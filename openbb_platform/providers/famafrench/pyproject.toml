@@ -5,21 +5,13 @@ description = "Fama-French data integration for OpenBB Platform."
 authors = [{ name = "OpenBB Team", email = "hello@openbb.co" }]
 license = { text = "AGPL-3.0-only" }
 readme = "README.md"
-packages = [{ include = "openbb_famafrench" }]
+requires-python = ">=3.10,<4"
+dependencies = [
+    "openbb-core[pandas]>=2.0.0",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.10,<4"
-openbb-core = "^1.6.10"
-
-[tool.poetry.scripts]
-
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.plugins."openbb_provider_extension"]
-famafranch = "openbb_famafrench:famafrench_provider"
+[project.entry-points."openbb_provider_extension"]
+famafrench = "openbb_famafrench:famafrench_provider"
 
 [project.entry-points."openbb_core_extension"]
 famafrench = "openbb_famafrench.famafrench_router:router"

@@ -1,7 +1,5 @@
 """Constants for the Fama French datasets API."""
 
-# pylint: disable=too-many-lines
-
 from typing import Any, Literal
 
 BASE_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"

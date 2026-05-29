@@ -185,6 +185,9 @@ async def factor_choices(
             },
         ),
     ],
+    widget_config={
+        "name": "Fama-French US Portfolio Returns",
+    },
 )
 async def us_portfolio_returns(
     cc: CommandContext,
@@ -522,6 +525,6 @@ async def famafrench_apps():
     import json
     from pathlib import Path
 
-    _APPS_JSON = Path(__file__).parent / "apps.json"
+    _APPS_JSON = Path(__file__).parent / "assets" / "apps.json"
 
     return json.loads(_APPS_JSON.read_text(encoding="utf-8"))

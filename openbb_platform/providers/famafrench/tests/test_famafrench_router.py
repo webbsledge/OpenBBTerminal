@@ -95,3 +95,11 @@ def test_factor_choices_helper_invoked():
     mock_helper.assert_awaited_once_with(
         region="japan", factor=None, is_portfolio=False, portfolio=None
     )
+
+
+def test_famafrench_apps_serves_bundled_template():
+    """famafrench_apps returns the parsed contents of the bundled apps.json."""
+    result = asyncio.run(router.famafrench_apps())
+
+    assert result
+    assert isinstance(result, (dict, list))

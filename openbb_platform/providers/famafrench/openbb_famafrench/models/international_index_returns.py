@@ -1,7 +1,5 @@
 """Fama-French Factors Fetcher Model."""
 
-# pylint: disable=unused-argument
-
 from datetime import date as dateType
 from typing import Any, Literal
 
@@ -212,7 +210,6 @@ class FamaFrenchInternationalIndexReturnsFetcher(
         **kwargs: Any,
     ) -> tuple:
         """Extract data from the Fama-French FTP."""
-        # pylint: disable=import-outside-toplevel
         from openbb_famafrench.utils.helpers import get_international_portfolio  # noqa
         from warnings import warn
 
@@ -232,7 +229,7 @@ class FamaFrenchInternationalIndexReturnsFetcher(
                     else query.all_data_items_required
                 ),
             )
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:
             raise OpenBBError(e) from e
 
     @staticmethod
@@ -242,7 +239,6 @@ class FamaFrenchInternationalIndexReturnsFetcher(
         **kwargs: Any,
     ) -> AnnotatedResult[list[FamaFrenchInternationalIndexReturnsData]]:
         """Transform the extracted data."""
-        # pylint: disable=import-outside-toplevel
         from pandas import MultiIndex
 
         dfs, meta = data

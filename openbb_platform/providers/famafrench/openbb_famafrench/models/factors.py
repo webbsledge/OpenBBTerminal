@@ -1,7 +1,5 @@
 """Fama-French Factors Fetcher Model."""
 
-# pylint: disable=unused-argument
-
 from datetime import date as dateType
 from typing import Any, Literal
 
@@ -269,7 +267,6 @@ class FamaFrenchFactorsFetcher(
         **kwargs: Any,
     ) -> tuple:
         """Extract the data from the FTP."""
-        # pylint: disable=import-outside-toplevel, broad-except
         from openbb_famafrench.utils.helpers import get_portfolio_data
 
         factors = FACTOR_REGION_MAP.get(query.region, {})
@@ -296,7 +293,6 @@ class FamaFrenchFactorsFetcher(
         **kwargs: Any,
     ) -> AnnotatedResult[list[FamaFrenchFactorsData]]:
         """Transform the raw data and insert metadata."""
-        # pylint: disable=import-outside-toplevel
         from pandas import to_datetime
 
         table = data[0][0].reset_index()

@@ -1,7 +1,5 @@
 """Fama-French Factors Fetcher Model."""
 
-# pylint: disable=unused-argument
-
 from datetime import date as dateType
 from typing import Any, Literal
 
@@ -106,7 +104,6 @@ class FamaFrenchUSPortfolioReturnsFetcher(
         **kwargs: Any,
     ) -> tuple:
         """Extract data from the Fama-French FTP."""
-        # pylint: disable=import-outside-toplevel
         from openbb_famafrench.utils.helpers import get_portfolio_data
 
         dataset = ""
@@ -126,7 +123,7 @@ class FamaFrenchUSPortfolioReturnsFetcher(
                     else query.frequency
                 ),
             )
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:
             raise OpenBBError(e) from e
 
     @staticmethod
