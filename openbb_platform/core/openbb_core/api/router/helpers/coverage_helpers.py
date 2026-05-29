@@ -5,6 +5,7 @@ from inspect import _empty, signature
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, create_model
+from pydantic.fields import FieldInfo
 
 from openbb_core.app.provider_interface import ProviderInterface
 
@@ -36,7 +37,7 @@ def get_route_callable(app: "BaseApp", route: str) -> Callable:
     return return_callable  # type: ignore
 
 
-def signature_to_fields(app: "BaseApp", route: str) -> dict[str, tuple[Any, Field]]:  # type: ignore
+def signature_to_fields(app: "BaseApp", route: str) -> dict[str, tuple[Any, FieldInfo]]:  # type: ignore
     """Convert a command signature to pydantic fields."""
     return_callable = get_route_callable(app, route)
     sig = signature(return_callable)

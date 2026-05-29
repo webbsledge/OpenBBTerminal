@@ -1,7 +1,7 @@
 [
   {
     "name": "Fama-French Research Data",
-    "img": "",
+    "img": "https://www.cantechletter.com/wp-content/uploads/What-does-SMB-stand-for-in-finance.webp",
     "img_dark": "",
     "img_light": "",
     "description": "Explore the Kenneth R. French Data Library: research factors, research portfolios, country and international index portfolios, and the NYSE breakpoints used to construct them.",
@@ -24,13 +24,15 @@
                 "frequency": "monthly"
               },
               "chartView": {
-                "enabled": true,
+                "enabled": false,
                 "chartType": "line"
               },
               "columnState": {
                 "default": {
                   "columnPinning": {
-                    "leftColIds": ["date"],
+                    "leftColIds": [
+                      "date"
+                    ],
                     "rightColIds": []
                   }
                 }
@@ -74,7 +76,7 @@
                 "frequency": "monthly"
               },
               "chartView": {
-                "enabled": true,
+                "enabled": false,
                 "chartType": "line"
               }
             },
@@ -93,7 +95,7 @@
                 "frequency": "monthly"
               },
               "chartView": {
-                "enabled": true,
+                "enabled": false,
                 "chartType": "line"
               }
             },
@@ -112,7 +114,7 @@
                 "frequency": "monthly"
               },
               "chartView": {
-                "enabled": true,
+                "enabled": false,
                 "chartType": "line"
               }
             },
@@ -131,7 +133,7 @@
                 "frequency": "monthly"
               },
               "chartView": {
-                "enabled": true,
+                "enabled": false,
                 "chartType": "line"
               }
             },
