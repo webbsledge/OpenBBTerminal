@@ -1,32 +1,4 @@
-"""Auth hooks — pluggable per-request authentication for the HTTP dispatcher.
-
-Static headers and query params (``-H``, ``-Q``, ``[headers]``, ``[query]``)
-cover the common case where credentials don't change between calls. RBAC
-flows need more: tokens that expire, per-user credentials sourced from a
-vault, role-aware allow/deny decisions made before the request goes out.
-
-A hook is any importable callable matching::
-
-    Callable[[AuthContext], AuthDecision | Awaitable[AuthDecision]]
-
-Configured in TOML by dotted ``module:attribute`` path::
-
-    auth-hook = "myapp.auth:rbac_hook"          # global, applies to every backend
-
-    [specs.congress]
-    path = "..."
-    auth-hook = "myapp.auth:congress_hook"     # per-namespace, replaces the global
-
-Each invocation receives the request's ``AuthContext`` and returns an
-``AuthDecision``. The returned headers / query params are merged on top of
-the dispatcher's static auth (right-biased — the hook wins). ``allow=False``
-short-circuits dispatch with a structured ``AccessDenied`` response.
-
-Hooks fire only for command dispatches that go over the network. The
-introspection short-circuits (``__commands__``, ``__schema__``) read directly
-from the spec doc and skip the hook so RBAC never accidentally hides the
-listing the user needs to discover what they're allowed to call.
-"""
+"""Auth hooks for pluggable per-request authentication."""
 
 from __future__ import annotations
 
@@ -38,14 +10,7 @@ from typing import Any, Union
 
 @dataclass(frozen=True)
 class AuthContext:
-    """Read-only context handed to an auth hook for one request.
-
-    ``namespace`` is the spec namespace (``"congress"``, ``"nyfed"``, …) or
-    ``None`` when the dispatcher was built from a single unnamed spec.
-    ``command`` is the dotted name *as the upstream backend will see it* —
-    namespace prefix stripped. Hooks that key on the user's intended
-    command should join ``namespace`` and ``command`` themselves.
-    """
+    """Read-only context handed to an auth hook for one request."""
 
     namespace: str | None
     command: str
@@ -55,13 +20,7 @@ class AuthContext:
 
 @dataclass(frozen=True)
 class AuthDecision:
-    """Hook output: extra credentials to add and / or an RBAC deny.
-
-    A hook that wants to inject a token returns ``AuthDecision(headers={...})``.
-    A hook that wants to deny a request returns
-    ``AuthDecision(allow=False, deny_reason="...")``. Default is allow with
-    no extra material — equivalent to no hook at all.
-    """
+    """Hook output: extra credentials to add and / or an RBAC deny."""
 
     headers: dict[str, str] | None = None
     query_params: dict[str, str] | None = None
@@ -73,12 +32,7 @@ AuthHook = Callable[[AuthContext], Union["AuthDecision", Awaitable["AuthDecision
 
 
 def resolve_auth_hook(spec: str) -> AuthHook:
-    """Import an auth hook from its ``module.path:attribute`` spec.
-
-    Raises ``ValueError`` for malformed specs and ``ImportError`` when the
-    module or attribute can't be located. The resolved object must be
-    callable; classes are accepted too (their instances are the hook).
-    """
+    """Import an auth hook from its ``module.path:attribute`` spec."""
     if not isinstance(spec, str) or ":" not in spec:
         raise ValueError(
             f"auth-hook must be of the form 'module.path:attribute'; got {spec!r}"

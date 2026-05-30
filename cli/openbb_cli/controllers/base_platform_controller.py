@@ -17,7 +17,7 @@ session = Session()
 
 @lru_cache(maxsize=1)
 def _OBBject() -> type:
-    """Return ``OBBject`` lazily; cached after first call via ``lru_cache``."""
+    """Return ``OBBject`` lazily."""
     from openbb_core.app.model.obbject import OBBject
 
     return OBBject
@@ -33,17 +33,7 @@ class DummyTranslation:
 
 
 class PlatformController(BaseController):
-    """Platform Controller Base class.
-
-    Three construction styles are supported, in priority order:
-
-    1. Class attributes ``_factory_translators`` + ``_factory_paths`` set by
-       ``PlatformControllerFactory`` from a ``Backend`` (current default).
-    2. ``platform_target=...`` — legacy in-process ``obb`` walk via
-       ``ArgparseClassProcessor``. Imports ``obb`` lazily.
-    3. ``translators=...`` (and optionally ``paths=...``) — direct injection,
-       used by ``_generate_sub_controllers`` for nested menus.
-    """
+    """Platform Controller Base class."""
 
     CHOICES_GENERATION = True
 
@@ -150,10 +140,11 @@ class PlatformController(BaseController):
 
             sub_menu_translators = {}
             choices_commands = []
+            sub_prefix = f"{self._name}_{path}_"
 
             for translator_name, translator in self.translators.items():
-                if f"{self._name}_{path}" in translator_name:
-                    new_name = translator_name.replace(f"{self._name}_{path}_", "")
+                if translator_name.startswith(sub_prefix):
+                    new_name = translator_name[len(sub_prefix) :]
                     sub_menu_translators[new_name] = translator
                     choices_commands.append(new_name)
 
@@ -273,7 +264,9 @@ class PlatformController(BaseController):
                                         f"[red]Display error: {e}[/red]"
                                     )
                                     if hasattr(obbject, "model_dump"):
-                                        results = obbject.model_dump().get("results")
+                                        results = obbject.model_dump(
+                                            exclude_unset=True, exclude_none=True
+                                        ).get("results")
                                         session.console.print(results)
 
                         elif isinstance(obbject, dict):
@@ -347,11 +340,7 @@ class PlatformController(BaseController):
         setattr(self, f"call_{name}", bound_method)
 
     def _get_reference_paths(self) -> dict[str, dict[str, Any]]:
-        """Return the reference path-description dict.
-
-        Pulls from the factory-injected backend when present, otherwise
-        falls back to a lazy ``LocalBackend`` over in-process ``obb``.
-        """
+        """Return the reference path-description dict."""
         if self._factory_backend is not None:
             return self._factory_backend.reference_paths
         from openbb_cli.backend import LocalBackend
@@ -359,7 +348,7 @@ class PlatformController(BaseController):
         return LocalBackend().reference_paths
 
     def _get_reference_routers(self) -> dict[str, dict[str, Any]]:
-        """Return the reference router-description dict (mirror of ``_get_reference_paths``)."""
+        """Return the reference router-description dict."""
         if self._factory_backend is not None:
             return self._factory_backend.reference_routers
         from openbb_cli.backend import LocalBackend
@@ -381,7 +370,7 @@ class PlatformController(BaseController):
             if trl and hasattr(trl, "parser"):
                 command_description = trl.parser.description
 
-        return command_description.split(".")[0].lower()
+        return (command_description or "").split(".")[0].lower()
 
     def _get_menu_description(self, menu: str) -> str:
         """Get menu description."""
@@ -430,9 +419,6 @@ class PlatformController(BaseController):
             for key, value in list(session.obbject_registry.all.items())[
                 : session.settings.N_TO_DISPLAY_OBBJECT_REGISTRY
             ]:
-                # ``command`` lives under ``extra`` — the registry surfaces
-                # the full OBBject (minus ``results``), and ``command``
-                # belongs to OBBject's ``extra`` slot.
                 command = (value.get("extra") or {}).get("command", "")
                 mt.add_raw(
                     f"[yellow]OBB{key}[/yellow]: {command}",

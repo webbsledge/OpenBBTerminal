@@ -1,14 +1,4 @@
-"""Generate ``QueryParams`` + ``Data`` + ``Fetcher`` modules for one spec command.
-
-The module that comes out of ``generate_fetcher_module`` is a complete
-self-contained Python file that the OpenBB Platform's provider machinery
-can pick up directly: it inherits from ``Fetcher[Q, list[D]]``, exposes
-the three required static methods (``transform_query`` / ``aextract_data``
-/ ``transform_data``), wires credentials in via the OpenBB-standard
-``credentials.get("<provider>_<name>")`` pattern, substitutes path
-parameters into the URL, and uses ``amake_request`` from
-``openbb_core.provider.utils.helpers`` so the user's HTTP settings apply.
-"""
+"""Generate ``QueryParams`` + ``Data`` + ``Fetcher`` modules for one spec command."""
 
 from __future__ import annotations
 
@@ -39,21 +29,15 @@ class FetcherCommandSpec:
     Parameters
     ----------
     name : str
-        Dotted command path as it appears in ``spec_doc["commands"]``
-        (e.g. ``"econometrics.ols_regression"``). Used to derive class
-        names and the fetcher's model key.
+        Dotted command path as it appears in ``spec_doc["commands"]``.
     cmd_spec : dict
-        The spec entry — ``url_path``, ``method``, ``parameters``,
-        ``request_body_schema``, ``response_schema``, ``description``.
+        The spec entry.
     base_url : str
-        The upstream API root. Combined with ``url_path`` to form the
-        request URL at dispatch time.
+        The upstream API root.
     api_prefix : str
-        Path prefix shared across every command in the spec. Stripped
-        from ``url_path`` if redundant; otherwise prepended.
+        Path prefix shared across every command in the spec.
     provider_name : str
-        Snake-case provider name. Drives credential lookup keys
-        (``credentials.get(f"{provider_name}_api_key")``).
+        Snake-case provider name.
     """
 
     name: str
@@ -70,11 +54,9 @@ class GeneratedFetcher:
     Parameters
     ----------
     module_name : str
-        Snake-case module filename (without ``.py``) — e.g.
-        ``"econometrics_ols_regression"``.
+        Snake-case module filename (without ``.py``).
     model_name : str
-        The Pydantic model name registered in the provider's
-        ``fetcher_dict`` (e.g. ``"EconometricsOlsRegression"``).
+        The Pydantic model name registered in the provider's ``fetcher_dict``.
     query_params_class : str
         Name of the emitted ``QueryParams`` subclass.
     data_class : str
@@ -84,8 +66,7 @@ class GeneratedFetcher:
     source : str
         Full module source ready to write to disk.
     credentials_used : dict
-        ``{canonical_name: {"name": wire_name, "in": "query"|"header"}}``
-        — the provider must declare these under ``credentials=[...]``.
+        ``{canonical_name: {"name": wire_name, "in": "query"|"header"}}``.
     """
 
     module_name: str
@@ -103,12 +84,12 @@ def _module_name_from_command(name: str) -> str:
     Parameters
     ----------
     name : str
-        Dotted command path (``"equity.price.quote"``).
+        Dotted command path.
 
     Returns
     -------
     str
-        Snake-case identifier (``"equity_price_quote"``).
+        Snake-case identifier.
     """
     safe = re.sub(r"[^0-9a-zA-Z]+", "_", name).strip("_")
     if not safe:
@@ -133,18 +114,12 @@ def _query_params_schema(
     cmd_spec : dict
         The spec command entry.
     provider_name : str
-        Provider this fetcher is being generated for. Parameters whose
-        ``providers`` tag list excludes this provider are dropped from
-        the schema — sending them to the upstream would either be
-        rejected or silently ignored.
+        Provider this fetcher is being generated for.
 
     Returns
     -------
     dict
-        A synthetic ``{"type": "object", "properties": {...}, "required": [...]}``
-        that ``pydantic_gen.generate_class`` can consume. Credential params
-        are stripped via ``filter_user_params`` so only user-facing inputs
-        end up in ``QueryParams``.
+        A synthetic ``{"type": "object", "properties": {...}, "required": [...]}``.
     """
     properties: dict[str, Any] = {}
     required: list[str] = []
@@ -152,27 +127,11 @@ def _query_params_schema(
         name = raw.get("name")
         if not name:
             continue
-        # ``provider`` is OpenBB's discriminator; it gets injected by
-        # ``ProviderChoices`` at routing time and must not appear as a
-        # regular QueryParams field — otherwise it collides and ends up
-        # required, breaking calls that omit it.
         if name == "provider":
             continue
-        # Drop params that don't apply to this provider — e.g.
-        # ``use_cache`` is cboe-only, ``source`` is intrinio-only.
-        # Sending them to ``?provider=fmp`` would either error or be
-        # ignored by the upstream.
         param_providers = raw.get("providers") or []
         if param_providers and provider_name not in param_providers:
             continue
-        # The spec normalizes parameter prose into ``help``; the OpenAPI
-        # schema's ``description`` field is rarely populated post-norm.
-        # Pull from both so descriptions survive into the generated
-        # Pydantic ``Field(description=...)`` and the static-stub
-        # docstrings render the upstream's actual prose instead of
-        # literal ``"None"``. Strip the trailing ``(provider: X)`` tag
-        # — OpenBB's DocstringGenerator appends its own provider tag
-        # downstream, so leaving ours produces ``(provider: X) (provider: X)``.
         description = raw.get("help") or raw.get("description")
         if description:
             description = re.sub(r"\s*\(provider:[^)]*\)\s*$", "", description).strip()
@@ -180,10 +139,6 @@ def _query_params_schema(
         for key in ("type", "default", "choices"):
             if key in raw and raw[key] is not None:
                 prop_schema[key] = raw[key]
-        # Path parameters typed ``number`` in OpenAPI are almost always
-        # integer-valued in practice (counts, IDs, "last N"). Sending the
-        # float form (``1.0``) breaks routes whose URL pattern matches the
-        # integer form only — promote to ``integer`` so the URL stays clean.
         if raw.get("in") == "path" and prop_schema.get("type") == "number":
             prop_schema["type"] = "integer"
         if description:
@@ -216,13 +171,7 @@ def _query_params_schema(
 def _column_metadata_from_data_schema(
     data_schema: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    """Pull per-column ``description`` / ``socrata_format`` out of the row schema.
-
-    Returns ``{field_name: {key: value, ...}}`` — only columns that
-    carry one of the surfaced metadata keys end up in the output, so
-    the constant we embed in the fetcher source stays compact for
-    OpenAPI specs that don't carry any column descriptions.
-    """
+    """Pull per-column ``description`` / ``socrata_format`` out of the row schema."""
     properties = (data_schema or {}).get("properties") or {}
     out: dict[str, dict[str, Any]] = {}
     for field_name, schema in properties.items():
@@ -233,9 +182,6 @@ def _column_metadata_from_data_schema(
             meta["description"] = schema["description"]
         if schema.get("format"):
             meta["format"] = schema["format"]
-        # Source-of-truth for unit / rendering hints from Socrata's
-        # column ``format`` block. Re-emitted under the same key on
-        # the runtime side.
         if schema.get("socrata_format"):
             meta["socrata_format"] = schema["socrata_format"]
         if meta:
@@ -254,11 +200,7 @@ def _data_schema(cmd_spec: dict[str, Any]) -> dict[str, Any]:
     Returns
     -------
     dict
-        The schema that should drive the ``Data`` Pydantic class. For
-        OpenBB ``OBBject``-wrapped responses we descend into
-        ``properties.results.anyOf[0].items`` (or ``.oneOf[0]``) to reach
-        the per-row shape. For generic OpenAPI responses we hand back the
-        top-level schema unchanged. ``{}`` for endpoints with no schema.
+        The schema that should drive the ``Data`` Pydantic class.
     """
     response = cmd_spec.get("response_schema") or {}
     if not isinstance(response, dict):
@@ -284,14 +226,7 @@ def _data_schema(cmd_spec: dict[str, Any]) -> dict[str, Any]:
 
 
 def _unwrap_schema_envelopes(schema: Any) -> dict[str, Any]:
-    """Strip schema envelopes that ``unpack_response`` strips at runtime.
-
-    Peels pure-envelope wrappers (single-key dicts, top-level arrays, single
-    array property with no siblings) until the row schema is reached. Stops
-    at multi-property objects — those are rows, even if one of the
-    properties happens to be a nested array (an auction's ``details`` field
-    is part of the auction, not an envelope around it).
-    """
+    """Strip schema envelopes that ``unpack_response`` strips at runtime."""
     if not isinstance(schema, dict):
         return {}
     typed: dict[str, Any] = schema
@@ -308,7 +243,6 @@ def _unwrap_schema_envelopes(schema: Any) -> dict[str, Any]:
     inner = _envelope_inner_schema(typed, props)
     if inner is not None:
         return _unwrap_schema_envelopes(inner)
-    # Multi-property object with no clear single-array envelope: this IS the row.
     return typed
 
 
@@ -325,17 +259,10 @@ def _first_non_null_combinator_variant(schema: dict[str, Any]) -> dict[str, Any]
 
 
 def _envelope_inner_schema(
-    typed: dict[str, Any],  # noqa: ARG001 — kept for symmetry with caller signature
+    typed: dict[str, Any],  # noqa: ARG001
     props: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Resolve the inner row schema when ``typed`` is a recognized envelope.
-
-    Returns ``None`` when the schema isn't an envelope (i.e. it IS the row,
-    OR the would-be inner schema is too malformed to descend into safely).
-    Mirrors what ``unpack_response`` does at runtime: a pure single-property
-    wrapper descends into the inner structured value, and a multi-property
-    object with exactly one array property treats the array's items as rows.
-    """
+    """Resolve the inner row schema when ``typed`` is a recognized envelope."""
     if len(props) == 1:
         only_value = next(iter(props.values()))
         if isinstance(only_value, dict):
@@ -370,12 +297,7 @@ def _is_scalar_schema(schema: dict[str, Any]) -> bool:
 
 
 def _wrap_scalar_as_value(schema: dict[str, Any]) -> dict[str, Any]:
-    """Promote a scalar schema to ``{type: object, properties: {value: scalar}}``.
-
-    The runtime unpacker wraps array-of-scalar payloads as ``{"value": x}``
-    rows; this keeps the generated Data class in step so each typed row has
-    a ``value`` field of the right primitive type.
-    """
+    """Promote a scalar schema to ``{type: object, properties: {value: scalar}}``."""
     return {
         "type": "object",
         "properties": {"value": schema},
@@ -419,40 +341,25 @@ def _query_dict_construction(
     Parameters
     ----------
     cmd_spec : dict
-        The spec command entry — used to find body field names that
-        should be excluded from the query string (they go into the body
-        instead).
+        The spec command entry.
     creds : dict
-        Credential entries; ones with ``in == "query"`` are merged in
-        after the user's ``model_dump`` output.
+        Credential entries.
     path_params : list of str
-        URL-template placeholders, excluded from the query dict because
-        they're already in the URL.
+        URL-template placeholders.
 
     Returns
     -------
     str
-        The Python source for the ``query_dict`` assignment + any
-        credential merging — indented to live under
-        ``aextract_data``'s function body.
+        The Python source for the ``query_dict`` assignment.
     """
     body_props = (cmd_spec.get("request_body_schema") or {}).get("properties") or {}
     excluded = set(path_params) | set(body_props)
-    # Socrata range-filter parameters (``<col>_start`` / ``<col>_end``)
-    # carry ``_socrata_op`` markers in the spec — they don't ride the
-    # query string as plain ``?<name>=<value>`` pairs, they get folded
-    # into a single ``$where`` clause below. Exclude them from the dump
-    # so they don't double up.
     range_params = [
         p
         for p in (cmd_spec.get("parameters") or [])
         if isinstance(p, dict) and p.get("_socrata_op") in {"date_min", "date_max"}
     ]
     excluded.update(p["name"] for p in range_params)
-    # ``by_alias=True`` so wire names with characters that aren't valid
-    # Python identifiers (e.g. Socrata's ``$select`` / ``$where``) survive
-    # serialization. Fields without aliases dump under their plain name —
-    # so existing OpenAPI-derived specs are unaffected.
     if excluded:
         excluded_literal = (
             "{" + ", ".join(repr(name) for name in sorted(excluded)) + "}"
@@ -466,9 +373,6 @@ def _query_dict_construction(
             "        _query_dict = query.model_dump(by_alias=True, exclude_none=True)"
         )
     lines = [dump]
-    # When the spec command declares a ``provider`` parameter (multi-
-    # provider OpenBB endpoint), pin it to the provider this fetcher
-    # represents — the upstream HTTP server requires it on the URL.
     declares_provider = any(
         isinstance(p, dict) and p.get("name") == "provider"
         for p in (cmd_spec.get("parameters") or [])
@@ -484,11 +388,6 @@ def _query_dict_construction(
         lines.append(f"            _query_dict[{wire_name!r}] = {var}")
     if range_params:
         lines.extend(_socrata_where_clause_lines(range_params))
-        # Default ``$order`` to the date column descending so ``limit=N``
-        # returns the N most recent records — without this, Socrata
-        # returns rows in storage order which is rarely what the caller
-        # wants from a time-series dataset. ``setdefault`` keeps any
-        # user-supplied ordering intact.
         date_column = next(
             (p["_socrata_column"] for p in range_params if p.get("_socrata_column")),
             None,
@@ -497,9 +396,6 @@ def _query_dict_construction(
             lines.append(
                 f"        _query_dict.setdefault('$order', {date_column!r} + ' DESC')"
             )
-    # ``wire_name`` lets a spec keep clean user-facing parameter names
-    # (``limit``) while sending the actual upstream form (``$limit``).
-    # Apply the renames after model_dump so the dict has the URL-side keys.
     rename_pairs: list[tuple[str, str]] = []
     for param in cmd_spec.get("parameters") or []:
         if not isinstance(param, dict):
@@ -518,14 +414,7 @@ def _query_dict_construction(
 
 
 def _socrata_where_clause_lines(range_params: list[dict[str, Any]]) -> list[str]:
-    """Compose runtime lines that fold Socrata range params into ``$where``.
-
-    Each ``date_min`` param contributes ``<column> >= '<value>'`` and
-    each ``date_max`` contributes ``<column> <= '<value>'``. Multiple
-    fragments AND together. The result is appended to any existing
-    ``$where`` clause the user passed (Socrata accepts a single
-    ``$where`` with arbitrary boolean SoQL).
-    """
+    """Compose runtime lines that fold Socrata range params into ``$where``."""
     field_lookups: list[str] = []
     for param in range_params:
         wire_name = param["name"]
@@ -558,14 +447,12 @@ def _header_dict_construction(creds: dict[str, dict[str, str]]) -> str:
     Parameters
     ----------
     creds : dict
-        Credential entries; ones with ``in == "header"`` become headers.
+        Credential entries.
 
     Returns
     -------
     str
-        Python source for the headers dict, indented for ``aextract_data``.
-        Always emits a dict assignment so downstream call sites can pass
-        ``headers=_headers`` unconditionally.
+        Python source for the headers dict.
     """
     lines = ["        _headers: dict[str, str] = {}"]
     for canonical, info in creds.items():
@@ -637,13 +524,7 @@ def generate_fetcher_module(spec: FetcherCommandSpec) -> GeneratedFetcher:
         "from openbb_core.provider.abstract.query_params import QueryParams",
         "from openbb_core.provider.utils.helpers import "
         "get_async_requests_session, get_querystring",
-        # ``BaseModel`` is needed for any nested object schemas the
-        # generator inlined; ``Field`` is used by every emitted field line.
         "from pydantic import BaseModel, Field",
-        # Shared runtime helpers at the package root — written once by
-        # ``GeneratedPackage.write`` to ``<package>/utils.py``. ``safe_json_loads``
-        # tolerates upstream-quirk payloads (bare ``*`` sentinels, etc.) so a
-        # single masked field doesn't sink the whole response.
         "from ....utils import safe_json_loads, unpack_response",
     }
     imports.update(qp_generated.collect_imports())
@@ -720,18 +601,17 @@ def _render_fetcher_source(
     Parameters
     ----------
     spec : FetcherCommandSpec
-        Original command input — used for module-level docstring.
+        Original command input.
     qp_class, data_class, fetcher_class : str
         Class names emitted in the module.
     qp_classes, data_classes : list of GeneratedClass
-        Pre-flattened lists of emitted classes (nested classes first).
+        Pre-flattened lists of emitted classes.
     model_name : str
-        The Pydantic model key that ``@router.command(model=...)`` will
-        reference in the generated router.
+        The Pydantic model key referenced by ``@router.command(model=...)``.
     method : str
-        HTTP verb (lowercase ``"get"`` / ``"post"``).
+        HTTP verb.
     url_path_template : str
-        URL path with placeholders intact (e.g. ``"/v3/bill/{congress}"``).
+        URL path with placeholders intact.
     base_url : str
         Upstream API root, no trailing slash.
     path_params : list of str
@@ -741,10 +621,9 @@ def _render_fetcher_source(
     query_block, header_block : str
         Pre-rendered query-dict and headers-dict source.
     creds : dict
-        Credential entries (used to decide whether to format query string).
+        Credential entries.
     description : str
-        First paragraph of the spec command's description — drives the
-        fetcher class docstring.
+        First paragraph of the spec command's description.
     imports : list of str
         All imports the module needs, already sorted.
 
@@ -886,12 +765,6 @@ def _render_fetcher_source(
         "        _metadata = dict(data.get('metadata') or {})",
     ]
     if column_meta_literal:
-        # Embed the column metadata constant verbatim — descriptions
-        # (with embedded units) and Socrata format hints (currency,
-        # decimal separators) ride alongside every response under
-        # ``obbject.extra['results_metadata']['columns']``. Lets a
-        # downstream formatter render ``$763.75`` with the right
-        # symbol without re-querying the spec.
         transform_data_lines.append(f"        _column_metadata = {column_meta_literal}")
         transform_data_lines.append(
             "        _metadata.setdefault('columns', _column_metadata)"
@@ -934,22 +807,19 @@ def _aextract_body(
     url_path_template : str
         URL path with ``{placeholder}`` substitutions intact.
     path_params : list of str
-        Placeholder names in ``url_path_template`` — extracted from the
-        validated query and substituted into the URL.
+        Placeholder names in ``url_path_template``.
     cred_lines : list of str
-        Credential-extraction source lines (``_cred_X = creds.get(...)``).
+        Credential-extraction source lines.
     query_block : str
         Pre-rendered query-dict construction block.
     header_block : str
         Pre-rendered headers-dict construction block.
     body_field_names : list of str
-        Names of fields that should travel in the JSON request body
-        (POST endpoints) instead of the query string.
+        Names of fields that should travel in the JSON request body.
     has_path_params : bool
         Whether the URL has placeholders to substitute.
     has_query_creds : bool
-        Whether any credential lives in the query string (drives a small
-        formatting choice in the URL assembly).
+        Whether any credential lives in the query string.
 
     Returns
     -------

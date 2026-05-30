@@ -1,10 +1,4 @@
-"""Generate the ``providers/<provider_name>/__init__.py`` registration module.
-
-The provider module instantiates a single ``Provider(...)`` with the union
-of fetchers emitted by ``fetcher_gen``. Credential names sniffed from the
-spec are listed under ``credentials=[...]`` so the OpenBB user-settings
-machinery prompts for them.
-"""
+"""Generate the ``providers/<provider_name>/__init__.py`` registration module."""
 
 from __future__ import annotations
 
@@ -22,15 +16,13 @@ class GeneratedProvider:
     Parameters
     ----------
     package_name : str
-        Snake-case package name (used as Python import path).
+        Snake-case package name.
     provider_name : str
-        Snake-case provider identifier (matches the directory name).
+        Snake-case provider identifier.
     source : str
         Full source for ``providers/<provider_name>/__init__.py``.
     credential_keys : list of str
-        Canonical credential names declared on the provider (e.g.
-        ``["api_key", "authorization"]``). The OpenBB runtime accesses
-        them via ``credentials.get(f"{provider_name}_{key}")``.
+        Canonical credential names declared on the provider.
     """
 
     package_name: str
@@ -51,22 +43,20 @@ def generate_provider_module(
     Parameters
     ----------
     package_name : str
-        Snake-case top-level package name (e.g. ``"openbb_congress"``).
+        Snake-case top-level package name.
     provider_name : str
-        Snake-case provider identifier (e.g. ``"congress"``).
+        Snake-case provider identifier.
     description : str
         Provider description shown in OpenBB introspection.
     website : str
         Provider home page URL.
     fetchers : list of GeneratedFetcher
-        Per-command fetchers — used to build the ``fetcher_dict`` and to
-        union their declared credentials.
+        Per-command fetchers.
 
     Returns
     -------
     GeneratedProvider
-        Module source plus the credential-key list (consumed by the
-        ``pyproject.toml`` generator for documentation purposes).
+        Module source plus the credential-key list.
     """
     cred_set: set[str] = set()
     for f in fetchers:

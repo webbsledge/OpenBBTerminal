@@ -22,8 +22,7 @@ class ArgparseClassProcessor:
         add_help: bool = False,
         reference: dict[str, Any] | None = None,
     ):
-        """
-        Initialize the ArgparseClassProcessor.
+        """Initialize the ArgparseClassProcessor.
 
         Parameters
         ----------
@@ -47,8 +46,7 @@ class ArgparseClassProcessor:
 
     @property
     def translators(self) -> dict[str, ArgparseTranslator]:
-        """
-        Get the ArgparseTranslators associated with the target class.
+        """Get the ArgparseTranslators associated with the target class.
 
         Returns
         -------
@@ -59,8 +57,7 @@ class ArgparseClassProcessor:
 
     @property
     def paths(self) -> dict[str, str]:
-        """
-        Get the paths associated with the target class.
+        """Get the paths associated with the target class.
 
         Returns
         -------
@@ -119,8 +116,7 @@ class ArgparseClassProcessor:
         )
 
     def get_translator(self, command: str) -> ArgparseTranslator:
-        """
-        Retrieve the ArgparseTranslator object associated with a specific menu and command.
+        """Retrieve the ArgparseTranslator associated with a command.
 
         Parameters
         ----------
@@ -135,16 +131,7 @@ class ArgparseClassProcessor:
         return self._translators[command]
 
     def _build_paths(self, target: type):
-        """Record direct sub-namespaces only.
-
-        Translators are emitted recursively by ``_process_class`` (so a
-        deeply nested command like ``nyfed.rates.secured.all.latest``
-        registers as a flat ``nyfed_rates_secured_all_latest`` translator
-        under the ``rates`` sub-controller). The path table only needs the
-        direct children of ``target`` — recursing here would surface
-        grandchildren as orphan top-level menus with no translators behind
-        them.
-        """
+        """Record direct sub-namespaces only."""
         for name, member in inspect.getmembers(target):
             if name.startswith("_"):
                 continue

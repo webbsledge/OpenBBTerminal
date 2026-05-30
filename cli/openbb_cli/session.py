@@ -1,9 +1,4 @@
-"""CLI Session — singleton holding settings, console, registry.
-
-Lazy-construct heavy dependencies (prompt-toolkit, charting backend) so that
-non-interactive paths (`openbb economy.gdp ...`) do not spawn a browser process
-or initialize a TTY-only PromptSession just to dispatch one command.
-"""
+"""CLI Session singleton holding settings, console, registry."""
 
 from __future__ import annotations
 
@@ -21,13 +16,7 @@ from openbb_cli.models.settings import Settings
 
 
 class Session(metaclass=SingletonMeta):
-    """Session class.
-
-    Heavy attributes (prompt session, charting backend, output adapter, the
-    ``obb`` namespace itself) are materialized on first access. Constructing
-    ``Session()`` is cheap and side-effect-free — the spec-driven REPL path
-    can run without ever importing ``openbb``.
-    """
+    """Session class."""
 
     def __init__(self) -> None:
         self._obb_cached: Any = None
@@ -43,13 +32,7 @@ class Session(metaclass=SingletonMeta):
 
     @property
     def _obb(self) -> Any:
-        """Lazy ``obb`` accessor; cached after first call.
-
-        Spec-driven REPL flows never touch this — they get menu/parser data
-        from a ``Backend`` instead. Local-mode flows (and any code path that
-        actually needs ``obb.user``/``obb.system``) trigger the real import
-        on first access.
-        """
+        """Lazy ``obb`` accessor; cached after first call."""
         if self._obb_cached is None:
             from openbb import obb
 
@@ -57,7 +40,7 @@ class Session(metaclass=SingletonMeta):
             try:
                 directory = Path(obb.user.preferences.user_styles_directory)  # ty: ignore[unresolved-attribute]
                 self._style.apply(self._settings.RICH_STYLE, directory)
-            except Exception:  # noqa: BLE001, S110 — best-effort styling, intentional
+            except Exception:  # noqa: BLE001, S110
                 pass
         return self._obb_cached
 
@@ -103,25 +86,14 @@ class Session(metaclass=SingletonMeta):
 
     @property
     def backend(self) -> Any:
-        """Lazy charting backend.
-
-        Importing ``openbb_charting`` is expensive and starts a browser process
-        when used. Only build it when something actually requests a chart.
-        """
+        """Lazy charting backend."""
         if self._backend is _UNSET:
             self._backend = self._build_backend()
         return self._backend
 
     @property
     def output_adapter(self) -> Any:
-        """Output adapter selected by ``settings.OUTPUT_MODE``.
-
-        Rebuilt whenever ``OUTPUT_MODE`` changes so ``/settings/ output json``
-        takes effect immediately — caching froze the adapter to whatever was
-        active at first access. Adapter construction is cheap (a single
-        class instantiation), so re-checking the mode on every access is
-        a good tradeoff for live-updateable settings.
-        """
+        """Output adapter selected by ``settings.OUTPUT_MODE``."""
         mode = getattr(self._settings, "OUTPUT_MODE", "tsv")
         if (
             self._output_adapter is _UNSET

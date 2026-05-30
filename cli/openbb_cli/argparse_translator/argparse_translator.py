@@ -43,12 +43,14 @@ class ArgparseTranslator:
         custom_argument_groups: list[ArgparseArgumentGroupModel] | None = None,
         add_help: bool | None = True,
     ):
-        """
-        Initialize the ArgparseTranslator.
+        """Initialize the ArgparseTranslator.
 
-        Args:
-            func (Callable): The function to translate into an argparse program.
-            add_help (Optional[bool], optional): Whether to add the help argument. Defaults to False.
+        Parameters
+        ----------
+        func : Callable
+            The function to translate into an argparse program.
+        add_help : Optional[bool]
+            Whether to add the help argument.
         """
         self.func = func
         self.signature = inspect.signature(func)
@@ -142,12 +144,7 @@ class ArgparseTranslator:
 
     @staticmethod
     def _escape_help(text: str | None) -> str | None:
-        """Escape percent signs in help strings for argparse.
-
-        Python 3.14+ validates help strings at add_argument time using
-        %-formatting. Bare '%' characters that aren't valid format
-        specifiers (like '%(default)s') cause a ValueError.
-        """
+        """Escape percent signs in help strings for argparse."""
         if text is None:
             return None
         return text.replace("%", "%%")
@@ -199,14 +196,7 @@ class ArgparseTranslator:
     def _get_action_type(
         self, param: inspect.Parameter
     ) -> Literal["store_true", "store"]:
-        """Return the argparse action type for the given parameter.
-
-        ``bool | int`` (PEP 604 syntax) produces ``types.UnionType``; the
-        legacy ``Union[bool, int]`` form produces ``typing.Union``. Accept
-        either origin so behavior is consistent across Python versions —
-        Python 3.11's ``get_type_hints`` keeps PEP 604 unions as
-        ``types.UnionType`` whereas later versions normalize to ``Union``.
-        """
+        """Return the argparse action type for the given parameter."""
         param_type = self.type_hints[param.name]
         origin = get_origin(param_type)
         args = get_args(param_type)
@@ -242,7 +232,7 @@ class ArgparseTranslator:
                 for arg in non_none_args:
                     if arg not in (type(None), Any):
                         return get_base_type(arg)
-                return str  # pragma: no cover  - only reachable if every
+                return str  # pragma: no cover
             if origin is Literal:
                 return type(args[0]) if args else str
             if origin is list:
@@ -352,6 +342,11 @@ class ArgparseTranslator:
 
                 annotated_parameters: list[inspect.Parameter] = []
                 for child_param in sig.parameters.values():
+                    if child_param.kind in (
+                        inspect.Parameter.VAR_KEYWORD,
+                        inspect.Parameter.VAR_POSITIONAL,
+                    ):
+                        continue
                     new_child_param = child_param.replace(
                         name=f"{param.name}{SEP}{child_param.name}",
                         annotation=Annotated[
@@ -439,16 +434,17 @@ class ArgparseTranslator:
         self,
         parsed_args: argparse.Namespace | None = None,
     ) -> Any:
-        """
-        Execute the original function with the parsed arguments.
+        """Execute the original function with the parsed arguments.
 
-        Args:
-            parsed_args (Optional[argparse.Namespace], optional): The parsed arguments. Defaults to None.
+        Parameters
+        ----------
+        parsed_args : Optional[argparse.Namespace]
+            The parsed arguments.
 
         Returns
         -------
-            Any: The return value of the original function.
-
+        Any
+            The return value of the original function.
         """
         kwargs = self._unflatten_args(vars(parsed_args))
         kwargs = self._update_with_custom_types(kwargs)
@@ -471,24 +467,24 @@ class ArgparseTranslator:
         return self.func(**kwargs)
 
     def parse_args_and_execute(self) -> Any:
-        """
-        Parse the arguments and executes the original function.
+        """Parse the arguments and execute the original function.
 
         Returns
         -------
-            Any: The return value of the original function.
+        Any
+            The return value of the original function.
         """
         parsed_args = self._parser.parse_args()
 
         return self.execute_func(parsed_args)
 
     def translate(self) -> Callable:
-        """
-        Wrap the original function with an argparse program.
+        """Wrap the original function with an argparse program.
 
         Returns
         -------
-            Callable: The original function wrapped with an argparse program.
+        Callable
+            The original function wrapped with an argparse program.
         """
 
         def wrapper_func():

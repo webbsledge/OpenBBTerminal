@@ -31,8 +31,6 @@ Repository = "https://github.com/OpenBB-finance/OpenBB"
 Documentation = "https://docs.openbb.co/cli"
 
 [dependency-groups]
-# openbb-devtools v2 carries pytest, pytest-cov, pytest-asyncio, pytest-freezer,
-# etc. — depending on it covers the test toolchain transitively.
 dev = ["openbb-devtools>=2.0.0"]
 
 [build-system]

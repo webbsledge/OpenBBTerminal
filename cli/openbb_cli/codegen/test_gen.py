@@ -1,20 +1,4 @@
-"""Emit per-provider unit-test modules for a generated extension.
-
-Mirrors the layout that ``openbb_platform.providers.tests.utils.unit_tests_generator``
-produces for first-party providers: one ``tests/test_<provider>_fetchers.py``
-per provider, each fetcher exercised through ``Fetcher.test(...)`` under a
-``@pytest.mark.record_http`` decorator. The first run records the upstream
-HTTP response into a VCR cassette; subsequent runs replay from the cassette
-so the suite stays offline-deterministic and CI-friendly.
-
-For each generated extension:
-
-* One unit-test module per provider, with one ``test_<fetcher>`` per fetcher.
-* Example parameters derived from the spec's ``parameters`` list — required
-  fields get type-appropriate defaults; optional fields are omitted.
-* A ``vcr_config`` fixture that scrubs the provider's credential field
-  names from recorded query strings so cassettes don't leak secrets.
-"""
+"""Emit per-provider unit-test modules for a generated extension."""
 
 from __future__ import annotations
 
@@ -25,9 +9,6 @@ if TYPE_CHECKING:
     from openbb_cli.codegen.fetcher_gen import GeneratedFetcher
 
 
-# Header names recorded VCR cassettes scrub even when the spec didn't
-# tag them as credentials. ``None`` strips the value outright (User-Agent
-# leaks system info but isn't a secret); the rest get a mock placeholder.
 _STANDARD_HEADER_REDACTIONS: tuple[tuple[str, str | None], ...] = (
     ("User-Agent", None),
     ("Authorization", "Bearer MOCK_TOKEN"),
@@ -41,8 +22,6 @@ _STANDARD_HEADER_REDACTIONS: tuple[tuple[str, str | None], ...] = (
     ("Set-Cookie", "MOCK_COOKIE"),
 )
 
-# Query-string parameter names commonly used to carry credentials. Any
-# match in the recorded cassette gets the corresponding mock value.
 _STANDARD_QUERY_REDACTIONS: tuple[tuple[str, str], ...] = (
     ("apikey", "MOCK_API_KEY"),
     ("api_key", "MOCK_API_KEY"),
@@ -89,7 +68,7 @@ class GeneratedTestModule:
     Parameters
     ----------
     module_name : str
-        Filename without ``.py`` (e.g. ``"test_nyfed_fetchers"``).
+        Filename without ``.py``.
     source : str
         Full module source.
     """
@@ -107,33 +86,25 @@ def generate_provider_tests(
 ) -> GeneratedTestModule | None:
     """Render a unit-test module exercising every fetcher in ``fetchers``.
 
-    Returns ``None`` when there's nothing to test (a synthetic ``tools``
-    provider with only POST commands, for example, which don't expose a
-    ``Fetcher`` class).
-
     Parameters
     ----------
     package_name : str
-        Snake-case top-level package — used to build absolute imports for
-        each fetcher class.
+        Snake-case top-level package.
     provider_name : str
-        Snake-case provider identifier — drives the test module filename
-        and the credential-field lookup.
+        Snake-case provider identifier.
     fetchers : list of GeneratedFetcher
-        The fetchers to test (one per spec command this provider supports).
+        The fetchers to test.
     commands_by_dotted : dict
-        Map ``{dotted_command: cmd_spec}`` so example parameters can be
-        derived from the spec's parameter list.
+        Map ``{dotted_command: cmd_spec}``.
 
     Returns
     -------
     GeneratedTestModule or None
+        ``None`` when there's nothing to test.
     """
     if not fetchers:
         return None
 
-    # Filter to fetchers we can confidently test before emitting anything —
-    # otherwise the import block carries dead weight for skipped fetchers.
     testable: list[tuple[GeneratedFetcher, dict[str, Any]]] = []
     for f in sorted(fetchers, key=lambda x: x.fetcher_class):
         dotted = _dotted_for_fetcher(f, commands_by_dotted)
@@ -198,13 +169,7 @@ def generate_provider_tests(
 def _merge_redactions(
     fetchers: list[GeneratedFetcher],
 ) -> tuple[list[tuple[str, str | None]], list[tuple[str, str]]]:
-    """Build (header_filters, query_filters) for the ``vcr_config`` fixture.
-
-    Per-fetcher detected credentials seed the lists first; the curated
-    standard baseline then overlays them. Standard entries win on conflict
-    so well-known names (``Authorization``, ``apikey``, …) get their
-    purpose-built mock values rather than the generic fallback.
-    """
+    """Build (header_filters, query_filters) for the ``vcr_config`` fixture."""
     headers: dict[str, str | None] = {}
     queries: dict[str, str] = {}
     for f in fetchers:
@@ -231,12 +196,7 @@ def _dotted_for_fetcher(
     fetcher: GeneratedFetcher,
     commands_by_dotted: dict[str, dict[str, Any]],
 ) -> str | None:
-    """Find the dotted command path that produced ``fetcher``.
-
-    Mirrors the same normalization ``fetcher_gen._module_name_from_command``
-    applies (collapse non-alphanumerics to ``_``) so dotted paths with
-    spaces or hyphens still resolve to the right command.
-    """
+    """Find the dotted command path that produced ``fetcher``."""
     target = fetcher.module_name
     for dotted in commands_by_dotted:
         if _normalize_to_module(dotted) == target:
@@ -280,17 +240,7 @@ def _is_date_param(name: str) -> bool:
 def _derive_test_params(
     cmd_spec: dict[str, Any], provider_name: str
 ) -> dict[str, Any] | None:
-    """Build a kwargs dict for the command's testable params, or ``None``.
-
-    Required params must resolve to a spec-supplied value (``example`` /
-    ``default`` / ``choices[0]``); if any required param can't be resolved,
-    the whole test is skipped. Optional date-shaped params (``startDate``,
-    ``endDate``, ``from``, ``to``, etc.) ride along with a current date —
-    search endpoints commonly require a date filter to return data, and
-    omitting them yields empty results or 400s. Other optional params are
-    excluded: spec ``example`` values often go stale and ``choices``
-    combinations can over-constrain the query.
-    """
+    """Build a kwargs dict for the command's testable params, or ``None``."""
     out: dict[str, Any] = {}
     for raw in cmd_spec.get("parameters") or []:
         if not isinstance(raw, dict):
@@ -312,22 +262,7 @@ def _derive_test_params(
 
 
 def _spec_supplied_value(param: dict[str, Any]) -> Any:
-    """Return a value the spec itself vouches for, or ``None`` to abort the test.
-
-    Three trusted sources, in order of preference:
-
-    1. ``example`` — the strongest signal. Spec authors put a value here
-       specifically so docs / Swagger UI render against a working call.
-    2. ``default`` — the API itself recommended this value.
-    3. ``choices[0]`` — one of the enum values the API explicitly accepts.
-
-    Date-shaped values get a temporal refresh — a spec example like
-    ``2021-01-01`` is the right *shape* but the wrong *epoch*, so we
-    substitute the equivalent recent date (today, or 30 days ago for a
-    ``start_date`` style name) to keep the call against live data. Open-
-    ended free-form values (no example/default/choices) return ``None``:
-    fabricating a placeholder like ``"test"`` will 4xx every time.
-    """
+    """Return a value the spec itself vouches for, or ``None`` to abort the test."""
     raw_value: Any = None
     if param.get("example") is not None:
         raw_value = param["example"]

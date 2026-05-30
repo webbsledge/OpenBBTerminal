@@ -1,11 +1,4 @@
-"""Runtime entry points for the dispatcher subsystem.
-
-Two surface forms share the same Dispatcher and same wire format:
-
-* ``run_argv`` — convert argv to one Request, dispatch, print, exit.
-* ``run_batch`` — read NDJSON from a stream, fan requests out as concurrent
-  asyncio Tasks, write responses to stdout as each completes (out-of-order).
-"""
+"""Runtime entry points for the dispatcher subsystem."""
 
 from __future__ import annotations
 
@@ -28,12 +21,7 @@ _JSON_LITERALS = {"true": True, "false": False, "null": None}
 
 
 def _coerce_literal(text: str) -> Any:
-    """Best-effort coerce a CLI string to a Python literal.
-
-    `--limit=10` → 10, `--flag=true` → True, `--names=[1,2]` → [1, 2],
-    `--name=foo` → "foo". JSON-style ``true``/``false``/``null`` are
-    supported in addition to Python literals.
-    """
+    """Best-effort coerce a CLI string to a Python literal."""
     if text in _JSON_LITERALS:
         return _JSON_LITERALS[text]
     try:
@@ -43,13 +31,7 @@ def _coerce_literal(text: str) -> Any:
 
 
 def parse_argv(argv: Iterable[str]) -> Request:
-    """Convert positional+kv argv into a Request.
-
-    Form: ``<command.path> [--key value] [--key=value] [--flag]``
-
-    The first positional token is the dotted command path; everything after is
-    parameter key/value pairs. Boolean flags (no value) become ``True``.
-    """
+    """Convert positional+kv argv into a Request."""
     args = list(argv)
     if not args:
         raise SystemExit("usage: openbb <command.path> [--key value | --key=value]")
@@ -80,21 +62,15 @@ async def _run_one(dispatcher: Dispatcher, request: Request) -> Response:
 
 
 def _to_json_line(response: Response) -> str:
-    """Serialize a Response to a single JSON line, tolerating non-serializable nested values.
-
-    OBBject results carry pandas DataFrames, charts (``OpenBBFigure``), datetime
-    fields, and other Python objects that ``pydantic_core.to_json`` rejects.
-    Going through ``model_dump`` + ``json.dumps(..., default=str)`` lets those
-    fall back to their string repr instead of crashing the CLI.
-    """
-    return json.dumps(response.model_dump(), default=str)
+    """Serialize a Response to a single JSON line, tolerating non-serializable values."""
+    return json.dumps(
+        response.model_dump(exclude_unset=True, exclude_none=True),
+        default=str,
+    )
 
 
 def run_argv(dispatcher: Dispatcher, argv: Iterable[str]) -> int:
-    """Dispatch a single command from argv and print the JSON response.
-
-    Returns a process exit code: 0 on success, 1 on dispatcher-reported error.
-    """
+    """Dispatch a single command from argv and print the JSON response."""
     request = parse_argv(argv)
     response = asyncio.run(_run_one(dispatcher, request))
     sys.stdout.write(_to_json_line(response) + "\n")
@@ -109,12 +85,7 @@ async def _batch_loop(
     *,
     concurrency: int,
 ) -> int:
-    """Core async loop for ``run_batch``.
-
-    Reads NDJSON requests, schedules each as its own Task. Writes responses to
-    ``writer`` in completion order. A bounded semaphore caps concurrent
-    in-flight tasks so memory does not balloon under fast producers.
-    """
+    """Core async loop for ``run_batch``."""
     sem = asyncio.Semaphore(concurrency)
     in_flight: set[asyncio.Task[Response]] = set()
     write_lock = asyncio.Lock()
@@ -148,7 +119,7 @@ async def _batch_loop(
         try:
             payload = json.loads(line)
             request = Request.model_validate(payload)
-        except Exception as exc:  # noqa: BLE001 — surface parse failures as errors
+        except Exception as exc:  # noqa: BLE001
             err = Response(
                 id=payload.get("id") if isinstance(payload, dict) else None,
                 ok=False,

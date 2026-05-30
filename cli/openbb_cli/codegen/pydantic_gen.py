@@ -1,14 +1,4 @@
-"""Convert OpenAPI JSON-schema fragments into Pydantic class source code.
-
-The converter is the foundation of the spec-to-extension pipeline: every
-``QueryParams`` / ``Data`` class in the generated extension is produced by
-``generate_class``. Schemas come from the spec's already-dereferenced response
-/ request body (cycle markers as ``{"$ref": ref}`` are tolerated and collapse
-to ``dict[str, Any]``).
-
-Output is plain Python source text — easy to inspect, easy to format with
-``ruff format``, no AST acrobatics.
-"""
+"""Convert OpenAPI JSON-schema fragments into Pydantic class source code."""
 
 from __future__ import annotations
 
@@ -17,7 +7,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-# JSON-schema primitive type → Python type annotation
 _PRIMITIVE_TYPES: dict[str, str] = {
     "string": "str",
     "integer": "int",
@@ -25,9 +14,6 @@ _PRIMITIVE_TYPES: dict[str, str] = {
     "boolean": "bool",
 }
 
-# String formats that map to richer Python types. The annotations use the
-# fully-qualified ``datetime.<X>`` form so a field literally named ``date``
-# (very common in time-series schemas) doesn't shadow the type binding.
 _STRING_FORMATS: dict[str, str] = {
     "date": "datetime.date",
     "date-time": "datetime.datetime",
@@ -40,13 +26,7 @@ _PYTHON_RESERVED_FIELD_NAMES = frozenset(
 
 @dataclass
 class GeneratedClass:
-    """One emitted Pydantic class plus any nested classes it depends on.
-
-    ``nested`` holds peer classes that must be defined *before* this class so
-    forward references resolve at import time. The codegen pipeline flattens
-    a class tree by walking ``nested`` depth-first and emitting each entry's
-    ``source`` in order, then the parent's ``source`` last.
-    """
+    """One emitted Pydantic class plus any nested classes it depends on."""
 
     name: str
     source: str
@@ -77,18 +57,7 @@ class GeneratedClass:
 def safe_field_name(name: str) -> tuple[str, bool]:
     """Normalize a JSON property name to a valid Python identifier.
 
-    Returns ``(safe_name, needs_alias)``. When ``needs_alias`` is ``True``
-    the caller must emit ``alias="<original>"`` on the ``Field(...)`` so
-    the on-the-wire name still round-trips. Triggers on names that aren't
-    valid identifiers, collide with Python keywords, or shadow Pydantic's
-    reserved attribute names.
-
-    Leading underscores get stripped because Pydantic v2 refuses to
-    declare them as model fields ("Fields must not use names with leading
-    underscores"). Names that would otherwise start with a digit get an
-    ``f_`` prefix instead of ``_`` so the result stays acceptable to
-    Pydantic — Socrata's ``$select`` becomes ``select`` (alias ``$select``),
-    not ``_select``.
+    Returns ``(safe_name, needs_alias)``.
     """
     cleaned = re.sub(r"[^0-9a-zA-Z_]", "_", name).lstrip("_")
     if not cleaned:
@@ -101,12 +70,7 @@ def safe_field_name(name: str) -> tuple[str, bool]:
 
 
 def class_name_from(*parts: str) -> str:
-    """Join + camel-case a set of name parts into a Python class identifier.
-
-    ``("equity", "price.quote", "Data")`` → ``"EquityPriceQuoteData"``. Non-
-    alphanumeric characters split words; the first letter is upper-cased.
-    Empty / falsy parts are dropped.
-    """
+    """Join + camel-case a set of name parts into a Python class identifier."""
     words: list[str] = []
     for part in parts:
         if not part:
@@ -120,7 +84,7 @@ def class_name_from(*parts: str) -> str:
     return name
 
 
-def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one return per case
+def schema_to_type(  # noqa: PLR0911
     schema: Any,
     *,
     parent_class_name: str,
@@ -128,19 +92,12 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
     nested_classes: list[GeneratedClass],
     imports: set[str],
 ) -> str:
-    """Resolve a JSON schema to a Python type annotation string.
-
-    Side effects: pushes any required nested class onto ``nested_classes``
-    and any required ``from typing import X`` onto ``imports``. Returns the
-    annotation text the caller writes after ``field_name:``.
-    """
+    """Resolve a JSON schema to a Python type annotation string."""
     if not isinstance(schema, dict):
-        # An unparsable fragment (e.g. a stale cycle marker) collapses to ``Any``.
         imports.add("from typing import Any")
         return "Any"
 
     if "$ref" in schema:
-        # Cycle stub left behind by ``deref_schema`` — we lost the type info.
         imports.add("from typing import Any")
         return "dict[str, Any]"
 
@@ -187,44 +144,25 @@ def schema_to_type(  # noqa: PLR0911 — dispatch over schema variants, one retu
             fmt = schema.get("format")
             if fmt in _STRING_FORMATS:
                 qualified = _STRING_FORMATS[fmt]
-                # Qualified import (``import datetime``) avoids shadowing
-                # field names like ``date`` / ``datetime``.
                 imports.add("import datetime")
                 return qualified
         return py_type
 
-    # Unknown / missing type: keep the field permissive.
     imports.add("from typing import Any")
     return "Any"
 
 
 def _enum_primitive(
     values: list[Any],
-    declared_type: Any,  # noqa: ARG001 — kept for caller compatibility
+    declared_type: Any,  # noqa: ARG001
     imports: set[str],
 ) -> str:
-    """Map an ``enum`` / ``const`` to a ``Literal[...]`` annotation.
-
-    Pydantic enforces ``Literal`` membership at construction time so
-    invalid choices raise instead of silently flowing through to the
-    upstream API. ``None`` is included as a valid Literal member so the
-    field can be omitted ("all values, no filter") without losing the
-    rejection of typo'd values like ``"Imprt"``.
-
-    openbb-core's docstring renderer used to collapse
-    ``Literal[...] | None`` to the bogus ``Optional[None]``; that's
-    been fixed (Literal args render as the primitive type of their
-    members), so the docstring shows ``str | None`` while the runtime
-    type still rejects unknown values.
-    """
+    """Map an ``enum`` / ``const`` to a ``Literal[...]`` annotation."""
     if not values:
         imports.add("from typing import Any")
         return "Any"
     rendered_members = ", ".join(repr(v) for v in values)
     imports.add("from typing import Literal")
-    # The ``| None`` suffix gets appended by ``generate_class`` for
-    # non-required fields (with ``default=None``) — so callers omit the
-    # filter to get all values, or pass a Literal member to constrain.
     return f"Literal[{rendered_members}]"
 
 
@@ -236,12 +174,7 @@ def _resolve_union(
     nested_classes: list[GeneratedClass],
     imports: set[str],
 ) -> str:
-    """Resolve an ``anyOf`` / ``oneOf`` list into a Python annotation.
-
-    ``[X, {type: null}]`` collapses to ``Optional[X]`` for readability. Real
-    multi-type unions become ``Union[A, B, ...]``. Empty unions degrade to
-    ``Any``.
-    """
+    """Resolve an ``anyOf`` / ``oneOf`` list into a Python annotation."""
     non_null = [
         v for v in variants if not (isinstance(v, dict) and v.get("type") == "null")
     ]
@@ -262,7 +195,6 @@ def _resolve_union(
                 imports=imports,
             )
         )
-    # Drop duplicates while preserving order so ``str | str`` doesn't show up.
     seen: set[str] = set()
     unique: list[str] = []
     for r in rendered:
@@ -285,16 +217,9 @@ def _resolve_object(
     nested_classes: list[GeneratedClass],
     imports: set[str],
 ) -> str:
-    """Either generate a nested class or fall back to ``dict[str, Any]``.
-
-    A schema with concrete ``properties`` becomes a nested ``BaseModel``
-    subclass. ``additionalProperties: true`` with no properties collapses
-    to ``dict[str, Any]`` because the shape is open.
-    """
+    """Either generate a nested class or fall back to ``dict[str, Any]``."""
     properties = schema.get("properties") or {}
     if not properties:
-        # ``additionalProperties: {"type": "number"}`` → ``dict[str, float]`` —
-        # preserves the typed-value information instead of collapsing to ``Any``.
         ap = schema.get("additionalProperties")
         if isinstance(ap, dict):
             value_type = schema_to_type(
@@ -351,25 +276,22 @@ def _build_field_call(
     Parameters
     ----------
     description : str, optional
-        The field description (becomes the ``description`` kwarg).
+        The field description.
     default : Any
         The literal default value, or ``None`` when ``has_default`` is False.
     has_default : bool
         Whether the schema specified an explicit default.
     required : bool
-        Whether the field is required (no default emitted in that case).
+        Whether the field is required.
     alias : str, optional
         On-the-wire JSON name when it differs from the Python identifier.
     leading_width : int
-        Number of characters consumed before the ``Field(...)`` call on
-        the line — used to decide whether to wrap across multiple lines
-        so the result fits within ``_LINE_LENGTH_BUDGET``.
+        Number of characters consumed before the ``Field(...)`` call on the line.
 
     Returns
     -------
     str
-        The full ``Field(...)`` source. Empty string when no metadata
-        applies — caller drops the ``=`` in that case.
+        The full ``Field(...)`` source.
     """
     args: list[str] = []
     if has_default and not required:
@@ -385,27 +307,15 @@ def _build_field_call(
     single_line = "Field(" + ", ".join(args) + ")"
     if leading_width + len(single_line) <= _LINE_LENGTH_BUDGET:
         return single_line
-    # Wrap across lines so each argument lands within the line-length budget.
     inner = ",\n        ".join(args)
     return f"Field(\n        {inner},\n    )"
 
 
 def _resolve_field_description(
     prop: dict[str, Any],
-    field_name: str | None = None,  # noqa: ARG001 — kept for caller call site
+    field_name: str | None = None,  # noqa: ARG001
 ) -> str:
-    """Pick the description text for a Pydantic Field.
-
-    Priority: ``description`` > ``title`` > ``Example: <example value>``.
-    When the schema has an ``enum``, the allowed choices are appended (or
-    used as the body when there's no other text) so the information is
-    preserved after we stop emitting ``Literal[...]`` annotations.
-
-    Falls back to the empty string when the spec has nothing to say —
-    openbb-core's DocstringGenerator renders ``field.description`` directly,
-    so passing ``None`` produces the literal text ``"None"`` under the field.
-    An empty string renders as nothing.
-    """
+    """Pick the description text for a Pydantic Field."""
     text = prop.get("description") or prop.get("title")
     parts: list[str] = []
     if text:
@@ -424,25 +334,10 @@ def _resolve_field_description(
 
 
 def _nested_object_breakout(prop: dict[str, Any]) -> str:
-    """Render an inline breakout of a nested object's fields.
-
-    openbb-core's docstring renderer prints ``field.description`` directly
-    under each field but does NOT recursively expand nested-class types —
-    so ``num_dealers : NumDealers | None`` shows up as a bare class
-    reference with no hint at the inner shape. By embedding a one-line
-    summary of the inner fields into the description, the rendered
-    docstring becomes self-contained: every nested model's contents are
-    visible without the user having to chase down the class definition.
-
-    Returns the empty string for primitives, arrays-of-primitives, unions,
-    and ``$ref`` cycle stubs — anywhere there's no flat property list to
-    summarize.
-    """
+    """Render an inline breakout of a nested object's fields."""
     target = prop
     if isinstance(prop.get("items"), dict):
         target = prop["items"]
-    # ``oneOf`` envelopes a single typed variant — descend so item schemas
-    # like ``{oneOf: [{properties: {...}}]}`` still produce a breakout.
     for combinator in ("oneOf", "anyOf"):
         variants = target.get(combinator)
         if isinstance(variants, list):
@@ -469,12 +364,7 @@ def _nested_object_breakout(prop: dict[str, Any]) -> str:
 
 
 def _quick_schema_type(schema: dict[str, Any]) -> str:
-    """Best-effort shorthand type label for breakout text.
-
-    Doesn't replicate ``schema_to_type`` (no nested-class generation, no
-    import tracking) — just produces a short human-readable label that's
-    accurate enough to help a reader skim a Numpy-style docstring.
-    """
+    """Best-effort shorthand type label for breakout text."""
     if isinstance(schema.get("enum"), list):
         return "str"
     schema_type = schema.get("type")
@@ -509,8 +399,7 @@ def _python_string_literal(text: str) -> str:
     Returns
     -------
     str
-        A quoted Python literal — triple-quoted when ``text`` contains a
-        newline or both ``'`` and ``"``, single-quoted via ``repr`` otherwise.
+        A quoted Python literal.
     """
     if "\n" in text or "'" in text and '"' in text:
         escaped = text.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
@@ -524,14 +413,12 @@ def _annotation_for_docstring(annotation: str) -> tuple[str, bool]:
     Parameters
     ----------
     annotation : str
-        The Python type annotation (e.g. ``"str | None"``, ``"list[int]"``).
+        The Python type annotation.
 
     Returns
     -------
     tuple of (str, bool)
-        The bare type without ``| None`` suffix, and a flag indicating
-        whether the annotation was optional. The flag drives the
-        ``", optional"`` suffix in the docstring's Parameters block.
+        The bare type without ``| None`` suffix, and an optional flag.
     """
     suffix = " | None"
     if annotation.endswith(suffix):
@@ -542,25 +429,17 @@ def _annotation_for_docstring(annotation: str) -> tuple[str, bool]:
 def _render_numpy_parameters(
     fields: list[tuple[str, str, str | None, bool, Any, bool]],
 ) -> str:
-    r"""Build a Numpy-style ``Parameters`` block for a class / function docstring.
+    """Build a Numpy-style ``Parameters`` block for a class / function docstring.
 
     Parameters
     ----------
     fields : list of tuple
-        Each tuple is
-        ``(name, annotation, description, has_default, default, optional)``
-        — ``name`` is the (possibly aliased) Python identifier,
-        ``annotation`` is the rendered type, ``description`` is the prose
-        from the schema (or ``None``), ``has_default`` flags presence of
-        an explicit default, ``default`` is the literal value, and
-        ``optional`` is ``True`` for fields whose annotation included
-        ``| None`` (i.e. required-ness was relaxed).
+        Each tuple is ``(name, annotation, description, has_default, default, optional)``.
 
     Returns
     -------
     str
-        The full block — ``"Parameters\\n----------\\n…"`` — with no
-        leading or trailing newlines. Empty string when ``fields`` is empty.
+        The full block.
     """
     if not fields:
         return ""
@@ -590,15 +469,12 @@ def _render_class_docstring(
     summary : str
         The summary sentence shown immediately after the opening quotes.
     fields : list of tuple
-        Tuples consumed by ``_render_numpy_parameters`` (see its docstring).
+        Tuples consumed by ``_render_numpy_parameters``.
 
     Returns
     -------
     str
-        The full triple-double-quoted block, ready to be concatenated into a class
-        body. Always uses triple-double quotes so the generated source
-        round-trips cleanly through ``ruff format`` and tools that lint
-        for D-rules.
+        The full triple-double-quoted block.
     """
     summary_clean = summary.strip()
     if not summary_clean.endswith("."):
@@ -625,21 +501,18 @@ def render_function_docstring(
     Parameters
     ----------
     summary : str
-        The one-line summary sentence (a trailing ``.`` is added if missing).
+        The one-line summary sentence.
     parameters : list of (name, type, description) tuples, optional
-        Each tuple becomes one entry under the ``Parameters`` section. Use
-        ``None`` for ``description`` to emit a placeholder dot.
+        Each tuple becomes one entry under the ``Parameters`` section.
     returns : tuple of (type, description), optional
-        When supplied, emits a ``Returns`` section with the given type and
-        description.
+        When supplied, emits a ``Returns`` section.
     indent : str
         The indentation prefix for every line of the rendered block.
 
     Returns
     -------
     str
-        The full triple-double-quoted block, indented by ``indent`` and ready to be
-        concatenated into a function body.
+        The full triple-double-quoted block.
     """
     summary_clean = summary.strip()
     if not summary_clean.endswith("."):
@@ -674,18 +547,7 @@ def generate_class(
     base_class: str = "BaseModel",
     docstring: str | None = None,
 ) -> GeneratedClass:
-    """Build a Pydantic class definition from an OpenAPI ``object`` schema.
-
-    Each top-level property becomes one ``name: type = Field(...)`` line.
-    Nested object schemas spawn additional ``GeneratedClass`` entries on the
-    return value's ``nested`` list — the caller emits those before this
-    class so forward references resolve at import time.
-
-    Required-ness comes from the schema's ``required`` array. Defaults from
-    each property's ``default``. Descriptions from ``description`` /
-    ``title``. Field-name conflicts (Python keywords, dotted names, leading
-    digits) are normalized and round-tripped via ``alias``.
-    """
+    """Build a Pydantic class definition from an OpenAPI ``object`` schema."""
     properties: dict[str, Any] = schema.get("properties") or {}
     required_set: set[str] = set(schema.get("required") or [])
     nested_classes: list[GeneratedClass] = []
@@ -763,15 +625,12 @@ def consolidate_imports(imports: set[str]) -> list[str]:
     Parameters
     ----------
     imports : set of str
-        Raw import statements (e.g. ``"from typing import Any"``).
+        Raw import statements.
 
     Returns
     -------
     list of str
         Sorted list with same-module ``from`` imports collapsed.
-        ``import X`` lines pass through unchanged. The output preserves
-        the `import X` / `from X import a, b, c` ordering ``ruff format``
-        produces.
     """
     from_imports: dict[str, set[str]] = {}
     bare_imports: set[str] = set()
@@ -797,13 +656,7 @@ def render_module(
     *,
     module_docstring: str | None = None,
 ) -> str:
-    """Render a ``cls`` and its nested classes as a single importable module.
-
-    Imports are deduplicated, consolidated by module so ``Any`` and
-    ``Literal`` from ``typing`` land on one line, sorted, and split into
-    stdlib / third-party blocks separated by a blank line — matching the
-    style ``ruff format`` would normalize to.
-    """
+    """Render a ``cls`` and its nested classes as a single importable module."""
     classes = cls.flatten()
     imports = consolidate_imports(cls.collect_imports())
 
@@ -825,8 +678,6 @@ def render_module(
         summary = module_docstring.strip()
         if not summary.endswith("."):
             summary += "."
-        # Always triple-quote module docstrings: ruff's D-rules expect that
-        # form and ``ruff format`` will rewrite single quotes to triple anyway.
         parts.append(f'"""{summary}"""')
         parts.append("")
     if stdlib:

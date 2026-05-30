@@ -1,10 +1,4 @@
-"""In-process dispatcher — resolves commands against the real ``obb`` namespace.
-
-The dispatcher walks ``obb.<...>`` attributes the same way every other CLI
-controller does, so integration tests that build a synthetic extension and
-regenerate the static ``openbb/package/`` exercise the dispatcher through
-the same code path production runs.
-"""
+"""In-process dispatcher — resolves commands against the real ``obb`` namespace."""
 
 from __future__ import annotations
 
@@ -20,13 +14,7 @@ class CommandNotFound(KeyError):
 
 
 class LocalDispatcher:
-    """Single-tenant in-process dispatcher.
-
-    On construction, imports ``openbb`` lazily and captures ``obb``. Each
-    dispatch resolves a dotted command path by attribute walk and invokes the
-    leaf — async callables are awaited; sync ones run on the default thread
-    pool so concurrent batch requests don't block the loop.
-    """
+    """Single-tenant in-process dispatcher."""
 
     def __init__(self) -> None:
         from openbb import obb
@@ -52,7 +40,7 @@ class LocalDispatcher:
         if value is None:
             return None
         if hasattr(value, "model_dump"):
-            return value.model_dump()
+            return value.model_dump(exclude_unset=True, exclude_none=True)
         if hasattr(value, "to_dict"):
             return value.to_dict(orient="records")
         return value
@@ -61,9 +49,7 @@ class LocalDispatcher:
         """Resolve ``request`` against ``obb`` and execute the leaf command."""
         try:
             command = self._resolve(self._obb, request.command)
-            if not callable(
-                command
-            ):  # pragma: no cover — defensive against malformed namespace
+            if not callable(command):  # pragma: no cover
                 raise CommandNotFound(
                     f"Resolved {request.command!r} but it is not callable"
                 )
@@ -80,7 +66,7 @@ class LocalDispatcher:
                 ok=False,
                 error=ResponseError(type="CommandNotFound", message=str(exc)),
             )
-        except Exception as exc:  # noqa: BLE001 — surface failures, don't crash the loop
+        except Exception as exc:  # noqa: BLE001
             return Response(
                 id=request.id,
                 ok=False,

@@ -10,11 +10,7 @@ from openbb_cli.controllers.utils import extract_dataframe
 
 
 class FeatureController(BaseController):
-    """Feature Engineering Controller class.
-
-    Provides CRUD operations for columns, tables, and files.
-    Allows joining tables and performing pandas query statements.
-    """
+    """Feature Engineering Controller class."""
 
     CHOICES_COMMANDS = [
         "list",
@@ -48,11 +44,7 @@ class FeatureController(BaseController):
         self.update_completer(self.choices_default)
 
     def _get_table_indices(self) -> list[str]:
-        """Get list of table indices from cache.
-
-        Returns meaningful names (register_key or simplified identifier) for completions.
-        Names must not contain spaces, commas, or special characters that get parsed.
-        """
+        """Get list of table indices from cache."""
         if session.obbject_registry.all:
             names = []
             for idx, data in session.obbject_registry.all.items():
@@ -68,12 +60,15 @@ class FeatureController(BaseController):
     def _resolve_table_identifier(self, identifier: str) -> int | None:
         """Resolve a table identifier (name or index) to numeric index.
 
-        Args:
-            identifier: Either a register_key or numeric index
+        Parameters
+        ----------
+        identifier : str
+            Either a register_key or numeric index.
 
         Returns
         -------
-            The numeric index if found, None otherwise
+        int | None
+            The numeric index if found, None otherwise.
         """
         try:
             idx = int(identifier)
@@ -579,7 +574,7 @@ class FeatureController(BaseController):
             from openbb_cli.controllers.utils import SQLiteTable
 
             data_obj = (
-                result.model_dump().get("results")
+                result.model_dump(exclude_unset=True, exclude_none=True).get("results")
                 if hasattr(result, "model_dump")
                 else result
             )

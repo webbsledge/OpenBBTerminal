@@ -1,11 +1,4 @@
-"""Generate ``pyproject.toml`` and the package skeleton files.
-
-The output is a fully installable PEP 621 / Hatchling project. Two
-plugin entry points are emitted: ``openbb_provider_extension`` (provider
-registration) and ``openbb_core_extension`` (router registration). Once
-``pip install -e .`` runs against the directory, ``openbb-build`` picks
-up both plugins and the new commands are available on ``obb``.
-"""
+"""Generate ``pyproject.toml`` and the package skeleton files."""
 
 from __future__ import annotations
 
@@ -19,9 +12,9 @@ class GeneratedProject:
     Parameters
     ----------
     project_name : str
-        PyPI distribution name (e.g. ``"openbb-congress"``).
+        PyPI distribution name.
     package_name : str
-        Snake-case Python package name (e.g. ``"openbb_congress"``).
+        Snake-case Python package name.
     source : str
         Full ``pyproject.toml`` contents.
     """
@@ -46,21 +39,17 @@ def generate_pyproject(
     Parameters
     ----------
     project_name : str
-        PyPI / distribution name (e.g. ``"openbb-codegen"``).
+        PyPI / distribution name.
     package_name : str
         Python package directory name (snake_case).
     providers : list of str
-        Provider identifiers. Each becomes one
-        ``[project.entry-points."openbb_provider_extension"]`` line so a
-        single ``pip install -e .`` registers every provider with OpenBB.
+        Provider identifiers.
     routers : list of GeneratedRouter
-        Top-level routers. Each becomes one
-        ``[project.entry-points."openbb_core_extension"]`` line, keyed
-        by its ``entry_point_name`` (the public command path prefix).
+        Top-level routers.
     description : str
         Free-form description for ``[project] description``.
     version : str
-        Initial version string (defaults to ``"0.1.0"``).
+        Initial version string.
 
     Returns
     -------

@@ -22,12 +22,6 @@ Repository = "https://github.com/OpenBB-finance/OpenBB"
 Documentation = "https://docs.openbb.co/odp/python/extensions/interface/openbb-api"
 
 [dependency-groups]
-# openbb-devtools v2 carries pytest, pytest-cov, pytest-asyncio, pytest-freezer,
-# etc. — depending on it covers the test toolchain transitively. ``httpx`` is
-# pulled in for ``starlette.testclient`` (used by the spec-proxy /
-# middleware integration tests) — Starlette's TestClient delegates HTTP
-# transport to httpx and raises a clear ``RuntimeError`` if it isn't
-# installed.
 dev = [
     "openbb-devtools>=2.0.0",
     "httpx>=0.28.0,<1.0.0",

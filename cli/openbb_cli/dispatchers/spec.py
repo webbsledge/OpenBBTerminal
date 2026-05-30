@@ -1,23 +1,4 @@
-"""Pre-computed spec format for instant one-shot CLI startup.
-
-The OpenAPI schema describes 280+ endpoints in 2+ MB of JSON. Parsing it on
-every CLI invocation costs ~50ms even before the HTTP roundtrip. A ``.spec``
-file is a normalized, denormalized snapshot of just the bits the CLI consumes:
-
-* Per-command URL + method + parameter list (already digested types/choices).
-* Router/menu classification.
-* Reference descriptions for help text.
-
-Loading a spec is a single ``json.loads`` and dictionary lookup — no schema
-walk, no ``anyOf`` resolution, no provider-extension scanning. Generate once
-when the server's surface changes, ship the file alongside whatever invokes
-the CLI, and one-shot dispatches become near-instant.
-
-Usage::
-
-    openbb --generate-spec --server http://api:6900 -o cli.spec
-    openbb --spec cli.spec equity.price.historical --symbol AAPL
-"""
+"""Pre-computed spec format for instant one-shot CLI startup."""
 
 from __future__ import annotations
 
@@ -44,10 +25,11 @@ from openbb_cli.dispatchers.openapi_schema import (
     deref_parameter,
     detect_api_prefix,
     extract_request_body_schema,
-    extract_request_body_schemas,
     extract_response_schema,
     extract_response_schemas,
     param_provider_membership,
+    parse_json_arg,
+    request_body_parameters,
     url_to_command,
 )
 
@@ -68,12 +50,7 @@ _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$")
 
 
 def _coerce_iso_datetime(value: str) -> str:
-    """Expand short date forms to RFC-3339 timestamps the upstream API expects.
-
-    ``2025-01-01`` → ``2025-01-01T00:00:00Z``. Already-full timestamps get a
-    trailing ``Z`` if missing. Anything else passes through unchanged so the
-    upstream's own validator surfaces the error.
-    """
+    """Expand short date forms to RFC-3339 timestamps the upstream API expects."""
     if _DATE_RE.match(value):
         return f"{value}T00:00:00Z"
     if _DATETIME_RE.match(value) and not value.endswith("Z"):
@@ -82,12 +59,7 @@ def _coerce_iso_datetime(value: str) -> str:
 
 
 def _looks_like_datetime_param(name: str, help_text: str | None) -> bool:
-    """Heuristic: parameter is a datetime if name or help points at one.
-
-    Matches names ending in ``DateTime``/``Datetime``/``_datetime`` (Congress
-    uses ``fromDateTime``/``toDateTime``) and help text containing ``timestamp``
-    or ``YYYY-MM-DD``.
-    """
+    """Heuristic: parameter is a datetime if name or help points at one."""
     n = name.lower()
     if n.endswith("datetime") or "_datetime" in n:
         return True
@@ -98,18 +70,7 @@ def _looks_like_datetime_param(name: str, help_text: str | None) -> bool:
 
 
 def _operation_providers(op: dict[str, Any]) -> list[str]:
-    """Return the OpenBB provider list for an operation, ordered as declared.
-
-    OpenBB Platform encodes the discriminator as a ``provider`` parameter
-    whose schema is either:
-
-    * ``enum: [provider1, provider2, ...]`` — multi-provider endpoints
-    * ``const: "providerX"`` — single-provider endpoints
-
-    Other OpenAPI servers don't have this concept; they yield ``[]`` and
-    the rest of the spec build / describe path falls back to the flat
-    shape.
-    """
+    """Return the OpenBB provider list for an operation, ordered as declared."""
     for raw in op.get("parameters", []) or []:
         if not isinstance(raw, dict):
             continue
@@ -128,22 +89,17 @@ def _operation_providers(op: dict[str, Any]) -> list[str]:
 def _normalize_parameter(
     param: dict[str, Any], providers_set: set[str] | None = None
 ) -> dict[str, Any] | None:
-    """Translate one OpenAPI parameter into the spec-file parameter form.
-
-    Returns ``None`` for parameters the CLI does not surface (e.g. ``chart``).
-    Records the ``in`` location (``query`` / ``path`` / ``header``) so the
-    dispatcher knows whether to substitute the value into the URL template
-    or send it as a query / body parameter. When ``providers_set`` is
-    supplied (multi-provider OpenBB endpoint), records which providers each
-    parameter belongs to so ``--describe`` can group them.
-    """
+    """Translate one OpenAPI parameter into the spec-file parameter form."""
     name = param.get("name")
     if not name or name == "chart":
         return None
 
     location = param.get("in", "query")
     schema = param.get("schema", {}) or {}
+    json_arg = bool(param.get("_json_arg"))
     py_type, enum_choices, is_list = _resolve_schema(schema)
+    if json_arg:
+        py_type, enum_choices, is_list = str, [], False
     choices: list[Any] = list(enum_choices)
     for c in _provider_choices(schema):
         if c not in choices:
@@ -164,11 +120,6 @@ def _normalize_parameter(
         else []
     )
 
-    # Capture the parameter's example value from either the OpenAPI 3.x
-    # ``example``/``examples`` slots on the parameter object or its schema.
-    # This is the strongest signal that a value will produce real data
-    # against the live API — spec authors curate it specifically so docs
-    # and Swagger UI render against a working call.
     example: Any = param.get("example")
     if example is None:
         examples_map = param.get("examples") or {}
@@ -181,10 +132,6 @@ def _normalize_parameter(
         example = schema.get("example")
 
     type_name = _TYPE_TO_NAME.get(py_type, "string")
-    # Path parameters typed ``number`` in OpenAPI almost always carry whole
-    # numbers (counts, IDs, "last N"). Without this promotion, ``--number 10``
-    # gets type-cast to ``10.0`` (float) and the URL becomes
-    # ``.../last/10.0.json`` which the API rejects.
     if location == "path" and type_name == "number":
         type_name = "integer"
 
@@ -199,7 +146,88 @@ def _normalize_parameter(
         "example": example,
         "help": param.get("description") or schema.get("description"),
         "providers": providers,
+        "json_arg": json_arg,
     }
+
+
+def _build_operation_entry(
+    spec: dict[str, Any], url: str, method: str, op: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the per-URL command entry — params, providers, schemas."""
+    providers = _operation_providers(op)
+    providers_set = set(providers) if providers else None
+    params: list[dict[str, Any]] = []
+    for raw in op.get("parameters", []) or []:
+        resolved = deref_parameter(spec, raw) if isinstance(raw, dict) else raw
+        if not resolved:
+            continue
+        normalized = _normalize_parameter(resolved, providers_set)
+        if normalized is not None:
+            params.append(normalized)
+    return {
+        "url_path": url,
+        "method": method,
+        "description": (op.get("description") or op.get("summary") or "").strip(),
+        "parameters": params,
+        "providers": providers,
+        "request_body_schema": extract_request_body_schema(spec, op),
+        "response_schema": extract_response_schema(spec, op),
+        "response_schemas": extract_response_schemas(spec, op),
+    }
+
+
+def _merge_overload_entries(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge URL overloads (same dotted name) into a single command entry.
+
+    Each variant URL is recorded in ``url_templates`` (sorted by path-placeholder
+    count, descending). All path params become optional on the merged command —
+    the dispatcher picks the longest URL template whose placeholders are
+    satisfied at call time. Query-/body- params are unioned by name; ``required``
+    holds only when the param is required in every variant where it appears.
+    """
+    entries = sorted(entries, key=lambda e: -_count_path_placeholders(e["url_path"]))
+    base = entries[-1]
+    by_name: dict[str, dict[str, Any]] = {}
+    seen_in_count: dict[str, int] = {}
+    for entry in entries:
+        for p in entry["parameters"]:
+            name = p["name"]
+            seen_in_count[name] = seen_in_count.get(name, 0) + 1
+            merged = by_name.setdefault(name, dict(p))
+            if not merged.get("help") and p.get("help"):
+                merged["help"] = p["help"]
+            if not merged.get("choices") and p.get("choices"):
+                merged["choices"] = list(p["choices"])
+            if merged.get("default") is None and p.get("default") is not None:
+                merged["default"] = p["default"]
+            if merged.get("example") is None and p.get("example") is not None:
+                merged["example"] = p["example"]
+    total_entries = len(entries)
+    merged_params: list[dict[str, Any]] = []
+    for name, merged in by_name.items():
+        if seen_in_count[name] < total_entries:
+            merged["required"] = False
+        merged_params.append(merged)
+    description = next(
+        (entry.get("description") for entry in entries if entry.get("description")),
+        "",
+    )
+    return {
+        "url_path": base["url_path"],
+        "url_templates": [entry["url_path"] for entry in entries],
+        "method": base["method"],
+        "description": description,
+        "parameters": merged_params,
+        "providers": base.get("providers", []),
+        "request_body_schema": base.get("request_body_schema"),
+        "response_schema": base.get("response_schema"),
+        "response_schemas": base.get("response_schemas"),
+    }
+
+
+def _count_path_placeholders(url: str) -> int:
+    """Count ``{placeholder}`` occurrences in a URL template."""
+    return url.count("{")
 
 
 def build_command_spec(
@@ -207,15 +235,13 @@ def build_command_spec(
 ) -> dict[str, dict[str, Any]]:
     """Return ``{dotted_command: {url_path, method, description, parameters[]}}``.
 
-    The output is the per-command portion of the on-disk spec file — already
-    digested into argparse-ready primitives. Collisions (multiple URLs that
-    strip to the same dotted name after dropping ``{path_params}``) are
-    disambiguated by appending ``_2``, ``_3``, … in URL-iteration order.
+    URLs that strip to the same dotted command (e.g. ``/x/{a}`` and
+    ``/x/{a}/{b}``) are merged into a single command entry whose
+    ``url_templates`` lists every variant. The dispatcher picks the longest
+    fully-satisfied template at call time.
     """
-    out: dict[str, dict[str, Any]] = {}
+    groups: dict[str, list[dict[str, Any]]] = {}
     for url, methods in spec.get("paths", {}).items():
-        method: str | None
-        op: dict[str, Any] | None
         if "get" in methods:
             method, op = "get", methods["get"]
         elif "post" in methods:
@@ -225,49 +251,17 @@ def build_command_spec(
         base_cmd = url_to_command(url, api_prefix=api_prefix)
         if not base_cmd:
             continue
-        cmd = base_cmd
-        suffix = 2
-        while cmd in out:
-            cmd = f"{base_cmd}_{suffix}"
-            suffix += 1
-        providers = _operation_providers(op)
-        providers_set = set(providers) if providers else None
-        params: list[dict[str, Any]] = []
-        for raw in op.get("parameters", []) or []:
-            resolved = deref_parameter(spec, raw) if isinstance(raw, dict) else raw
-            if not resolved:
-                continue
-            normalized = _normalize_parameter(resolved, providers_set)
-            if normalized is not None:
-                params.append(normalized)
-        out[cmd] = {
-            "url_path": url,
-            "method": method,
-            "description": (op.get("description") or op.get("summary") or "").strip(),
-            "parameters": params,
-            "providers": providers,
-            "request_body_schema": extract_request_body_schema(spec, op),
-            "request_body_schemas": extract_request_body_schemas(spec, op),
-            "response_schema": extract_response_schema(spec, op),
-            "response_schemas": extract_response_schemas(spec, op),
-        }
+        groups.setdefault(base_cmd, []).append(
+            _build_operation_entry(spec, url, method, op)
+        )
+    out: dict[str, dict[str, Any]] = {}
+    for cmd, entries in groups.items():
+        out[cmd] = entries[0] if len(entries) == 1 else _merge_overload_entries(entries)
     return out
 
 
 def _resolve_base_url(openapi: dict[str, Any], user_base_url: str) -> str:
-    """Honor the OpenAPI ``servers[0].url`` when it adds a path component.
-
-    Many specs declare ``servers: [{"url": "https://api.example.com/v3"}]`` or
-    ``servers: [{"url": "/v3"}]`` (Congress.gov). The user typically passes
-    only the host (``--server https://api.congress.gov``) — without merging
-    the server entry, every dispatch hits ``/bill`` instead of ``/v3/bill``.
-    Strategy:
-
-    * Absolute server URL (starts with ``http``) wins outright when the
-      user only supplied a host with no path component.
-    * Relative server URL (``/v3``) is appended to the user's base URL.
-    * If the user already supplied the path themselves, leave it alone.
-    """
+    """Honor the OpenAPI ``servers[0].url`` when it adds a path component."""
     user_clean = user_base_url.rstrip("/")
     servers = openapi.get("servers") or []
     if not servers or not isinstance(servers[0], dict):
@@ -302,15 +296,7 @@ def build_spec_document(
     api_prefix: str | None = None,
     source_url: str | None = None,
 ) -> dict[str, Any]:
-    """Build the on-disk spec dict from a fetched OpenAPI document.
-
-    ``base_url`` is reconciled against the OpenAPI ``servers`` array — see
-    ``_resolve_base_url``. ``api_prefix`` defaults to the longest path-prefix
-    shared by every URL in the spec — OpenBB Platform's ``/api/v1``, NY Fed's
-    ``/api``, the empty prefix, etc. Pass an explicit value to override.
-    ``source_url`` is the URL the OpenAPI document was fetched from — recorded
-    so the spec carries enough provenance to be regenerated.
-    """
+    """Build the on-disk spec dict from a fetched OpenAPI document."""
     effective_prefix = (
         api_prefix if api_prefix is not None else detect_api_prefix(openapi)
     )
@@ -336,12 +322,7 @@ def _content_hash(spec_doc: dict[str, Any]) -> str:
 
 
 def write_spec(path: str | Path, spec_doc: dict[str, Any]) -> None:
-    """Write the spec doc to ``path`` as compact JSON, stamped with its SHA-256.
-
-    The hash covers the canonical JSON serialization of the doc with the
-    ``content_sha256`` field excluded — so the value is reproducible from
-    the written file alone. Mutates ``spec_doc`` in place to record it.
-    """
+    """Write the spec doc to ``path`` as compact JSON, stamped with its SHA-256."""
     spec_doc["content_sha256"] = _content_hash(spec_doc)
     Path(path).write_text(json.dumps(spec_doc, separators=(",", ":")))
 
@@ -361,6 +342,7 @@ class _CommandParameter(BaseModel):
     example: Any = None
     help: str | None = None
     providers: list[str] = Field(default_factory=list)
+    json_arg: bool = False
 
 
 class _CommandSpec(BaseModel):
@@ -369,6 +351,7 @@ class _CommandSpec(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     url_path: str
+    url_templates: list[str] | None = None
     method: str
     description: str | None = None
     parameters: list[_CommandParameter] = Field(default_factory=list)
@@ -378,12 +361,7 @@ class _CommandSpec(BaseModel):
 
 
 class SpecDocument(BaseModel):
-    """The on-disk shape of a ``.spec`` file.
-
-    Validation is structural: every required field must be present with the
-    declared type. Unknown fields are accepted (forward-compat with future
-    spec versions that introduce optional metadata).
-    """
+    """The on-disk shape of a ``.spec`` file."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -396,24 +374,12 @@ class SpecDocument(BaseModel):
     generated_at: str | None = None
     generator: str | None = None
     source_url: str | None = None
-    # ``api_version`` is the upstream's own version label — OpenAPI's
-    # ``"3.1.0"``, Socrata's ``"v2"`` — kept as an opaque string so spec
-    # consumers can branch on it when needed without us baking in a
-    # versioning scheme. Was ``openapi_version`` in earlier spec versions.
     api_version: str | None = None
     content_sha256: str | None = None
 
 
 def load_spec(path: str | Path) -> dict[str, Any]:
-    """Load and validate a spec doc; reject incompatible versions early.
-
-    Three checks: the integer ``version`` must match ``SPEC_VERSION`` (hard
-    floor for incompatible format changes), the document must conform to
-    ``SpecDocument`` (required keys, declared types), and — when present —
-    the recorded ``content_sha256`` must match the recomputed hash. Specs
-    written by older generators predate the hash field and skip the third
-    check.
-    """
+    """Load and validate a spec doc; reject incompatible versions early."""
     spec_doc = json.loads(Path(path).read_text())
     version = spec_doc.get("version")
     if version != SPEC_VERSION:
@@ -439,29 +405,23 @@ def load_spec(path: str | Path) -> dict[str, Any]:
     return spec_doc
 
 
+def command_parameters(cmd_spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return a command's full input surface: query/path params fused with body."""
+    params = list(cmd_spec.get("parameters") or [])
+    for body_param in request_body_parameters(cmd_spec.get("request_body_schema")):
+        normalized = _normalize_parameter(body_param)
+        if normalized is not None:
+            params.append(normalized)
+    return params
+
+
 def parser_from_command_spec(
     cmd_spec: dict[str, Any],
     prog: str | None = None,
     *,
     selected_provider: str | None = None,
 ) -> argparse.ArgumentParser:
-    """Build an ArgumentParser from one entry in ``spec["commands"]``.
-
-    ``prog`` overrides the program name shown in usage/help text — pass the
-    dotted command name (``law``, ``bill.actions``) so the user sees that
-    instead of the last URL segment, which can be a placeholder like
-    ``{congress}`` for path-templated endpoints.
-
-    ``selected_provider`` narrows the parser surface to flags valid for
-    that provider — shared params (``providers == []``) plus provider-
-    specific ones tagged with ``selected_provider``. Without this, an
-    OpenBB multi-provider command would silently accept flags meant for
-    a different provider and the upstream server would ignore them.
-
-    ``add_help=False`` because the controller dispatch path always wraps the
-    parser with ``parse_known_args_and_warn``, which adds its own ``-h``/
-    ``--help`` action and would otherwise conflict on a duplicate flag.
-    """
+    """Build an ArgumentParser from one entry in ``spec["commands"]``."""
     fallback_prog = cmd_spec.get("url_path", "cmd").rsplit("/", 1)[-1] or "cmd"
     parser = argparse.ArgumentParser(
         prog=prog or fallback_prog,
@@ -469,12 +429,9 @@ def parser_from_command_spec(
         formatter_class=argparse.RawTextHelpFormatter,
         add_help=False,
     )
-    # Two argparse groups so help text shows required args separately from
-    # optional ones — by default argparse lumps every ``--flag`` together
-    # under "options" with no distinction.
     required_group = parser.add_argument_group("required arguments")
     optional_group = parser.add_argument_group("optional arguments")
-    for p in cmd_spec.get("parameters", []) or []:
+    for p in command_parameters(cmd_spec):
         if not _param_visible_for_provider(p, selected_provider):
             continue
         target = required_group if p.get("required") else optional_group
@@ -488,13 +445,7 @@ def parser_from_command_spec(
 def _param_visible_for_provider(
     p: dict[str, Any], selected_provider: str | None
 ) -> bool:
-    """Whether a normalized parameter belongs in the parser for ``selected_provider``.
-
-    The ``provider`` discriminator itself is always visible. Other params
-    are gated by the ``providers`` list recorded at spec-build time —
-    empty list = shared across every provider, otherwise must include
-    the chosen one.
-    """
+    """Whether a normalized parameter belongs in the parser for ``selected_provider``."""
     if selected_provider is None or p.get("name") == "provider":
         return True
     tags = p.get("providers") or []
@@ -509,11 +460,14 @@ def _add_normalized_parameter(
     py_type = _NAME_TO_TYPE.get(p.get("type", "string"), str)
     kwargs: dict[str, Any] = {"dest": p["name"], "help": _escape_help(p.get("help"))}
 
+    if p.get("json_arg"):
+        kwargs["type"] = parse_json_arg
+        if p.get("required"):
+            kwargs["required"] = True
+        parser.add_argument(flag, **kwargs)
+        return
+
     if py_type is bool:
-        # ``BooleanOptionalAction`` registers both ``--flag`` and ``--no-flag``.
-        # Required for params like ``use_cache`` whose default is ``True`` —
-        # plain ``store_true`` would have no way to flip them off from the
-        # command line.
         kwargs.update(
             action=argparse.BooleanOptionalAction,
             default=bool(p.get("default") or False),
@@ -521,12 +475,6 @@ def _add_normalized_parameter(
         parser.add_argument(flag, **kwargs)
         return
 
-    # Socrata range-filter params (``start_date`` / ``end_date`` carry
-    # ``_socrata_op``) need the raw ``YYYY-MM-DD`` string preserved —
-    # the dispatcher folds them into a SoQL ``$where`` clause, and
-    # Socrata's parser auto-coerces ISO-timestamp literals (``...T00:00:00Z``)
-    # to a ``calendar_date`` type which fails ``op$>=`` against
-    # text-stored date columns ("Type mismatch for op$>=, is text").
     is_socrata_range_param = p.get("_socrata_op") in {"date_min", "date_max"}
     if (
         py_type is str
@@ -554,18 +502,7 @@ class SpecCommandError(KeyError):
 def parse_command_argv(
     spec_doc: dict[str, Any], argv: list[str]
 ) -> tuple[str, dict[str, Any]]:
-    """Resolve ``argv`` against ``spec_doc['commands']`` → (command, params).
-
-    The first token is the dotted command path; everything after is parsed
-    by the parser built from that command's normalized parameter list.
-
-    Multi-provider OpenBB commands get a two-pass parse: first peek at
-    ``--provider`` to learn which variant the user wants, then build the
-    final parser containing only that provider's flags. This way
-    ``equity.price.quote --provider intrinio --use_cache true`` errors
-    out cleanly (``--use_cache`` is cboe-only) instead of silently being
-    sent to the server and ignored.
-    """
+    """Resolve ``argv`` against ``spec_doc['commands']`` → (command, params)."""
     if not argv:
         raise SpecCommandError(
             "missing command — usage: openbb --spec PATH <command.path> [--key value]"
@@ -582,13 +519,7 @@ def parse_command_argv(
 
 
 def _peek_provider(cmd_spec: dict[str, Any], argv: list[str]) -> str | None:
-    """Run a minimal first-pass parser to extract ``--provider`` from ``argv``.
-
-    Returns ``None`` for non-multi-provider commands (no ``provider`` flag
-    declared, or the user didn't pass one) so the caller falls back to the
-    full parser. Uses ``parse_known_args`` so unknown flags don't trip the
-    peek pass — they're surfaced by the real parser on the second pass.
-    """
+    """Run a minimal first-pass parser to extract ``--provider`` from ``argv``."""
     providers = cmd_spec.get("providers") or []
     if not providers:
         return None
