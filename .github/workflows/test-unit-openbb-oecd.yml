@@ -52,7 +52,7 @@ jobs:
           OPENBB_OECD_FORCE_CACHE_REBUILD: ${{ inputs.force_cache_rebuild == true && '1' || '0' }}
         run: uv build --no-sources
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: openbb-oecd-dist
           path: openbb_platform/providers/oecd/dist/
@@ -76,7 +76,7 @@ jobs:
 
       - run: python -m pip install --upgrade pip uv
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: openbb-oecd-dist
           path: openbb_platform/providers/oecd/dist
