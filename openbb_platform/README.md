@@ -28,7 +28,6 @@ This will install the core, router modules, and the following data providers:
 
 | Extension Name | Description | Installation Command | Minimum Subscription Type Required |
 |----------------|-------------|----------------------|------------------------------------|
-| openbb-benzinga | [Benzinga](https://www.benzinga.com/apis/en-ca/) data connector | pip install openbb-benzinga | Paid |
 | openbb-bls | [Bureau of Labor Statistics](https://www.bls.gov/developers/home.htm) data connector | pip install openbb-bls | Free |
 | openbb-congress-gov | [US Congress API](https://api.congress.gov/sign-up/) data connector | pip install openbb-congress-gov | Free |
 | openbb-cftc | [Commodity Futures Trading Commission](https://publicreporting.cftc.gov/stories/s/r4w3-av2u) data connector | pip install openbb-cftc | Free |
@@ -108,8 +107,6 @@ Populate this file with the following template and replace the values with your 
 {
   "credentials": {
     "fmp_api_key": "REPLACE_ME",
-    "polygon_api_key": "REPLACE_ME",
-    "benzinga_api_key": "REPLACE_ME",
     "fred_api_key": "REPLACE_ME"
   }
 }
