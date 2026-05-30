@@ -41,7 +41,7 @@ jobs:
 
       - name: Restore IMF SDMX cache
         id: imf-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: openbb_platform/providers/imf/openbb_imf/assets/imf_cache.json.xz
           key: imf-sdmx-${{ hashFiles('openbb_platform/providers/imf/openbb_imf/utils/generate_cache.py') }}
@@ -53,7 +53,7 @@ jobs:
           OPENBB_IMF_FORCE_CACHE_REBUILD: ${{ inputs.force_cache_rebuild == true && '1' || '0' }}
         run: uv build --no-sources
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: openbb-imf-dist
           path: openbb_platform/providers/imf/dist/
