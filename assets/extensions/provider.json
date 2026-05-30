@@ -1,19 +1,5 @@
 [
     {
-        "packageName": "openbb-alpha-vantage",
-        "optional": true,
-        "reprName": "Alpha Vantage",
-        "description": "Alpha Vantage provides realtime and historical\nfinancial market data through a set of powerful and developer-friendly data APIs\nand spreadsheets. From traditional asset classes (e.g., stocks, ETFs, mutual funds)\nto economic indicators, from foreign exchange rates to commodities,\nfrom fundamental data to technical indicators, Alpha Vantage\nis your one-stop-shop for enterprise-grade global market data delivered through\ncloud-based APIs, Excel, and Google Sheets. ",
-        "credentials": [
-            "alpha_vantage_api_key"
-        ],
-        "deprecatedCredentials": {
-            "API_KEY_ALPHAVANTAGE": "alpha_vantage_api_key"
-        },
-        "website": "https://www.alphavantage.co",
-        "instructions": "Go to: https://www.alphavantage.co/support/#api-key\n\n![AlphaVantage](https://user-images.githubusercontent.com/46355364/207820936-46c2ba00-81ff-4cd3-98a4-4fa44412996f.png)\n\nFill out the form, pass Captcha, and click on, \"GET FREE API KEY\"."
-    },
-    {
         "packageName": "openbb-benzinga",
         "optional": false,
         "reprName": "Benzinga",
