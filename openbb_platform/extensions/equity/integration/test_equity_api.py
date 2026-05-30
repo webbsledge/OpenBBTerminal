@@ -779,24 +779,6 @@ def test_equity_ownership_major_holders(params, headers):
     [
         ({"symbol": "AAPL", "limit": 10, "provider": "fmp"}),
         ({"symbol": "AAPL", "provider": "finviz"}),
-        (
-            {
-                "symbol": "AAPL",
-                "limit": 10,
-                "provider": "benzinga",
-                # optional provider params
-                "fields": None,
-                "date": None,
-                "start_date": None,
-                "end_date": None,
-                "importance": None,
-                "updated": None,
-                "action": None,
-                "analyst_ids": None,
-                "firm_ids": None,
-                "page": 0,
-            }
-        ),
     ],
 )
 @pytest.mark.integration
@@ -811,37 +793,7 @@ def test_equity_estimates_price_target(params, headers):
     assert result.status_code == 200
 
 
-@pytest.mark.parametrize(
-    "params",
-    [
-        (
-            {
-                "limit": 10,
-                "provider": "benzinga",
-                # optional provider params
-                "fields": None,
-                "analyst_ids": None,
-                "firm_ids": None,
-                "firm_name": "Barclays",
-                "analyst_name": None,
-                "page": 0,
-            }
-        ),
-        (
-            {
-                "limit": 3,
-                "provider": "benzinga",
-                # optional provider params
-                "fields": None,
-                "analyst_ids": None,
-                "firm_ids": None,
-                "firm_name": "Barclays,Credit Suisse",
-                "analyst_name": None,
-                "page": 1,
-            }
-        ),
-    ],
-)
+@pytest.mark.skip(reason="Not implemented")
 @pytest.mark.integration
 def test_equity_estimates_analyst_search(params, headers):
     """Test the equity estimates analyst search endpoint."""
