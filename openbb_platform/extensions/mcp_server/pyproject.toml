@@ -14,10 +14,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ``cli`` pulls openbb-cli in so its dispatchers (HttpDispatcher /
-# LocalDispatcher / runtime helpers) can be exposed as first-class
-# MCP tools. Optional because container deployments that only need
-# the REST→MCP bridge don't require the CLI surface.
 cli = ["openbb-cli>=2.0.0"]
 
 [project.scripts]

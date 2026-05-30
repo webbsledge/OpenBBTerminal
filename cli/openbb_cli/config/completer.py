@@ -24,20 +24,15 @@ class WordCompleter(Completer):
     ignore_case : bool
         When ``True``, complete case-insensitively.
     meta_dict : Mapping[str, AnyFormattedText], optional
-        Maps words to their meta-text (strings or formatted text).
+        Maps words to their meta-text.
     WORD : bool
         When ``True``, use WORD characters.
     sentence : bool
-        When ``True``, don't complete by comparing the word before the
-        cursor, but by comparing all the text before the cursor. In this
-        case, the list of words is just a list of strings, where each
-        string can contain spaces. Cannot be used together with ``WORD``.
+        When ``True``, compare all text before the cursor. Cannot be used with ``WORD``.
     match_middle : bool
-        When ``True``, match not only the start of the word but also its
-        middle.
+        When ``True``, match the middle of the word too.
     pattern : re.Pattern[str], optional
-        Compiled regex for finding the word before the cursor to complete.
-        When supplied, used instead of the default ``document._FIND_WORD_RE``.
+        Compiled regex for finding the word before the cursor.
     """
 
     def __init__(
@@ -115,14 +110,7 @@ class WordCompleter(Completer):
 
 
 class NestedCompleter(Completer):
-    """Completer wrapping several others, dispatching by the input's first word.
-
-    By combining multiple `NestedCompleter` instances, we can achieve multiple
-    hierarchical levels of autocompletion. This is useful when `WordCompleter`
-    is not sufficient.
-
-    If you need multiple levels, check out the `from_nested_dict` classmethod.
-    """
+    """Completer wrapping several others, dispatching by the input's first word."""
 
     complementary: list = list()
 
@@ -142,29 +130,7 @@ class NestedCompleter(Completer):
 
     @classmethod
     def from_nested_dict(cls, data: dict) -> "NestedCompleter":
-        """Create a `NestedCompleter`.
-
-        It starts from a nested dictionary data structure, like this:
-
-        .. code::
-
-            data = {
-                'show': {
-                    'version': None,
-                    'interfaces': None,
-                    'clock': None,
-                    'ip': {'interface': {'brief'}}
-                },
-                'exit': None
-                'enable': None
-            }
-
-        The value should be `None` if there is no further completion at some
-        point. If all values in the dictionary are None, it is also possible to
-        use a set instead.
-
-        Values in this data structure can be a completers as well.
-        """
+        """Create a `NestedCompleter` from a nested dictionary."""
         options: dict[str, Any] = {}
         for key, value in data.items():
             if isinstance(value, Completer):

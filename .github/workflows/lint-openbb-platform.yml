@@ -63,18 +63,10 @@ jobs:
         run: uv pip install --system -e ".[pandas]"
 
       - name: Install openbb-devtools (ruff + ty + codespell)
-        # Install editable v2.0.0 BEFORE anything that depends on
-        # ``openbb-devtools``. core/pyproject.toml has no
-        # ``[tool.uv.sources]`` mapping for openbb-devtools, so a bare
-        # ``--group dev`` install would pull the stale PyPI v1.6.6,
-        # which doesn't ship ``ty`` (added in v2.0.0).
         working-directory: ${{ github.workspace }}/openbb_platform/extensions/devtools
         run: uv pip install --system -e .
 
       - name: Install openbb-cli
-        # ``openbb_mcp_server.app.cli_tools`` imports
-        # ``openbb_cli.dispatchers``; ty needs the package importable
-        # to resolve those references.
         working-directory: ${{ github.workspace }}/cli
         run: uv pip install --system -e .
 

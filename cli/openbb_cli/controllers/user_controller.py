@@ -1,9 +1,4 @@
-"""User Controller Module.
-
-Allows viewing and modifying obb.user preferences at the session level
-(changes do not persist after the CLI exits).
-Credentials are managed via the credentials sub-menu.
-"""
+"""User Controller Module."""
 
 import argparse
 from functools import partial, update_wrapper

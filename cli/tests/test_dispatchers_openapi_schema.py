@@ -13,6 +13,7 @@ import argparse
 import pytest
 
 from openbb_cli.dispatchers.openapi_schema import (
+    _is_json_arg,
     _provider_choices,
     _resolve_schema,
     build_command_index,
@@ -20,6 +21,8 @@ from openbb_cli.dispatchers.openapi_schema import (
     build_reference,
     build_router_map,
     parameter_to_kwargs,
+    parse_json_arg,
+    request_body_parameters,
     url_to_command,
 )
 
@@ -187,6 +190,98 @@ def test_parameter_to_kwargs_help_percent_escaped():
 
 def test_parameter_to_kwargs_no_name_returns_none():
     assert parameter_to_kwargs({"schema": {"type": "string"}}) is None
+
+
+def test_is_json_arg_classifies_non_scalar_shapes():
+    """Objects, arrays of objects, and free-form mappings are JSON args."""
+    assert _is_json_arg({"type": "object", "properties": {}}) is True
+    # A free-form mapping (additionalProperties, no declared type) is a JSON arg.
+    assert _is_json_arg({"additionalProperties": {"type": "number"}}) is True
+    assert _is_json_arg({"type": "array", "items": {"type": "object"}}) is True
+    # ...arrays of scalars and bare scalars are not.
+    assert _is_json_arg({"type": "array", "items": {"type": "string"}}) is False
+    assert _is_json_arg({"type": "string"}) is False
+    assert _is_json_arg({"type": "array", "items": True}) is False
+    # An anyOf with any non-scalar member is a JSON arg.
+    assert _is_json_arg({"anyOf": [{"type": "string"}, {"type": "object"}]}) is True
+
+
+def test_parse_json_arg_decodes_and_rejects_bad_json():
+    assert parse_json_arg('[{"a": 1}]') == [{"a": 1}]
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_json_arg("{not json")
+
+
+def test_request_body_parameters_flattens_object_properties():
+    """Each top-level body property becomes an ``in: body`` parameter."""
+    body = {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+            "data": {
+                "type": "array",
+                "items": {"type": "object", "title": "Datum"},
+                "title": "Data",
+            },
+            "length": {"type": "integer", "default": 14, "description": "count"},
+        },
+    }
+    params = request_body_parameters(body)
+    by_name = {p["name"]: p for p in params}
+    assert by_name["data"]["in"] == "body"
+    assert by_name["data"]["required"] is True
+    assert by_name["data"]["_json_arg"] is True  # array of objects
+    assert by_name["length"]["required"] is False
+    assert by_name["length"]["_json_arg"] is False
+    assert by_name["length"]["description"] == "count"
+    assert by_name["length"]["schema"]["default"] == 14
+
+
+def test_request_body_parameters_skips_non_object_or_empty():
+    assert request_body_parameters(None) == []
+    assert request_body_parameters({}) == []
+    assert request_body_parameters({"type": "string"}) == []
+
+
+def test_request_body_parameters_skips_non_dict_property():
+    """A property whose schema isn't a dict is skipped."""
+    body = {
+        "type": "object",
+        "properties": {"good": {"type": "string"}, "bad": "junk"},
+    }
+    assert [p["name"] for p in request_body_parameters(body)] == ["good"]
+
+
+def test_build_parser_from_operation_includes_request_body_fields():
+    """With ``spec`` supplied, request-body fields surface as command flags."""
+    op = {
+        "operationId": "sma",
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": {"$ref": "#/components/schemas/SmaQueryParams"}
+                }
+            }
+        },
+    }
+    spec = {
+        "components": {
+            "schemas": {
+                "SmaQueryParams": {
+                    "type": "object",
+                    "required": ["data"],
+                    "properties": {
+                        "data": {"type": "array", "items": {"type": "object"}},
+                        "length": {"type": "integer", "default": 14},
+                    },
+                }
+            }
+        }
+    }
+    parser = build_parser_from_operation(op, spec)
+    ns = parser.parse_args(["--data", '[{"close": 1}]', "--length", "9"])
+    assert ns.data == [{"close": 1}]
+    assert ns.length == 9
 
 
 def test_build_parser_uses_operation_metadata():
@@ -790,21 +885,6 @@ def test_extract_request_body_schema_returns_none_when_absent():
     assert extract_request_body_schema({}, {"requestBody": {}}) is None
 
 
-def test_extract_request_body_schemas_returns_per_content_type_map():
-    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
-
-    op = {
-        "requestBody": {
-            "content": {
-                "application/json": {"schema": {"type": "object"}},
-                "application/x-www-form-urlencoded": {"schema": {"type": "object"}},
-            }
-        }
-    }
-    schemas = extract_request_body_schemas({}, op)
-    assert set(schemas) == {"application/json", "application/x-www-form-urlencoded"}
-
-
 # --- Embedded spec extraction & fetch_openapi fallback ---
 
 
@@ -1114,39 +1194,6 @@ def test_extract_request_body_schema_returns_none_when_schema_missing():
     assert extract_request_body_schema({}, op) is None
 
 
-def test_extract_request_body_schemas_dereferences_top_level_ref():
-    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
-
-    spec = {
-        "components": {
-            "requestBodies": {
-                "B": {"content": {"application/json": {"schema": {"type": "object"}}}}
-            }
-        }
-    }
-    out = extract_request_body_schemas(
-        spec, {"requestBody": {"$ref": "#/components/requestBodies/B"}}
-    )
-    assert out == {"application/json": {"type": "object"}}
-
-
-def test_extract_request_body_schemas_skips_non_dict_media_entries():
-    """Defensive: a media entry that isn't a dict gets dropped."""
-    from openbb_cli.dispatchers.openapi_schema import extract_request_body_schemas
-
-    op = {
-        "requestBody": {
-            "content": {
-                "application/json": {"schema": {"type": "object"}},
-                "broken": "not-a-dict",
-            }
-        }
-    }
-    out = extract_request_body_schemas({}, op)
-    assert "application/json" in out
-    assert "broken" not in out
-
-
 # --- extract_response_schemas branches ---
 
 
@@ -1394,3 +1441,20 @@ def test_fetch_openapi_final_parse_attempt_runs_when_landing_empty(monkeypatch):
     monkeypatch.setattr(openapi_schema.httpx, "get", fake_get)
     with pytest.raises((ValueError,)):
         openapi_schema.fetch_openapi("http://h")
+
+
+def test_fetch_openapi_rejects_non_dict_body(monkeypatch):
+    """A 200 response that parses to a string (not a dict) raises a clear error."""
+    from openbb_cli.dispatchers import openapi_schema
+
+    class _Resp:
+        status_code = 200
+        text = '"hello"'
+        headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(openapi_schema.httpx, "get", lambda *a, **k: _Resp())
+    with pytest.raises(ValueError, match="not an OpenAPI document"):
+        openapi_schema.fetch_openapi("http://h", path="/swagger/v1/swagger.json")

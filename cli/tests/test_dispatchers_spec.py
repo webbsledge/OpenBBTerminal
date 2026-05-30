@@ -12,6 +12,7 @@ from openbb_cli.dispatchers.spec import (
     _normalize_parameter,
     build_command_spec,
     build_spec_document,
+    command_parameters,
     load_spec,
     parse_command_argv,
     parser_from_command_spec,
@@ -40,6 +41,7 @@ def test_normalize_parameter_required_string():
         "example": None,
         "help": None,
         "providers": [],
+        "json_arg": False,
     }
 
 
@@ -500,6 +502,54 @@ def test_parser_from_command_spec_required_arg_enforced():
     assert ns.symbol == "AAPL"
 
 
+def test_command_parameters_fuses_request_body_fields():
+    """``command_parameters`` flattens request-body fields into the parameter list."""
+    cmd_spec = {
+        "url_path": "/api/v1/technical/sma",
+        "method": "post",
+        "parameters": [],
+        "request_body_schema": {
+            "type": "object",
+            "required": ["data"],
+            "properties": {
+                "data": {"type": "array", "items": {"type": "object"}},
+                "length": {"type": "integer", "default": 14},
+            },
+        },
+    }
+    by_name = {p["name"]: p for p in command_parameters(cmd_spec)}
+    assert by_name["data"]["in"] == "body"
+    assert by_name["data"]["json_arg"] is True
+    assert by_name["data"]["type"] == "string"
+    assert by_name["length"]["json_arg"] is False
+    assert by_name["length"]["type"] == "integer"
+
+
+def test_parser_from_command_spec_json_arg_decodes_body_fields():
+    """``json_arg`` body fields parse their value as a JSON document."""
+    cmd_spec = {
+        "url_path": "/api/v1/technical/screen",
+        "method": "post",
+        "parameters": [],
+        "request_body_schema": {
+            "type": "object",
+            "required": ["conditions"],
+            "properties": {
+                "conditions": {"type": "array", "items": {"type": "object"}},
+                "data": {"type": "array", "items": {"type": "object"}},
+            },
+        },
+    }
+    parser = parser_from_command_spec(cmd_spec)
+    with pytest.raises(SystemExit):
+        parser.parse_args([])
+    ns = parser.parse_args(
+        ["--conditions", '[{"indicator": "rsi"}]', "--data", '[{"close": 1}]']
+    )
+    assert ns.conditions == [{"indicator": "rsi"}]
+    assert ns.data == [{"close": 1}]
+
+
 def test_parser_from_command_spec_choices_list_default():
     cmd_spec = {
         "url_path": "/api/v1/x",
@@ -641,21 +691,95 @@ def test_build_command_spec_skips_empty_command():
     assert build_command_spec(spec) == {}
 
 
-def test_build_command_spec_disambiguates_collisions_with_numeric_suffix():
-    """Two URLs that strip to the same dotted command get ``_2`` / ``_3`` suffixes."""
+def test_build_command_spec_merges_url_overloads():
+    """URLs that strip to the same dotted command merge into one entry with ``url_templates``."""
     spec = {
         "paths": {
             "/api/x/{a}": {"get": {"operationId": "first", "parameters": []}},
-            "/api/x/{b}/{c}": {"get": {"operationId": "second", "parameters": []}},
-            "/api/x/{d}": {"get": {"operationId": "third", "parameters": []}},
+            "/api/x/{a}/{b}": {"get": {"operationId": "second", "parameters": []}},
+            "/api/x/{c}/{d}": {"get": {"operationId": "third", "parameters": []}},
         }
     }
     out = build_command_spec(spec, api_prefix="/api")
-    keys = sorted(out.keys())
-    assert keys == ["x", "x_2", "x_3"]
-    assert out["x"]["url_path"] == "/api/x/{a}"
-    assert out["x_2"]["url_path"] == "/api/x/{b}/{c}"
-    assert out["x_3"]["url_path"] == "/api/x/{d}"
+    assert list(out.keys()) == ["x"]
+    entry = out["x"]
+    assert sorted(entry["url_templates"]) == sorted(
+        ["/api/x/{a}", "/api/x/{a}/{b}", "/api/x/{c}/{d}"]
+    )
+    assert entry["url_path"] == "/api/x/{a}"
+
+
+def test_build_command_spec_marks_overload_path_params_optional():
+    """Path params that only appear in some variants of an overload become optional."""
+    param_country = {
+        "name": "country",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    param_d1 = {
+        "name": "d1",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    param_d2 = {
+        "name": "d2",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "string"},
+    }
+    spec = {
+        "paths": {
+            "/api/ratings/historical/{country}": {
+                "get": {"parameters": [param_country]}
+            },
+            "/api/ratings/historical/{country}/{d1}/{d2}": {
+                "get": {"parameters": [param_country, param_d1, param_d2]}
+            },
+        }
+    }
+    out = build_command_spec(spec, api_prefix="/api")
+    entry = out["ratings.historical"]
+    by_name = {p["name"]: p for p in entry["parameters"]}
+    assert by_name["country"]["required"] is True
+    assert by_name["d1"]["required"] is False
+    assert by_name["d2"]["required"] is False
+
+
+def test_merge_overload_backfills_missing_param_metadata():
+    """When one overload entry omits help/choices/default/example, fill from a sibling."""
+    long_param = {
+        "name": "fmt",
+        "in": "query",
+        "required": False,
+        "schema": {"type": "string"},
+    }
+    short_param = {
+        "name": "fmt",
+        "in": "query",
+        "required": False,
+        "description": "Response format.",
+        "schema": {
+            "type": "string",
+            "enum": ["json", "csv"],
+            "default": "json",
+            "example": "json",
+        },
+    }
+    spec = {
+        "paths": {
+            "/api/x/{a}/{b}": {"get": {"parameters": [long_param]}},
+            "/api/x/{a}": {"get": {"parameters": [short_param]}},
+        }
+    }
+    out = build_command_spec(spec, api_prefix="/api")
+    by_name = {p["name"]: p for p in out["x"]["parameters"]}
+    fmt = by_name["fmt"]
+    assert fmt["help"] == "Response format."
+    assert fmt["choices"] == ["json", "csv"]
+    assert fmt["default"] == "json"
+    assert fmt["example"] == "json"
 
 
 def test_parse_command_argv_drops_none_params():

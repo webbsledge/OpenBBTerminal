@@ -467,6 +467,114 @@ async def test_dispatch_keeps_placeholder_when_param_missing():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_picks_longest_satisfied_url_template():
+    """When a command has multiple URL templates, pick the longest one whose placeholders are filled."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={
+            "x": [
+                "/api/ratings/historical/{country}",
+                "/api/ratings/historical/{country}/{d1}/{d2}",
+            ]
+        },
+    )
+    try:
+        await d.dispatch(
+            Request(
+                command="x",
+                params={"country": "USA", "d1": "2024-01-01", "d2": "2024-12-31"},
+            )
+        )
+    finally:
+        await d.aclose()
+    assert "/api/ratings/historical/USA/2024-01-01/2024-12-31" in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_falls_back_to_shorter_template_when_extras_missing():
+    """When the longer template is missing extra path params, fall back to the shorter."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={
+            "x": [
+                "/api/ratings/historical/{country}",
+                "/api/ratings/historical/{country}/{d1}/{d2}",
+            ]
+        },
+    )
+    try:
+        await d.dispatch(Request(command="x", params={"country": "USA"}))
+    finally:
+        await d.aclose()
+    assert "/api/ratings/historical/USA" in captured["url"]
+    assert "{d1}" not in captured["url"]
+    assert "%7Bd1%7D" not in captured["url"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_falls_back_to_no_placeholder_template_when_path_params_missing():
+    """When no path params are supplied, a placeholder-free template still wins."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.AsyncClient(transport=transport, base_url="http://t")
+    d = HttpDispatcher(
+        "http://t",
+        client=client,
+        command_methods={"x": "get"},
+        command_url_paths={"x": ["/api/ratings", "/api/ratings/{country}"]},
+    )
+    try:
+        await d.dispatch(Request(command="x", params={}))
+    finally:
+        await d.aclose()
+    assert captured["url"].endswith("/api/ratings")
+
+
+def test_http_dispatcher_from_spec_uses_url_templates_when_present():
+    """The spec-doc factory routes ``url_templates`` through to the dispatcher."""
+    from openbb_cli.dispatchers.http import http_dispatcher_from_spec
+
+    spec_doc = {
+        "base_url": "http://h",
+        "api_prefix": "/api/v1",
+        "commands": {
+            "x": {
+                "method": "get",
+                "url_path": "/api/x",
+                "url_templates": ["/api/x", "/api/x/{id}"],
+            }
+        },
+    }
+    d = http_dispatcher_from_spec(spec_doc)
+    assert d._command_url_paths["x"] == ["/api/x", "/api/x/{id}"]
+
+
+@pytest.mark.asyncio
 async def test_dispatch_invokes_sync_auth_hook_and_merges_headers():
     """Sync hook returning headers/query gets merged into the request."""
     from openbb_cli.auth import AuthContext, AuthDecision
@@ -894,44 +1002,6 @@ def test_provider_output_schema_returns_none_for_invalid_input():
     assert _provider_output_schema({}, "fmp") is None
 
 
-def test_body_schema_to_params_flattens_object_properties():
-    """Request-body fields surface as ``in: body`` parameter entries."""
-    from openbb_cli.dispatchers.http import _body_schema_to_params
-
-    body = {
-        "type": "object",
-        "required": ["data"],
-        "properties": {
-            "data": {
-                "type": "array",
-                "items": {"type": "object", "title": "Datum"},
-                "title": "Data",
-            },
-            "x_columns": {
-                "type": "array",
-                "items": {"type": "string"},
-                "title": "Columns",
-            },
-        },
-    }
-    params = _body_schema_to_params(body)
-    by_name = {p["name"]: p for p in params}
-    assert by_name["data"]["in"] == "body"
-    assert by_name["data"]["is_list"] is True
-    assert by_name["data"]["required"] is True
-    assert "items" in by_name["data"]  # complex item schema preserved
-    assert by_name["x_columns"]["is_list"] is True
-    assert "items" not in by_name["x_columns"]  # primitive item, dropped
-
-
-def test_body_schema_to_params_skips_non_object_or_empty():
-    from openbb_cli.dispatchers.http import _body_schema_to_params
-
-    assert _body_schema_to_params(None) == []
-    assert _body_schema_to_params({}) == []
-    assert _body_schema_to_params({"type": "string"}) == []
-
-
 def test_http_dispatcher_from_server_passes_headers(monkeypatch):
     """``http_dispatcher_from_server`` forwards headers to both fetch and dispatcher."""
     from openbb_cli.dispatchers import http as http_mod
@@ -1022,6 +1092,37 @@ def test_slim_param_keeps_choices_and_help_when_set():
     assert out["help"] == "pick"
 
 
+def test_slim_param_keeps_json_arg_flag():
+    """A non-scalar body field carries its ``json_arg`` flag through ``--describe``."""
+    from openbb_cli.dispatchers.http import _slim_param
+
+    out = _slim_param(
+        {"name": "data", "in": "body", "type": "string", "json_arg": True}
+    )
+    assert out["json_arg"] is True
+
+
+def test_partition_params_splits_query_and_body_by_in_tag():
+    """POST params split by ``in`` tag: query-tagged to the query string, rest to body."""
+    spec_doc = {
+        "commands": {
+            "x.y": {
+                "parameters": [{"name": "fmt", "in": "query", "type": "string"}],
+                "request_body_schema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {"type": "array", "items": {"type": "object"}}
+                    },
+                },
+            }
+        }
+    }
+    d = HttpDispatcher("http://t", spec_doc=spec_doc)
+    query, body = d._partition_params("x.y", {"fmt": "json", "data": [1], "extra": 9})
+    assert query == {"fmt": "json"}
+    assert body == {"data": [1], "extra": 9}
+
+
 # --- _help_for_provider edge: empty section ---
 
 
@@ -1079,44 +1180,6 @@ def test_provider_output_schema_skips_non_dict_oneof_entries():
     out = _provider_output_schema(schema, "fmp")
     assert out is not None
     assert out["title"] == "FMPx"
-
-
-# --- _body_schema_to_params edges ---
-
-
-def test_body_schema_to_params_skips_non_dict_property():
-    """Defensive: a property whose schema isn't a dict gets skipped."""
-    from openbb_cli.dispatchers.http import _body_schema_to_params
-
-    body = {
-        "type": "object",
-        "properties": {"good": {"type": "string"}, "bad": "junk"},
-    }
-    out = _body_schema_to_params(body)
-    assert [p["name"] for p in out] == ["good"]
-
-
-def test_body_schema_to_params_handles_array_with_non_dict_items():
-    """``items`` that isn't a dict falls back to type 'object'."""
-    from openbb_cli.dispatchers.http import _body_schema_to_params
-
-    body = {"type": "object", "properties": {"x": {"type": "array", "items": True}}}
-    out = _body_schema_to_params(body)
-    assert out[0]["type"] == "object"
-
-
-def test_body_schema_to_params_records_default_and_help():
-    from openbb_cli.dispatchers.http import _body_schema_to_params
-
-    body = {
-        "type": "object",
-        "properties": {
-            "limit": {"type": "integer", "default": 5, "description": "count"}
-        },
-    }
-    out = _body_schema_to_params(body)
-    assert out[0]["default"] == 5
-    assert out[0]["help"] == "count"
 
 
 # --- _decode_response branches ---
@@ -1236,7 +1299,7 @@ def test_group_by_provider_skips_provider_discriminator():
         {"name": "provider", "type": "string", "providers": []},
         {"name": "symbol", "type": "string", "providers": []},
     ]
-    grouped = _group_by_provider(raw_params, [], ["cboe"], None)
+    grouped = _group_by_provider(raw_params, ["cboe"], None)
     names = [p["name"] for p in grouped["cboe"]["parameters"]]
     assert names == ["symbol"]  # ``provider`` itself dropped
 

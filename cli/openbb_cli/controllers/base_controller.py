@@ -83,11 +83,10 @@ class BaseController(metaclass=ABCMeta):
     def __init__(self, queue: list[str] | None = None) -> None:
         """Create the base class for any controller in the codebase.
 
-        Used to simplify the creation of menus.
-
-        queue: List[str]
-            The current queue of jobs to process separated by "/"
-            E.g. /stocks/load gme/dps/sidtc/../exit
+        Parameters
+        ----------
+        queue : list[str] | None
+            The current queue of jobs to process separated by "/".
         """
         self.check_path()
         self.path = [x for x in self.PATH.split("/") if x != ""]
@@ -135,9 +134,6 @@ class BaseController(metaclass=ABCMeta):
 
             registry_all = session.obbject_registry.all
             index_completions = {str(idx): None for idx in registry_all}
-            # ``register_key`` lives under ``extra`` on the OBBject — the
-            # registry surfaces the OBBject (minus ``results``) verbatim,
-            # so reach through ``extra`` for the key to complete on.
             key_completions = {
                 (data.get("extra") or {}).get("register_key"): None
                 for data in registry_all.values()
@@ -199,10 +195,7 @@ class BaseController(metaclass=ABCMeta):
         controllers[self.PATH] = self
 
     def custom_reset(self) -> list[str]:
-        """Implement custom reset.
-
-        This will be replaced by any children with custom_reset functions.
-        """
+        """Implement custom reset."""
         return []
 
     @abstractmethod
@@ -211,10 +204,7 @@ class BaseController(metaclass=ABCMeta):
         raise NotImplementedError("Must override print_help.")
 
     def parse_input(self, an_input: str) -> list:
-        """Parse controller input.
-
-        Protects file paths with -f/--file flags from being split on '/'.
-        """
+        """Parse controller input."""
         file_flag = r"(\ -f |\ --file )"
         up_to = r".*?"
         known_extensions = (
@@ -258,8 +248,8 @@ class BaseController(metaclass=ABCMeta):
 
         Returns
         -------
-        List[str]
-            list of commands in the queue to execute
+        list[str]
+            List of commands in the queue to execute.
         """
         actions = self.parse_input(an_input)
 
@@ -343,11 +333,7 @@ class BaseController(metaclass=ABCMeta):
             self.queue.insert(0, "quit")
 
     def call_reset(self, _) -> None:
-        """Process reset command.
-
-        If you would like to have customization in the reset process define a method
-        `custom_reset` in the child class.
-        """
+        """Process reset command."""
         self.save_class()
         if self.PATH != "/":
             if self.custom_reset():
@@ -950,19 +936,19 @@ class BaseController(metaclass=ABCMeta):
 
         Parameters
         ----------
-        parser: argparse.ArgumentParser
-            Parser with predefined arguments
-        other_args: List[str]
-            List of arguments to parse
-        unknown_args: bool
-            Flag to indicate if unknown arguments should be returned
+        parser : argparse.ArgumentParser
+            Parser with predefined arguments.
+        other_args : list[str]
+            List of arguments to parse.
+        unknown_args : bool
+            Flag to indicate if unknown arguments should be returned.
 
         Returns
         -------
-        ns_parser: argparse.Namespace
-            Namespace with parsed arguments
-        l_unknown_args: List[str]
-            List of unknown arguments
+        ns_parser : argparse.Namespace
+            Namespace with parsed arguments.
+        l_unknown_args : list[str]
+            List of unknown arguments.
         """
         parser.add_argument(
             "-h", "--help", action="store_true", help="show this help message"
@@ -1003,21 +989,21 @@ class BaseController(metaclass=ABCMeta):
 
         Parameters
         ----------
-        parser: argparse.ArgumentParser
-            Parser with predefined arguments
-        other_args: List[str]
-            list of arguments to parse
-        export_allowed: Literal["no_export", "raw_data_only", "figures_only", "raw_data_and_figures"]
-            Export options
-        raw: bool
-            Add the --raw flag
-        limit: int
-            Add a --limit flag with this number default
+        parser : argparse.ArgumentParser
+            Parser with predefined arguments.
+        other_args : list[str]
+            List of arguments to parse.
+        export_allowed : Literal["no_export", "raw_data_only", "figures_only", "raw_data_and_figures"]
+            Export options.
+        raw : bool
+            Add the --raw flag.
+        limit : int
+            Add a --limit flag with this number default.
 
         Returns
         -------
-        ns_parser:
-            Namespace with parsed arguments
+        ns_parser
+            Namespace with parsed arguments.
         """
         parser.add_argument(
             "-h", "--help", action="store_true", help="show this help message"

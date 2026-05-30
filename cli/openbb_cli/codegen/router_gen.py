@@ -1,15 +1,4 @@
-"""Generate router modules that mirror the spec's hierarchical namespace.
-
-Each top-level namespace in the spec (``equity``, ``crypto``, ``commodity``,
-…) becomes one ``routers/<namespace>.py`` module. Sub-namespaces nest under
-their parents via ``router.include_router(sub, prefix="/sub")`` so commands
-preserve their dotted hierarchy at runtime: ``equity.price.historical``
-resolves to ``obb.equity.price.historical``, not ``obb.equity_price_historical``.
-
-Command function names use the leaf segment only (``historical``, ``quote``)
-because the dotted parents become URL prefixes via ``include_router`` and
-the function name is just the final path component.
-"""
+"""Generate router modules that mirror the spec's hierarchical namespace."""
 
 from __future__ import annotations
 
@@ -31,12 +20,9 @@ class GeneratedRouter:
     Parameters
     ----------
     module_name : str
-        Snake-case module filename without ``.py`` (e.g. ``"equity"``,
-        ``"equity_price"`` for a nested sub-router).
+        Snake-case module filename without ``.py``.
     entry_point_name : str | None
-        When set, this router is registered as an
-        ``openbb_core_extension`` entry point under this name. Top-level
-        routers have an entry point; nested sub-routers do not.
+        When set, this router is registered as an ``openbb_core_extension`` entry point.
     source : str
         Full module source ready to write to ``routers/<module_name>.py``.
     """
@@ -53,8 +39,7 @@ class GeneratedRouters:
     Parameters
     ----------
     routers : list of GeneratedRouter
-        All emitted router modules — one per namespace node that has
-        commands or nested sub-routers.
+        All emitted router modules.
     """
 
     routers: list[GeneratedRouter] = field(default_factory=list)
@@ -72,12 +57,12 @@ def _module_name_for(path: str) -> str:
     Parameters
     ----------
     path : str
-        Dotted namespace path (``"equity"``, ``"equity.price"``).
+        Dotted namespace path.
 
     Returns
     -------
     str
-        Snake-case module identifier (``"equity"``, ``"equity_price"``).
+        Snake-case module identifier.
     """
     return "_".join(_safe_segment(p) for p in path.split(".") if p)
 
@@ -107,24 +92,18 @@ def generate_routers(
     root : NamespaceNode
         The synthetic root node returned by ``build_namespace_tree``.
     package_name : str
-        Top-level Python package name (e.g. ``"openbb_obbtest"``) used to
-        construct ``from <pkg>.providers...`` imports for POST modules.
+        Top-level Python package name.
     provider_name : str
-        Snake-case provider identifier — directory name under ``providers/``.
+        Snake-case provider identifier.
     fetchers_by_command : dict
-        Map ``{dotted_command: GeneratedFetcher}`` for every GET command
-        emitted by ``fetcher_gen``.
+        Map ``{dotted_command: GeneratedFetcher}`` for every GET command.
     post_commands_by_command : dict
-        Map ``{dotted_command: GeneratedPostCommand}`` for every POST
-        command emitted by ``post_gen``.
+        Map ``{dotted_command: GeneratedPostCommand}`` for every POST command.
 
     Returns
     -------
     GeneratedRouters
-        One ``GeneratedRouter`` per namespace node that contributes
-        either a command or a sub-router. Top-level routers are flagged
-        for entry-point registration; nested routers are imported by
-        their parents via ``include_router``.
+        One ``GeneratedRouter`` per namespace node.
     """
     out = GeneratedRouters()
     for top_name, top_node in sorted(root.children.items()):
@@ -165,16 +144,14 @@ def _emit_router(
     post_commands_by_command : dict
         POST-command modules.
     collected : GeneratedRouters
-        Output accumulator; the new router is appended here.
+        Output accumulator.
     is_top_level : bool
-        Whether this namespace is at the top of the tree (drives entry-
-        point registration).
+        Whether this namespace is at the top of the tree.
 
     Returns
     -------
     str
-        The module name of the emitted router (used by parents to build
-        their ``include_router`` calls).
+        The module name of the emitted router.
     """
     module_name = _module_name_for(node.full_path)
     parts: list[str] = []
@@ -189,12 +166,7 @@ def _emit_router(
     parts.append("from openbb_core.app.query import Query")
     parts.append("from openbb_core.app.router import Router")
 
-    # Recursive descent: only nodes that have ``children`` (i.e. real
-    # parent namespaces) become their own router files. Pure leaf commands
-    # belong inside this router as functions, not in their own file.
-    sub_imports: list[
-        tuple[str, str, str]
-    ] = []  # (module_name, sub_segment, full_path)
+    sub_imports: list[tuple[str, str, str]] = []
     for sub_name, sub_node in sorted(node.children.items()):
         if not sub_node.is_namespace:
             continue
@@ -209,9 +181,7 @@ def _emit_router(
         )
         sub_imports.append((sub_module, _safe_segment(sub_name), sub_node.full_path))
 
-    # Imports for POST command modules — they live as bare functions and
-    # get re-decorated by this router's ``router.command(methods=["POST"])``.
-    post_imports: list[tuple[str, str]] = []  # (module_path, function_name)
+    post_imports: list[tuple[str, str]] = []
     for child in node.children.values():
         if child.is_command and child.cmd_spec is not None:
             post = post_commands_by_command.get(child.full_path)
@@ -242,7 +212,6 @@ def _emit_router(
     parts.append('router = Router(prefix="")')
     parts.append("")
 
-    # Wire sub-routers in.
     for _, sub_segment, _full in sub_imports:
         parts.append(
             f'router.include_router(_{sub_segment}_router, prefix="/{sub_segment}")'
@@ -250,7 +219,6 @@ def _emit_router(
     if sub_imports:
         parts.append("")
 
-    # Per-command emission (GET via fetcher / POST via re-decoration).
     for child_name, child in sorted(node.children.items()):
         if not child.is_command or child.cmd_spec is None:
             continue
@@ -294,21 +262,16 @@ def _render_get_command(
     Parameters
     ----------
     fetcher : GeneratedFetcher
-        Per-command fetcher metadata (model name, registered fetcher class).
+        Per-command fetcher metadata.
     function_name : str
-        Leaf segment of the dotted path used as the function identifier
-        (and the URL path component).
+        Leaf segment of the dotted path used as the function identifier.
     description : str
-        Spec-supplied command description. Used verbatim as the function
-        docstring so ``DocstringGenerator`` shows the upstream's actual
-        explanation, not a generic "Dispatch the X fetcher" placeholder.
+        Spec-supplied command description.
 
     Returns
     -------
     str
-        The decorator + ``async def`` block, ready to append to the
-        router source. Bare ``-> OBBject:`` return so OpenBB's
-        ``inject_return_annotation`` can rewrite it cleanly.
+        The decorator + ``async def`` block.
     """
     summary = description or f"{fetcher.model_name} command."
     docstring = _format_docstring(summary)
@@ -331,14 +294,12 @@ def _format_docstring(text: str) -> str:
     Parameters
     ----------
     text : str
-        Source description from the spec — may be multi-line.
+        Source description from the spec.
 
     Returns
     -------
     str
-        Triple-quoted docstring body indented four spaces. Single-line
-        descriptions render compactly on one line; multi-line ones get
-        the canonical opening-quote-on-its-own-line layout.
+        Triple-quoted docstring body indented four spaces.
     """
     cleaned = text.strip()
     if not cleaned:
