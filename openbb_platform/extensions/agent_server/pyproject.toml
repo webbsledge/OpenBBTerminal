@@ -75,9 +75,20 @@ snowflake = [
     "snowflake-connector-python>=3.10",
     "sqlglot>=25.0",
 ]
+# In-process Workspace MCP server. When installed, the agent server
+# mounts workspace-mcp at /mcp/workspace so operators do not need to
+# run a separate sidecar. Tracks main; pin to a SHA in your own
+# requirements file for reproducible builds.
+#
+# Gated to Python >=3.13: upstream workspace-mcp's pyproject sets
+# requires-python = ">=3.13". On 3.11/3.12 the extra resolves to an
+# empty list and the in-process mount soft-skips with an info log.
+workspace-mcp = [
+    "openbb-workspace-mcp @ https://github.com/OpenBB-finance/workspace-mcp/archive/refs/heads/main.zip ; python_version >= '3.13'",
+]
 
 all = [
-    "openbb-agent-server[anthropic,openai,bedrock,vertex,google_genai,groq,postgres,tavily,snowflake]",
+    "openbb-agent-server[anthropic,openai,bedrock,vertex,google_genai,groq,postgres,tavily,snowflake,workspace-mcp]",
 ]
 
 [project.scripts]

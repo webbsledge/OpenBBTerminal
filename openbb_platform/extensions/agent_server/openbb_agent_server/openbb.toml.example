@@ -14,6 +14,20 @@ port = 8010
 auth_backend = "openbb_workspace"
 checkpointer_provider = "sqlite"
 
+# Opt-in: mount workspace-mcp in-process at /mcp/workspace so the
+# Workspace UI does not need a separate sidecar. Set to ``true`` only
+# after installing the extra (``pip install
+# 'openbb-agent-server[workspace-mcp]'``). Defaults to ``false`` so the
+# server stays slim when the extra is not used. The mount no-ops with
+# an info log if the setting is on but the extra is missing.
+mount_workspace_mcp = false
+
+# Passthrough kwargs for workspace_mcp.config.Settings (only consulted
+# when mount_workspace_mcp = true). Common keys:
+#   cors_allow = ["http://localhost:5173"]
+#   mcp_path = "/mcp"
+[agent.workspace_mcp_config]
+
 tool_sources = [
     "artifacts",
     "widget_data",

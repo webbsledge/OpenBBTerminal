@@ -63,6 +63,24 @@ if ctx.has_workspace_option("deep-research"):
 
 The built-in `search-web` and `fetch-url` features follow this same shape — each is a per-user toggle that gates the `web_search` and `fetch_url` tool sources respectively; see [Features](../operating/configuration.md#features).
 
+## MCP tools (workspace-mcp)
+
+The `mcp-tools` feature lets Workspace forward its enabled MCP tools to the agent in `tools[]`. The most common one is [`workspace-mcp`](https://github.com/OpenBB-finance/workspace-mcp) — the browser-bridge MCP that exposes widget create/update/delete, dashboard / navigation / backend / app management, and Workspace state snapshots as MCP tools.
+
+Two ways to run it:
+
+1. **In-process (opt-in)** — install the `[workspace-mcp]` extra and explicitly set `mount_workspace_mcp = true` in `openbb.toml`. The agent server then downloads and mounts the Starlette app at `/mcp/workspace`. Point the Workspace UI's MCP-servers setting at:
+
+   ```
+   http://<host>:<port>/mcp/workspace/mcp
+   ```
+
+   The mount defaults to `false` so operators opt in deliberately. When the setting is `true` but the extra is not installed, the mount no-ops with an info log — useful for catching install drift.
+
+2. **Separate sidecar (default)** — run `workspace-mcp` standalone (e.g. `uv tool install --python 3.13 https://github.com/OpenBB-finance/workspace-mcp/archive/refs/heads/main.zip` then `workspace-mcp`). Point the UI at `http://127.0.0.1:8787/mcp`. Leave `mount_workspace_mcp` at its default `false`.
+
+Either way, the agent server itself is unchanged downstream — the [`workspace_mcp`](../reference/plugins/tools/workspace_mcp.md) tool source iterates `ctx.tools` and surfaces whatever the UI advertises. The SSE adapter wraps any non-enum tool call in `execute_agent_tool`, which the UI routes back to the workspace-mcp server.
+
 ## Widget data
 
 When the user has widgets pinned on the dashboard and `widget-dashboard-select` is on, Workspace lists them in `widgets.primary`. The agent can:

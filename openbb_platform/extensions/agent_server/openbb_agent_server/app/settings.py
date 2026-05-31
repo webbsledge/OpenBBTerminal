@@ -118,6 +118,9 @@ class AgentServerSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 6900
 
+    mount_workspace_mcp: bool = False
+    workspace_mcp_config: dict[str, Any] = Field(default_factory=dict)
+
     auth_backend: str = "none"
     auth_config: dict[str, Any] = Field(default_factory=dict)
 

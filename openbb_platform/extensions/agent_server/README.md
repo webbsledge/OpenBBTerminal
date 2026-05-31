@@ -17,8 +17,8 @@ The default setup uses 100% free tokens and embedding models available from [NVI
 ## Install & run
 
 ```bash
-pip install -e openbb_platform/extensions/agent_server
-# add or combine extras: [openai] [openai_compat]
+pip install -e 'openbb_platform/extensions/agent_server[workspace-mcp]'
+# add or combine more extras: [openai] [openai_compat]
 #                               [bedrock] [vertex] [google_genai]
 #                               [groq] [snowflake]
 
@@ -30,6 +30,15 @@ openbb-agent-server
 In OpenBB Workspace, add a custom agent pointing at
 `http://localhost:8010`. Workspace fetches this once and
 reads every agent profile the server registers in a single payload.
+
+The `[workspace-mcp]` extra installs
+[openbb-workspace-mcp](https://github.com/OpenBB-finance/workspace-mcp)
+from its GitHub zip (Python ≥3.13 only). To run it in-process and skip
+the separate `workspace-mcp` sidecar, set `mount_workspace_mcp = true`
+in `openbb.toml` after installing the extra, then point the Workspace
+UI's MCP-servers setting at `http://localhost:8010/mcp/workspace/mcp`.
+The mount is **opt-in** (default `false`) so installing the extra alone
+does not change the server's behavior.
 
 For production, generate the config template and edit it:
 
